@@ -43,6 +43,21 @@ export interface Category {
   _count?: { products: number };
 }
 
+export interface Tax {
+  id: string;
+  name: string;
+  rate: string;
+  isActive: boolean;
+  isDefault: boolean;
+}
+
+export interface TaxReport {
+  taxableAmount: number;
+  taxCollected: number;
+  grossSales: number;
+  byRate: { rate: number; taxableAmount: number; tax: number }[];
+}
+
 export interface Product {
   id: string;
   name: string;
@@ -50,8 +65,11 @@ export interface Product {
   sku?: string | null;
   barcode?: string | null;
   brand?: string | null;
-  categoryId?: string | null;
-  category?: { id: string; name: string } | null;
+  categories?: { id: string; name: string }[];
+  taxId?: string | null;
+  tax?: { id: string; name: string; rate: string } | null;
+  imageUrl?: string | null;
+  expiryDate?: string | null;
   unit: string;
   costPrice: string;
   sellingPrice: string;
@@ -156,12 +174,61 @@ export interface Purchase {
   subtotal: string;
   tax: string;
   total: string;
+  amountPaid: string;
+  outstanding?: number;
   receivedAt?: string | null;
   createdAt: string;
   supplier?: { id: string; name: string } | null;
   store?: { id: string; name: string };
   _count?: { items: number };
   items?: PurchaseLine[];
+}
+
+export interface CreditInvoice {
+  id: string;
+  reference: string | null;
+  total: number;
+  amountPaid: number;
+  outstanding?: number;
+  status: string;
+  createdAt: string;
+}
+
+export interface Receivable {
+  id: string;
+  name: string;
+  phone?: string | null;
+  balance: number;
+  invoices: CreditInvoice[];
+}
+
+export interface Payable {
+  id: string | null;
+  name: string;
+  outstanding: number;
+  invoices: CreditInvoice[];
+}
+
+export interface CreditSummary {
+  receivablesTotal: number;
+  payablesTotal: number;
+  netPosition: number;
+  customersOwing: number;
+  suppliersOwed: number;
+}
+
+export interface AuditEntry {
+  id: string;
+  createdAt: string;
+  action: string;
+  entity?: string | null;
+  entityId?: string | null;
+  summary?: string | null;
+  method?: string | null;
+  path?: string | null;
+  ip?: string | null;
+  userName?: string | null;
+  user?: { id: string; name: string; role?: UserRole | null } | null;
 }
 
 export interface PurchaseLine {
@@ -185,12 +252,21 @@ export interface AppUser {
 }
 
 export interface Dashboard {
-  todaySalesTotal: number;
   todaySalesCount: number;
   lowStockCount: number;
   expiringSoonCount: number;
-  inventoryValue: number;
   topProducts: { productId: string; name: string; quantitySold: number }[];
+  slowProducts: {
+    productId: string;
+    name: string;
+    quantitySold: number;
+    inStock: number;
+  }[];
+  // Owner-only financial figures + charts (absent for other roles).
+  todaySalesTotal?: number;
+  inventoryValue?: number;
+  salesTrend?: { date: string; total: number; count: number }[];
+  hourlyToday?: { hour: number; total: number; count: number }[];
 }
 
 export interface ProductAnalytics {
@@ -200,6 +276,23 @@ export interface ProductAnalytics {
   revenue: number;
   cost: number;
   profit: number;
+}
+
+export type NotificationType = 'LOW_STOCK' | 'EXPIRING' | 'GENERAL';
+
+export interface AppNotification {
+  id: string;
+  type: NotificationType;
+  title: string;
+  body?: string | null;
+  link?: string | null;
+  readAt?: string | null;
+  createdAt: string;
+}
+
+export interface NotificationList {
+  items: AppNotification[];
+  unreadCount: number;
 }
 
 export interface Analytics {

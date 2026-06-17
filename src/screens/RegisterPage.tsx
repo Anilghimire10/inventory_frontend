@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/auth/AuthContext';
+import { AuthApi } from '@/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
@@ -12,11 +13,12 @@ import { CURRENCIES } from '@/lib/currencies';
 import { AuthShell } from './LoginPage';
 
 export default function RegisterPage() {
-  const { user, register } = useAuth();
+  const { user, register, verifyEmail } = useAuth();
   const router = useRouter();
   const [form, setForm] = useState({
     businessName: '',
     businessType: 'GROCERY',
+    salesModel: 'RETAIL',
     currency: 'USD',
     name: '',
     email: '',
@@ -24,6 +26,8 @@ export default function RegisterPage() {
   });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  // Once registered, we switch to the email-verification step.
+  const [pendingEmail, setPendingEmail] = useState<string | null>(null);
 
   useEffect(() => {
     if (user) router.replace('/');
@@ -37,14 +41,18 @@ export default function RegisterPage() {
     setError('');
     setLoading(true);
     try {
-      await register(form);
-      router.replace('/');
+      const res = await register(form);
+      setPendingEmail(res.email);
     } catch (err) {
       setError(apiError(err));
     } finally {
       setLoading(false);
     }
   };
+
+  if (pendingEmail) {
+    return <VerifyStep email={pendingEmail} onVerified={() => router.replace('/')} />;
+  }
 
   return (
     <AuthShell>
@@ -65,16 +73,22 @@ export default function RegisterPage() {
               <option value="OTHER">Other</option>
             </Select>
           </Field>
-          <Field label="Currency">
-            <Select value={form.currency} onChange={set('currency')}>
-              {CURRENCIES.map((c) => (
-                <option key={c.code} value={c.code}>
-                  {c.code}
-                </option>
-              ))}
+          <Field label="Sells as">
+            <Select value={form.salesModel} onChange={set('salesModel')}>
+              <option value="RETAIL">Retailer</option>
+              <option value="WHOLESALE">Wholesaler</option>
             </Select>
           </Field>
         </div>
+        <Field label="Currency">
+          <Select value={form.currency} onChange={set('currency')}>
+            {CURRENCIES.map((c) => (
+              <option key={c.code} value={c.code}>
+                {c.code} — {c.label}
+              </option>
+            ))}
+          </Select>
+        </Field>
         <Field label="Your name">
           <Input value={form.name} onChange={set('name')} required />
         </Field>
@@ -101,6 +115,80 @@ export default function RegisterPage() {
         <Link href="/login" className="font-medium text-primary hover:underline">
           Sign in
         </Link>
+      </p>
+    </AuthShell>
+  );
+}
+
+/** Step 2 of signup: enter the 6-digit code emailed to the user. */
+function VerifyStep({
+  email,
+  onVerified,
+}: {
+  email: string;
+  onVerified: () => void;
+}) {
+  const { verifyEmail } = useAuth();
+  const [code, setCode] = useState('');
+  const [error, setError] = useState('');
+  const [info, setInfo] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+    try {
+      await verifyEmail(email, code.trim());
+      onVerified();
+    } catch (err) {
+      setError(apiError(err));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const resend = async () => {
+    setError('');
+    setInfo('');
+    try {
+      await AuthApi.resendVerification(email);
+      setInfo('A new code has been sent.');
+    } catch (err) {
+      setError(apiError(err));
+    }
+  };
+
+  return (
+    <AuthShell>
+      <h1 className="text-xl font-semibold">Verify your email</h1>
+      <p className="mb-6 mt-1 text-sm text-muted-foreground">
+        We sent a 6-digit code to <span className="font-medium">{email}</span>.
+        Enter it below to finish setting up your account.
+      </p>
+      <form onSubmit={submit} className="space-y-4">
+        <Field label="Verification code">
+          <Input
+            value={code}
+            onChange={(e) => setCode(e.target.value)}
+            placeholder="123456"
+            inputMode="numeric"
+            maxLength={6}
+            required
+            autoFocus
+          />
+        </Field>
+        {error && <p className="text-sm text-destructive">{error}</p>}
+        {info && <p className="text-sm text-primary">{info}</p>}
+        <Button type="submit" className="w-full" loading={loading}>
+          Verify & continue
+        </Button>
+      </form>
+      <p className="mt-6 text-center text-sm text-muted-foreground">
+        Didn&apos;t get it?{' '}
+        <button onClick={resend} className="font-medium text-primary hover:underline">
+          Resend code
+        </button>
       </p>
     </AuthShell>
   );

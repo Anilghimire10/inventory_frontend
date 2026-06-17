@@ -72,13 +72,18 @@ export default function AnalyticsPage() {
     }
   }, [range, customFrom, customTo]);
 
+  const rangeParams = {
+    from: from ? `${from}T00:00:00.000Z` : undefined,
+    to: to ? `${to}T23:59:59.999Z` : undefined,
+  };
+
   const { data, isLoading } = useQuery({
     queryKey: ['analytics', from, to],
-    queryFn: () =>
-      ReportsApi.analytics({
-        from: from ? `${from}T00:00:00.000Z` : undefined,
-        to: to ? `${to}T23:59:59.999Z` : undefined,
-      }),
+    queryFn: () => ReportsApi.analytics(rangeParams),
+  });
+  const { data: taxReport } = useQuery({
+    queryKey: ['tax-report', from, to],
+    queryFn: () => ReportsApi.taxReport(rangeParams),
   });
 
   return (
@@ -122,6 +127,68 @@ export default function AnalyticsPage() {
             <Stat label="Margin" value={`${data.totals.margin}%`}
               sub="profit / revenue" icon={Percent} tone="default" />
           </div>
+
+          {/* Tax / VAT */}
+          {taxReport && (
+            <Card className="mt-6">
+              <div className="flex items-center gap-2 border-b border-border p-5">
+                <Percent className="h-5 w-5 text-primary" />
+                <h2 className="font-semibold">Tax / VAT collected</h2>
+                {taxReport.byRate.length > 0 && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="ml-auto"
+                    onClick={() =>
+                      exportCsv(
+                        `tax-report_${from ?? 'all'}_${to ?? 'all'}`,
+                        [
+                          { key: 'rate', label: 'Rate %' },
+                          { key: 'taxableAmount', label: 'Taxable amount' },
+                          { key: 'tax', label: 'Tax' },
+                        ],
+                        taxReport.byRate,
+                      )
+                    }
+                  >
+                    <Download className="h-4 w-4" /> Export
+                  </Button>
+                )}
+              </div>
+              <div className="grid grid-cols-3 gap-4 p-5">
+                <div>
+                  <p className="text-xs text-muted-foreground">Tax collected</p>
+                  <p className="mt-1 text-xl font-semibold">{formatMoney(taxReport.taxCollected)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Taxable amount</p>
+                  <p className="mt-1 text-xl font-semibold">{formatMoney(taxReport.taxableAmount)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Gross (incl. tax)</p>
+                  <p className="mt-1 text-xl font-semibold">{formatMoney(taxReport.grossSales)}</p>
+                </div>
+              </div>
+              {taxReport.byRate.length > 0 && (
+                <div className="px-2 pb-2">
+                  <Table>
+                    <THead>
+                      <TR><TH>Rate</TH><TH className="text-right">Taxable amount</TH><TH className="text-right">Tax</TH></TR>
+                    </THead>
+                    <TBody>
+                      {taxReport.byRate.map((r) => (
+                        <TR key={r.rate}>
+                          <TD className="font-medium">{r.rate}%</TD>
+                          <TD className="text-right">{formatMoney(r.taxableAmount)}</TD>
+                          <TD className="text-right font-medium">{formatMoney(r.tax)}</TD>
+                        </TR>
+                      ))}
+                    </TBody>
+                  </Table>
+                </div>
+              )}
+            </Card>
+          )}
 
           <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-3">
             {/* Sales by item */}

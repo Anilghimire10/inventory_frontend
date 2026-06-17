@@ -2,3 +2,6 @@ node_modules
 dist
 .env
 *.log
+
+# Next.js build output — should never be committed (causes stale-cache 500s)
+.next

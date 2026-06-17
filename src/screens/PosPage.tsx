@@ -1,9 +1,10 @@
 'use client';
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Search, Plus, Minus, Trash2, ShoppingCart, X } from 'lucide-react';
+import { Search, Plus, Minus, Trash2, ShoppingCart, X, Printer } from 'lucide-react';
 import { CustomersApi, ProductsApi, SalesApi } from '@/api';
 import type { Product } from '@/types';
+import { printSale } from '@/lib/print';
 import { PageHeader } from '@/components/ui/misc';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -30,6 +31,7 @@ export default function PosPage() {
   const [paymentMethod, setPaymentMethod] = useState('CASH');
   const [discount, setDiscount] = useState(0);
   const [prescriptionRef, setPrescriptionRef] = useState('');
+  const [lastSaleId, setLastSaleId] = useState<string | null>(null);
 
   const { data: products } = useQuery({
     queryKey: ['pos-products', search],
@@ -67,6 +69,7 @@ export default function PosPage() {
       qc.invalidateQueries({ queryKey: ['stock'] });
       qc.invalidateQueries({ queryKey: ['dashboard'] });
       show(`Sale ${sale.receiptNo} completed`);
+      setLastSaleId(sale.id);
       setCart([]);
       setDiscount(0);
       setCustomerId('');
@@ -87,6 +90,33 @@ export default function PosPage() {
       qty <= 0 ? c.filter((l) => l.product.id !== id) : c.map((l) => (l.product.id === id ? { ...l, quantity: qty } : l)),
     );
 
+  // Barcode scan (or Enter): look up an exact barcode and add it to the cart.
+  const scan = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const code = search.trim();
+    if (!code) return;
+    // Prefer an exact barcode match already in the loaded list.
+    const local = products?.data.find((p) => p.barcode === code);
+    if (local) { add(local); setSearch(''); return; }
+    try {
+      const product = await ProductsApi.byBarcode(code);
+      add(product);
+      setSearch('');
+    } catch {
+      // Not a known barcode — leave the text as a normal search filter.
+    }
+  };
+
+  const printLast = async () => {
+    if (!lastSaleId) return;
+    try {
+      const full = await SalesApi.get(lastSaleId);
+      printSale(full, 'thermal');
+    } catch (e) {
+      show(apiError(e), 'error');
+    }
+  };
+
   return (
     <div>
       <PageHeader title="Point of Sale" description="Ring up a sale." />
@@ -94,10 +124,17 @@ export default function PosPage() {
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
         {/* Product picker */}
         <div className="lg:col-span-3">
-          <div className="relative mb-4">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input className="pl-9" placeholder="Search or scan barcode…" value={search}
-              onChange={(e) => setSearch(e.target.value)} autoFocus />
+          <div className="mb-4 flex items-center gap-2">
+            <form onSubmit={scan} className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input className="pl-9" placeholder="Search or scan barcode…" value={search}
+                onChange={(e) => setSearch(e.target.value)} autoFocus />
+            </form>
+            {lastSaleId && (
+              <Button variant="outline" onClick={printLast} title="Print the last sale's receipt">
+                <Printer className="h-4 w-4" /> Last receipt
+              </Button>
+            )}
           </div>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
             {products?.data.map((p) => (

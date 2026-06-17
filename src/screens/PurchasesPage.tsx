@@ -34,6 +34,9 @@ export default function PurchasesPage() {
   const [reference, setReference] = useState('');
   const [lines, setLines] = useState<Line[]>([]);
   const [pickProduct, setPickProduct] = useState('');
+  // Supplier payment: pay in full now, buy on credit, or pay part now.
+  const [payMode, setPayMode] = useState<'full' | 'credit' | 'partial'>('full');
+  const [amountPaid, setAmountPaid] = useState(0);
 
   // Inline "create new product" within the receive-stock flow
   const newProductEmpty = { name: '', sku: '', unit: 'pcs', costPrice: 0, sellingPrice: 0 };
@@ -66,6 +69,8 @@ export default function PurchasesPage() {
         supplierId: supplierId || undefined,
         reference: reference || undefined,
         receiveNow: true,
+        amountPaid:
+          payMode === 'full' ? undefined : payMode === 'credit' ? 0 : amountPaid,
         items: lines.map((l) => ({
           productId: l.productId,
           quantity: l.quantity,
@@ -88,6 +93,8 @@ export default function PurchasesPage() {
     setSupplierId('');
     setReference('');
     setLines([]);
+    setPayMode('full');
+    setAmountPaid(0);
     setOpen(true);
   };
 
@@ -149,18 +156,30 @@ export default function PurchasesPage() {
             action={<Button onClick={openNew}><Plus className="h-4 w-4" /> Receive stock</Button>} />
         ) : (
           <Table>
-            <THead><TR><TH>Date</TH><TH>Reference</TH><TH>Supplier</TH><TH>Status</TH><TH className="text-right">Items</TH><TH className="text-right">Total</TH></TR></THead>
+            <THead><TR><TH>Date</TH><TH>Reference</TH><TH>Supplier</TH><TH>Status</TH><TH>Payment</TH><TH className="text-right">Items</TH><TH className="text-right">Total</TH></TR></THead>
             <TBody>
-              {data.data.map((p) => (
-                <TR key={p.id}>
-                  <TD className="whitespace-nowrap text-muted-foreground">{formatDate(p.receivedAt || p.createdAt)}</TD>
-                  <TD className="font-medium">{p.reference || p.id.slice(-6)}</TD>
-                  <TD>{p.supplier?.name ?? '—'}</TD>
-                  <TD><Badge tone={p.status === 'RECEIVED' ? 'success' : 'muted'}>{p.status}</Badge></TD>
-                  <TD className="text-right">{p._count?.items ?? 0}</TD>
-                  <TD className="text-right font-medium">{formatMoney(p.total)}</TD>
-                </TR>
-              ))}
+              {data.data.map((p) => {
+                const outstanding = p.outstanding ?? Number(p.total) - Number(p.amountPaid);
+                return (
+                  <TR key={p.id}>
+                    <TD className="whitespace-nowrap text-muted-foreground">{formatDate(p.receivedAt || p.createdAt)}</TD>
+                    <TD className="font-medium">{p.reference || p.id.slice(-6)}</TD>
+                    <TD>{p.supplier?.name ?? '—'}</TD>
+                    <TD><Badge tone={p.status === 'RECEIVED' ? 'success' : 'muted'}>{p.status}</Badge></TD>
+                    <TD>
+                      {outstanding <= 0.001 ? (
+                        <Badge tone="success">Paid</Badge>
+                      ) : Number(p.amountPaid) > 0 ? (
+                        <Badge tone="warning">Owing {formatMoney(outstanding)}</Badge>
+                      ) : (
+                        <Badge tone="destructive">On credit</Badge>
+                      )}
+                    </TD>
+                    <TD className="text-right">{p._count?.items ?? 0}</TD>
+                    <TD className="text-right font-medium">{formatMoney(p.total)}</TD>
+                  </TR>
+                );
+              })}
             </TBody>
           </Table>
         )}
@@ -230,9 +249,35 @@ export default function PurchasesPage() {
             </div>
           )}
 
-          <div className="flex items-center justify-between border-t border-border pt-3">
-            <span className="text-sm text-muted-foreground">Total cost</span>
-            <span className="text-lg font-semibold">{formatMoney(total)}</span>
+          <div className="space-y-3 border-t border-border pt-3">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-muted-foreground">Total cost</span>
+              <span className="text-lg font-semibold">{formatMoney(total)}</span>
+            </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <Field label="Supplier payment">
+                <Select value={payMode} onChange={(e) => setPayMode(e.target.value as typeof payMode)}>
+                  <option value="full">Paid in full now</option>
+                  <option value="credit">On credit (pay later)</option>
+                  <option value="partial">Partial payment now</option>
+                </Select>
+              </Field>
+              {payMode === 'partial' && (
+                <Field label="Amount paid now">
+                  <Input type="number" step="0.01" min="0" max={total} value={amountPaid}
+                    onChange={(e) => setAmountPaid(Number(e.target.value) || 0)} />
+                </Field>
+              )}
+            </div>
+            {payMode !== 'full' && (
+              <p className="text-xs text-muted-foreground">
+                Outstanding{' '}
+                <span className="font-medium text-foreground">
+                  {formatMoney(Math.max(0, total - (payMode === 'credit' ? 0 : amountPaid)))}
+                </span>{' '}
+                will appear under Credit &amp; Invoices → Payables.
+              </p>
+            )}
           </div>
         </div>
         <DialogFooter>

@@ -1,7 +1,7 @@
 'use client';
 import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Pencil, Store as StoreIcon, Building2 } from 'lucide-react';
+import { Plus, Pencil, Store as StoreIcon, Building2, Download } from 'lucide-react';
 import { BusinessApi, StoresApi } from '@/api';
 import type { Store } from '@/types';
 import { useStores } from '@/hooks/useStores';
@@ -30,14 +30,36 @@ export default function SettingsPage() {
   const [editing, setEditing] = useState<Store | null>(null);
   const [form, setForm] = useState<Form>(empty);
 
-  // Business profile editing
+  // Business profile editing. The vertical (type) is locked — only a platform
+  // super-admin can change it — so it isn't part of the editable form.
   const [bizOpen, setBizOpen] = useState(false);
-  const [biz, setBiz] = useState({ name: '', type: 'OTHER', currency: 'USD' });
+  const [biz, setBiz] = useState({ name: '', salesModel: 'RETAIL', currency: 'USD' });
+
+  // Full data export (owner).
+  const [exporting, setExporting] = useState(false);
+  const exportData = async () => {
+    setExporting(true);
+    try {
+      const data = await BusinessApi.exportData();
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${(user?.business?.name ?? 'business').replace(/\s+/g, '-').toLowerCase()}-export-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      show('Data exported');
+    } catch (e) {
+      show(apiError(e), 'error');
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const openBiz = () => {
     setBiz({
       name: user?.business?.name ?? '',
-      type: user?.business?.type ?? 'OTHER',
+      salesModel: user?.business?.salesModel ?? 'RETAIL',
       currency: user?.business?.currency ?? 'USD',
     });
     setBizOpen(true);
@@ -74,9 +96,10 @@ export default function SettingsPage() {
             <Pencil className="h-4 w-4" /> Edit
           </Button>
         </CardHeader>
-        <CardContent className="grid grid-cols-2 gap-4 text-sm sm:grid-cols-3">
+        <CardContent className="grid grid-cols-2 gap-4 text-sm sm:grid-cols-4">
           <div><div className="text-muted-foreground">Name</div><div className="font-medium">{user?.business?.name}</div></div>
           <div><div className="text-muted-foreground">Type</div><div className="font-medium">{user?.business?.type}</div></div>
+          <div><div className="text-muted-foreground">Sells as</div><div className="font-medium">{user?.business?.salesModel === 'WHOLESALE' ? 'Wholesaler' : 'Retailer'}</div></div>
           <div><div className="text-muted-foreground">Currency</div><div className="font-medium">{user?.business?.currency}</div></div>
         </CardContent>
       </Card>
@@ -106,6 +129,20 @@ export default function SettingsPage() {
         </div>
       )}
 
+      {user?.role === 'OWNER' && (
+        <Card className="mt-6">
+          <CardHeader className="flex-row items-center justify-between">
+            <CardTitle className="flex items-center gap-2"><Download className="h-5 w-5 text-primary" /> Your data</CardTitle>
+            <Button size="sm" variant="outline" loading={exporting} onClick={exportData}>
+              <Download className="h-4 w-4" /> Export all data
+            </Button>
+          </CardHeader>
+          <CardContent className="text-sm text-muted-foreground">
+            Download a full JSON snapshot of your business — products, stock, sales, customers, purchases, and more.
+          </CardContent>
+        </Card>
+      )}
+
       <Card className="mt-6">
         <CardHeader>
           <CardTitle>Appearance</CardTitle>
@@ -124,12 +161,10 @@ export default function SettingsPage() {
             <Input value={biz.name} onChange={(e) => setBiz((b) => ({ ...b, name: e.target.value }))} required autoFocus />
           </Field>
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Type">
-              <Select value={biz.type} onChange={(e) => setBiz((b) => ({ ...b, type: e.target.value }))}>
-                <option value="GROCERY">Grocery</option>
-                <option value="PHARMACY">Pharmacy</option>
-                <option value="RETAIL">Retail</option>
-                <option value="OTHER">Other</option>
+            <Field label="Sells as">
+              <Select value={biz.salesModel} onChange={(e) => setBiz((b) => ({ ...b, salesModel: e.target.value }))}>
+                <option value="RETAIL">Retailer</option>
+                <option value="WHOLESALE">Wholesaler</option>
               </Select>
             </Field>
             <Field label="Currency">
@@ -140,6 +175,9 @@ export default function SettingsPage() {
               </Select>
             </Field>
           </div>
+          <p className="text-xs text-muted-foreground">
+            Business type: <span className="font-medium">{user?.business?.type}</span>
+          </p>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setBizOpen(false)}>Cancel</Button>
             <Button type="submit" loading={saveBiz.isPending}>Save</Button>
