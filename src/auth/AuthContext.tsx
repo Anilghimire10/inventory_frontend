@@ -11,13 +11,19 @@ import { clearToken, setToken, getToken } from '@/lib/api';
 import { setCurrency } from '@/lib/format';
 import type { UserRole } from '@/types';
 
-interface SessionUser {
+export interface SessionUser {
   id: string;
   email: string;
   name: string;
   role: UserRole;
   storeId?: string | null;
-  business?: { id: string; name: string; type: string; currency: string };
+  business?: {
+    id: string;
+    name: string;
+    type: string;
+    salesModel: string;
+    currency: string;
+  };
 }
 
 interface AuthState {
@@ -30,7 +36,8 @@ interface AuthState {
     email: string;
     name: string;
     password: string;
-  }) => Promise<void>;
+  }) => Promise<{ message: string; email: string }>;
+  verifyEmail: (email: string, code: string) => Promise<void>;
   logout: () => void;
   refresh: () => Promise<void>;
 }
@@ -75,8 +82,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await loadMe();
   };
 
+  // Registration no longer logs in: the user must verify their email first.
   const register: AuthState['register'] = async (body) => {
-    const res = await AuthApi.register(body);
+    return AuthApi.register(body);
+  };
+
+  const verifyEmail: AuthState['verifyEmail'] = async (email, code) => {
+    const res = await AuthApi.verifyEmail(email, code);
     setToken(res.accessToken);
     await loadMe();
   };
@@ -89,7 +101,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <Ctx.Provider
-      value={{ user, loading, login, register, logout, refresh: loadMe }}
+      value={{ user, loading, login, register, verifyEmail, logout, refresh: loadMe }}
     >
       {children}
     </Ctx.Provider>

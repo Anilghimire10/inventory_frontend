@@ -1,8 +1,8 @@
 'use client';
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, Pencil, Trash2, Tags } from 'lucide-react';
-import { CategoriesApi } from '@/api';
+import { Plus, Pencil, Trash2, Tags, Package } from 'lucide-react';
+import { CategoriesApi, ProductsApi } from '@/api';
 import type { Category } from '@/types';
 import { PageHeader, LoadingBlock, EmptyState } from '@/components/ui/misc';
 import { Button } from '@/components/ui/button';
@@ -12,6 +12,7 @@ import { Dialog, DialogFooter } from '@/components/ui/dialog';
 import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
 import { useToast } from '@/components/ui/toast';
 import { apiError } from '@/lib/api';
+import { formatMoney } from '@/lib/format';
 import { useAuth } from '@/auth/AuthContext';
 import { can } from '@/lib/permissions';
 
@@ -23,6 +24,8 @@ export default function CategoriesPage() {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Category | null>(null);
   const [name, setName] = useState('');
+  // The category whose products we're currently viewing.
+  const [viewing, setViewing] = useState<Category | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ['categories'],
@@ -79,10 +82,21 @@ export default function CategoriesPage() {
           <TBody>
             {data.map((c) => (
               <TR key={c.id}>
-                <TD className="font-medium">{c.name}</TD>
+                <TD>
+                  <button
+                    onClick={() => setViewing(c)}
+                    className="font-medium text-primary hover:underline"
+                  >
+                    {c.name}
+                  </button>
+                </TD>
                 <TD className="text-right text-muted-foreground">{c._count?.products ?? 0}</TD>
                 <TD>
                   <div className="flex justify-end gap-1">
+                    <Button size="icon" variant="ghost" onClick={() => setViewing(c)}
+                      title="View products">
+                      <Package className="h-4 w-4" />
+                    </Button>
                     <Button size="icon" variant="ghost"
                       onClick={() => { setEditing(c); setName(c.name); setOpen(true); }}>
                       <Pencil className="h-4 w-4" />
@@ -112,6 +126,80 @@ export default function CategoriesPage() {
           </DialogFooter>
         </form>
       </Dialog>
+
+      {viewing && (
+        <CategoryProductsDialog
+          category={viewing}
+          onClose={() => setViewing(null)}
+        />
+      )}
     </div>
+  );
+}
+
+/** Lists the products that belong to a given category. */
+function CategoryProductsDialog({
+  category,
+  onClose,
+}: {
+  category: Category;
+  onClose: () => void;
+}) {
+  const { data, isLoading } = useQuery({
+    queryKey: ['products', 'by-category', category.id],
+    queryFn: () => ProductsApi.list({ categoryId: category.id, limit: 100 }),
+  });
+  const products = data?.data ?? [];
+
+  return (
+    <Dialog open onClose={onClose} title={`Products in “${category.name}”`}>
+      {isLoading ? (
+        <LoadingBlock />
+      ) : products.length === 0 ? (
+        <p className="py-6 text-center text-sm text-muted-foreground">
+          No products in this category yet.
+        </p>
+      ) : (
+        <Table>
+          <THead>
+            <TR>
+              <TH>Name</TH>
+              <TH>SKU</TH>
+              <TH className="text-right">Price</TH>
+            </TR>
+          </THead>
+          <TBody>
+            {products.map((p) => (
+              <TR key={p.id}>
+                <TD>
+                  <div className="flex items-center gap-2.5">
+                    {p.imageUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={p.imageUrl}
+                        alt={p.name}
+                        className="h-8 w-8 shrink-0 rounded-md border border-border object-cover"
+                      />
+                    ) : (
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-muted text-muted-foreground">
+                        <Package className="h-3.5 w-3.5" />
+                      </div>
+                    )}
+                    <span className="font-medium">{p.name}</span>
+                  </div>
+                </TD>
+                <TD className="text-muted-foreground">{p.sku || '—'}</TD>
+                <TD className="text-right font-medium">{formatMoney(p.sellingPrice)}</TD>
+              </TR>
+            ))}
+          </TBody>
+        </Table>
+      )}
+      <DialogFooter>
+        <Button type="button" variant="outline" onClick={onClose}>
+          Close
+        </Button>
+      </DialogFooter>
+    </Dialog>
   );
 }

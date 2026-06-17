@@ -10,9 +10,11 @@ import {
   Sun,
   LogOut,
   ChevronDown,
+  KeyRound,
 } from 'lucide-react';
-import { NAV, canSee } from './nav';
+import { NAV_GROUPS, canSee } from './nav';
 import Notifications from './Notifications';
+import ChangePasswordDialog from '@/components/ChangePasswordDialog';
 import { useAuth } from '@/auth/AuthContext';
 import { useTheme } from '@/theme/ThemeProvider';
 import { cn } from '@/lib/utils';
@@ -22,10 +24,15 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { theme, toggle } = useTheme();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [pwOpen, setPwOpen] = useState(false);
   const pathname = usePathname() ?? '';
   if (!user) return null;
 
-  const items = NAV.filter((i) => canSee(i, user.role));
+  // Build the visible groups for this role (skip groups with no items).
+  const groups = NAV_GROUPS.map((g) => ({
+    label: g.label,
+    items: g.items.filter((i) => canSee(i, user.role)),
+  })).filter((g) => g.items.length > 0);
 
   return (
     <div className="flex min-h-screen">
@@ -48,27 +55,36 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             <X className="h-5 w-5" />
           </button>
         </div>
-        <nav className="flex flex-col gap-1 p-3">
-          {items.map((item) => {
-            const isActive =
-              item.to === '/' ? pathname === '/' : pathname.startsWith(item.to);
-            return (
-              <Link
-                key={item.to}
-                href={item.to}
-                onClick={() => setMobileOpen(false)}
-                className={cn(
-                  'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
-                  isActive
-                    ? 'bg-primary/10 text-primary'
-                    : 'text-muted-foreground hover:bg-accent hover:text-foreground',
-                )}
-              >
-                <item.icon className="h-4 w-4" />
-                {item.label}
-              </Link>
-            );
-          })}
+        <nav className="flex flex-col gap-4 overflow-y-auto p-3">
+          {groups.map((group) => (
+            <div key={group.label} className="flex flex-col gap-1">
+              <p className="px-3 pb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground/70">
+                {group.label}
+              </p>
+              {group.items.map((item) => {
+                const isActive =
+                  item.to === '/'
+                    ? pathname === '/'
+                    : pathname.startsWith(item.to);
+                return (
+                  <Link
+                    key={item.to}
+                    href={item.to}
+                    onClick={() => setMobileOpen(false)}
+                    className={cn(
+                      'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
+                      isActive
+                        ? 'bg-primary/10 text-primary'
+                        : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+                    )}
+                  >
+                    <item.icon className="h-4 w-4" />
+                    {item.label}
+                  </Link>
+                );
+              })}
+            </div>
+          ))}
         </nav>
       </aside>
 
@@ -115,6 +131,16 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                     {user.business?.name}
                   </div>
                   <button
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => {
+                      setMenuOpen(false);
+                      setPwOpen(true);
+                    }}
+                    className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent"
+                  >
+                    <KeyRound className="h-4 w-4" /> Change password
+                  </button>
+                  <button
                     onClick={logout}
                     className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-destructive hover:bg-accent"
                   >
@@ -130,6 +156,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           {children}
         </main>
       </div>
+
+      <ChangePasswordDialog open={pwOpen} onClose={() => setPwOpen(false)} />
     </div>
   );
 }

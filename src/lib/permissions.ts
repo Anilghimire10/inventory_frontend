@@ -18,6 +18,10 @@ export const can = {
   // People
   manageUsers: (r: UserRole) => isAdmin(r),
   deleteCustomers: (r: UserRole) => isAdmin(r),
-  // Business settings / financial reports
+  // Credit & invoices, business settings, financial reports — management.
+  manageCredit: (r: UserRole) => isAdmin(r),
   manageBusiness: (r: UserRole) => isAdmin(r),
+  viewAnalytics: (r: UserRole) => isAdmin(r),
+  viewActivityLog: (r: UserRole) => isAdmin(r),
+  viewFinancials: (r: UserRole) => isAdmin(r),
 };

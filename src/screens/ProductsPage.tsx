@@ -1,29 +1,34 @@
 'use client';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, Search, Pencil, Trash2, Package } from 'lucide-react';
-import { CategoriesApi, ProductsApi } from '@/api';
+import { Plus, Search, Pencil, Trash2, Package, Download, Upload } from 'lucide-react';
+import { CategoriesApi, ProductsApi, TaxesApi } from '@/api';
 import type { Product } from '@/types';
 import { PageHeader, LoadingBlock, EmptyState } from '@/components/ui/misc';
 import { Button } from '@/components/ui/button';
-import { Input, Textarea } from '@/components/ui/input';
-import { Select } from '@/components/ui/select';
+import { Input } from '@/components/ui/input';
 import { Field } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogFooter } from '@/components/ui/dialog';
 import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
 import { useToast } from '@/components/ui/toast';
 import { apiError } from '@/lib/api';
+import { exportCsv, parseCsv } from '@/lib/csv';
+import { Select } from '@/components/ui/select';
 import { formatMoney } from '@/lib/format';
 import { useAuth } from '@/auth/AuthContext';
 import { can } from '@/lib/permissions';
+import { cn } from '@/lib/utils';
 
 const empty = {
   name: '',
   sku: '',
   barcode: '',
   brand: '',
-  categoryId: '',
+  categoryIds: [] as string[],
+  taxId: '',
+  imageUrl: '',
+  expiryDate: '',
   unit: 'pcs',
   costPrice: 0,
   sellingPrice: 0,
@@ -33,6 +38,19 @@ const empty = {
   trackBatches: false,
 };
 type Form = typeof empty;
+
+const EXPORT_COLUMNS = [
+  { key: 'name', label: 'name' },
+  { key: 'sku', label: 'sku' },
+  { key: 'barcode', label: 'barcode' },
+  { key: 'brand', label: 'brand' },
+  { key: 'unit', label: 'unit' },
+  { key: 'costPrice', label: 'costPrice' },
+  { key: 'sellingPrice', label: 'sellingPrice' },
+  { key: 'taxRate', label: 'taxRate' },
+  { key: 'reorderLevel', label: 'reorderLevel' },
+  { key: 'categories', label: 'categories' },
+];
 
 export default function ProductsPage() {
   const qc = useQueryClient();
@@ -53,10 +71,18 @@ export default function ProductsPage() {
     queryKey: ['categories'],
     queryFn: () => CategoriesApi.list(),
   });
+  const { data: taxes } = useQuery({ queryKey: ['taxes'], queryFn: () => TaxesApi.list() });
 
   const save = useMutation({
     mutationFn: (body: Form) => {
-      const payload = { ...body, categoryId: body.categoryId || undefined };
+      const payload = {
+        ...body,
+        taxId: body.taxId || undefined,
+        imageUrl: body.imageUrl || undefined,
+        expiryDate: body.expiryDate
+          ? new Date(body.expiryDate).toISOString()
+          : undefined,
+      };
       return editing
         ? ProductsApi.update(editing.id, payload)
         : ProductsApi.create(payload);
@@ -90,7 +116,11 @@ export default function ProductsPage() {
       sku: p.sku ?? '',
       barcode: p.barcode ?? '',
       brand: p.brand ?? '',
-      categoryId: p.categoryId ?? '',
+      categoryIds: p.categories?.map((c) => c.id) ?? [],
+      taxId: p.taxId ?? '',
+      imageUrl: p.imageUrl ?? '',
+      // <input type="date"> wants a yyyy-mm-dd value.
+      expiryDate: p.expiryDate ? p.expiryDate.slice(0, 10) : '',
       unit: p.unit,
       costPrice: Number(p.costPrice),
       sellingPrice: Number(p.sellingPrice),
@@ -105,15 +135,84 @@ export default function ProductsPage() {
   const set = <K extends keyof Form>(k: K, v: Form[K]) =>
     setForm((f) => ({ ...f, [k]: v }));
 
+  // When a tax is picked, snapshot its rate for display.
+  const onPickTax = (taxId: string) => {
+    const t = taxes?.find((x) => x.id === taxId);
+    setForm((f) => ({ ...f, taxId, taxRate: t ? Number(t.rate) : 0 }));
+  };
+
+  // ---- Import / export ----
+  const importRef = useRef<HTMLInputElement>(null);
+  const doExport = async () => {
+    const rows = await ProductsApi.exportAll();
+    exportCsv('products', EXPORT_COLUMNS, rows);
+  };
+  const importMut = useMutation({
+    mutationFn: (items: Record<string, unknown>[]) => ProductsApi.importProducts(items),
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: ['products'] });
+      const errs = res.errors.length ? `, ${res.errors.length} skipped` : '';
+      show(`Imported: ${res.created} new, ${res.updated} updated${errs}`, res.errors.length ? 'error' : 'success');
+    },
+    onError: (e) => show(apiError(e), 'error'),
+  });
+  const onPickImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const rows = parseCsv(text);
+      if (rows.length === 0) { show('No rows found in that file', 'error'); return; }
+      importMut.mutate(rows);
+    } catch (err) {
+      show(apiError(err), 'error');
+    } finally {
+      e.target.value = '';
+    }
+  };
+
+  const toggleCategory = (id: string) =>
+    setForm((f) => ({
+      ...f,
+      categoryIds: f.categoryIds.includes(id)
+        ? f.categoryIds.filter((c) => c !== id)
+        : [...f.categoryIds, id],
+    }));
+
+  const [uploading, setUploading] = useState(false);
+  const onPickImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    try {
+      const { imageUrl } = await ProductsApi.uploadImage(file);
+      set('imageUrl', imageUrl);
+    } catch (err) {
+      show(apiError(err), 'error');
+    } finally {
+      setUploading(false);
+      e.target.value = '';
+    }
+  };
+
   return (
     <div>
       <PageHeader
         title="Products"
         description="Your catalog of items for sale."
         action={
-          <Button onClick={openCreate}>
-            <Plus className="h-4 w-4" /> Add product
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={doExport}>
+              <Download className="h-4 w-4" /> Export
+            </Button>
+            <Button variant="outline" loading={importMut.isPending} onClick={() => importRef.current?.click()}>
+              <Upload className="h-4 w-4" /> Import
+            </Button>
+            <input ref={importRef} type="file" accept=".csv,text/csv" className="hidden" onChange={onPickImport} />
+            <Button onClick={openCreate}>
+              <Plus className="h-4 w-4" /> Add product
+            </Button>
+          </div>
         }
       />
 
@@ -156,14 +255,40 @@ export default function ProductsPage() {
               {data.data.map((p) => (
                 <TR key={p.id}>
                   <TD>
-                    <div className="font-medium">{p.name}</div>
-                    <div className="flex gap-1 pt-1">
-                      {p.isRxRequired && <Badge tone="destructive">Rx</Badge>}
-                      {p.trackBatches && <Badge tone="warning">Batch</Badge>}
+                    <div className="flex items-center gap-3">
+                      {p.imageUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={p.imageUrl}
+                          alt={p.name}
+                          className="h-9 w-9 shrink-0 rounded-md border border-border object-cover"
+                        />
+                      ) : (
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-muted text-muted-foreground">
+                          <Package className="h-4 w-4" />
+                        </div>
+                      )}
+                      <div>
+                        <div className="font-medium">{p.name}</div>
+                        <div className="flex gap-1 pt-1">
+                          {p.isRxRequired && <Badge tone="destructive">Rx</Badge>}
+                          {p.trackBatches && <Badge tone="warning">Batch</Badge>}
+                        </div>
+                      </div>
                     </div>
                   </TD>
                   <TD className="text-muted-foreground">{p.sku || '—'}</TD>
-                  <TD>{p.category?.name ?? '—'}</TD>
+                  <TD>
+                    {p.categories && p.categories.length > 0 ? (
+                      <div className="flex flex-wrap gap-1">
+                        {p.categories.map((c) => (
+                          <Badge key={c.id}>{c.name}</Badge>
+                        ))}
+                      </div>
+                    ) : (
+                      '—'
+                    )}
+                  </TD>
                   <TD className="text-right">{formatMoney(p.costPrice)}</TD>
                   <TD className="text-right font-medium">{formatMoney(p.sellingPrice)}</TD>
                   <TD>
@@ -219,17 +344,83 @@ export default function ProductsPage() {
               <Input value={form.barcode} onChange={(e) => set('barcode', e.target.value)} />
             </Field>
           </div>
+          <Field label="Categories">
+            {!categories || categories.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                No categories yet — create some on the Categories page.
+              </p>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {categories.map((c) => {
+                  const selected = form.categoryIds.includes(c.id);
+                  return (
+                    <button
+                      type="button"
+                      key={c.id}
+                      onClick={() => toggleCategory(c.id)}
+                      className={cn(
+                        'rounded-full border px-3 py-1 text-sm transition-colors',
+                        selected
+                          ? 'border-primary bg-primary/10 text-primary'
+                          : 'border-border text-muted-foreground hover:bg-accent',
+                      )}
+                    >
+                      {c.name}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </Field>
+
+          <Field label="Product image">
+            <div className="flex items-center gap-3">
+              {form.imageUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={form.imageUrl}
+                  alt="Product"
+                  className="h-16 w-16 rounded-md border border-border object-cover"
+                />
+              ) : (
+                <div className="flex h-16 w-16 items-center justify-center rounded-md border border-dashed border-border text-muted-foreground">
+                  <Package className="h-5 w-5" />
+                </div>
+              )}
+              <div className="flex flex-col gap-1">
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={onPickImage}
+                  disabled={uploading}
+                  className="text-sm text-muted-foreground file:mr-3 file:rounded-md file:border-0 file:bg-primary file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-primary-foreground hover:file:bg-primary/90"
+                />
+                {form.imageUrl && (
+                  <button
+                    type="button"
+                    onClick={() => set('imageUrl', '')}
+                    className="self-start text-xs text-destructive hover:underline"
+                  >
+                    Remove image
+                  </button>
+                )}
+                {uploading && (
+                  <span className="text-xs text-muted-foreground">Uploading…</span>
+                )}
+              </div>
+            </div>
+          </Field>
+
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Category">
-              <Select value={form.categoryId} onChange={(e) => set('categoryId', e.target.value)}>
-                <option value="">— None —</option>
-                {categories?.map((c) => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
-                ))}
-              </Select>
-            </Field>
             <Field label="Unit">
               <Input value={form.unit} onChange={(e) => set('unit', e.target.value)} />
+            </Field>
+            <Field label="Expiry date">
+              <Input
+                type="date"
+                value={form.expiryDate}
+                onChange={(e) => set('expiryDate', e.target.value)}
+              />
             </Field>
           </div>
           <div className="grid grid-cols-3 gap-3">
@@ -241,9 +432,13 @@ export default function ProductsPage() {
               <Input type="number" step="0.01" min="0" value={form.sellingPrice}
                 onChange={(e) => set('sellingPrice', Number(e.target.value))} />
             </Field>
-            <Field label="Tax %">
-              <Input type="number" step="0.01" min="0" value={form.taxRate}
-                onChange={(e) => set('taxRate', Number(e.target.value))} />
+            <Field label="Tax">
+              <Select value={form.taxId} onChange={(e) => onPickTax(e.target.value)}>
+                <option value="">No tax (0%)</option>
+                {taxes?.filter((t) => t.isActive).map((t) => (
+                  <option key={t.id} value={t.id}>{t.name} ({Number(t.rate)}%)</option>
+                ))}
+              </Select>
             </Field>
           </div>
           <Field label="Reorder level">

@@ -1,7 +1,7 @@
 'use client';
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Receipt, Printer, Undo2 } from 'lucide-react';
+import { Receipt, Printer, Undo2, Mail } from 'lucide-react';
 import { SalesApi } from '@/api';
 import type { Sale, SaleStatus } from '@/types';
 import { PageHeader, LoadingBlock, EmptyState } from '@/components/ui/misc';
@@ -13,6 +13,7 @@ import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
 import { Pagination } from './ProductsPage';
 import { useToast } from '@/components/ui/toast';
 import { apiError } from '@/lib/api';
+import { printSale } from '@/lib/print';
 import { formatMoney, formatDateTime } from '@/lib/format';
 
 const statusTone: Record<SaleStatus, 'success' | 'muted' | 'warning' | 'destructive'> = {
@@ -54,6 +55,12 @@ export default function SalesPage() {
       show(`Returned — ${formatMoney(res.refund)} refunded`);
       setReturnQty({});
     },
+    onError: (e) => show(apiError(e), 'error'),
+  });
+
+  const emailReceipt = useMutation({
+    mutationFn: () => SalesApi.emailReceipt(openId!),
+    onSuccess: (res) => show(res.message),
     onError: (e) => show(apiError(e), 'error'),
   });
 
@@ -129,9 +136,19 @@ export default function SalesPage() {
           </div>
         )}
         <DialogFooter>
-          <Button variant="outline" onClick={() => window.print()}>
-            <Printer className="h-4 w-4" /> Print
-          </Button>
+          {sale && (
+            <>
+              <Button variant="outline" onClick={() => printSale(sale, 'thermal')}>
+                <Printer className="h-4 w-4" /> Receipt
+              </Button>
+              <Button variant="outline" onClick={() => printSale(sale, 'a4')}>
+                <Printer className="h-4 w-4" /> Invoice
+              </Button>
+              <Button variant="outline" loading={emailReceipt.isPending} onClick={() => emailReceipt.mutate()}>
+                <Mail className="h-4 w-4" /> Email
+              </Button>
+            </>
+          )}
           {sale && sale.status !== 'RETURNED' && (
             <Button
               variant="destructive"
