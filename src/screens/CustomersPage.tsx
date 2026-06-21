@@ -120,7 +120,7 @@ export default function CustomersPage() {
           <Field label="Name"><Input value={form.name} onChange={set('name')} required autoFocus /></Field>
           <div className="grid grid-cols-2 gap-3">
             <Field label="Phone"><Input value={form.phone} onChange={set('phone')} /></Field>
-            <Field label="Email"><Input type="email" value={form.email} onChange={set('email')} /></Field>
+            <Field label="Email (optional)"><Input type="email" value={form.email} onChange={set('email')} /></Field>
           </div>
           <Field label="Address"><Input value={form.address} onChange={set('address')} /></Field>
           <DialogFooter>

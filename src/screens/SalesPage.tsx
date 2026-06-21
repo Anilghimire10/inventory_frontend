@@ -1,7 +1,7 @@
 'use client';
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Receipt, Printer, Undo2, Mail } from 'lucide-react';
+import { Receipt, Printer, Undo2, Mail, FileDown } from 'lucide-react';
 import { SalesApi } from '@/api';
 import type { Sale, SaleStatus } from '@/types';
 import { PageHeader, LoadingBlock, EmptyState } from '@/components/ui/misc';
@@ -98,16 +98,37 @@ export default function SalesPage() {
           </>
         )}
 
-      <Dialog open={!!openId} onClose={() => setOpenId(null)} title={sale?.receiptNo ?? 'Sale'} className="max-w-lg">
-        {!sale ? <LoadingBlock /> : (
+      <Dialog open={!!openId} onClose={() => setOpenId(null)} title={sale?.receiptNo ?? 'Sale'} className="max-w-2xl">
+        {!sale ? <LoadingBlock /> : (() => {
+          const due = Math.max(0, Number(sale.total) - Number(sale.amountPaid));
+          const showPan = !!(sale.business?.showTaxIdOnBill && sale.business?.taxId);
+          return (
           <div id="receipt" className="space-y-4">
-            <div className="text-sm text-muted-foreground">
-              {formatDateTime(sale.createdAt)} · {sale.customer?.name ?? 'Walk-in'} · {sale.paymentMethod}
-              {sale.prescriptionRef && <> · Rx: {sale.prescriptionRef}</>}
+            {/* Invoice header — business + bill-to */}
+            <div className="flex items-start justify-between gap-4 rounded-md border border-border p-4">
+              <div className="text-sm">
+                <div className="text-base font-semibold">{sale.business?.name ?? sale.store?.name ?? 'Invoice'}</div>
+                {sale.store?.address && <div className="text-muted-foreground">{sale.store.address}</div>}
+                {sale.store?.phone && <div className="text-muted-foreground">{sale.store.phone}</div>}
+                {showPan && <div className="text-muted-foreground">PAN/VAT: {sale.business?.taxId}</div>}
+              </div>
+              <div className="text-right text-sm">
+                <div className="font-semibold">{sale.receiptNo}</div>
+                <div className="text-muted-foreground">{formatDateTime(sale.createdAt)}</div>
+                <div className="text-muted-foreground">Payment: {sale.paymentMethod}</div>
+                {sale.prescriptionRef && <div className="text-muted-foreground">Rx: {sale.prescriptionRef}</div>}
+              </div>
+            </div>
+
+            <div className="text-sm">
+              <div className="text-xs uppercase text-muted-foreground">Bill to</div>
+              <div className="font-medium">{sale.customer?.name ?? 'Walk-in customer'}</div>
+              {sale.customer?.phone && <div className="text-muted-foreground">{sale.customer.phone}</div>}
+              {sale.customer?.address && <div className="text-muted-foreground">{sale.customer.address}</div>}
             </div>
 
             <Table>
-              <THead><TR><TH>Item</TH><TH className="text-right">Qty</TH><TH className="text-right">Price</TH><TH className="text-right">Total</TH></TR></THead>
+              <THead><TR><TH>Item</TH><TH className="text-right">Qty</TH><TH className="text-right">Price</TH><TH className="text-right">Disc</TH><TH className="text-right">Tax</TH><TH className="text-right">Total</TH></TR></THead>
               <TBody>
                 {sale.items.map((it) => (
                   <TR key={it.id}>
@@ -117,24 +138,31 @@ export default function SalesPage() {
                     </TD>
                     <TD className="text-right">{it.quantity}</TD>
                     <TD className="text-right">{formatMoney(it.unitPrice)}</TD>
+                    <TD className="text-right">{Number(it.discount) > 0 ? `- ${formatMoney(it.discount)}` : '—'}</TD>
+                    <TD className="text-right">{Number(it.taxRate) || 0}%</TD>
                     <TD className="text-right">{formatMoney(it.lineTotal)}</TD>
                   </TR>
                 ))}
               </TBody>
             </Table>
 
-            <div className="space-y-1 text-sm">
-              <div className="flex justify-between text-muted-foreground"><span>Subtotal</span><span>{formatMoney(sale.subtotal)}</span></div>
-              <div className="flex justify-between text-muted-foreground"><span>Tax</span><span>{formatMoney(sale.tax)}</span></div>
-              {Number(sale.discount) > 0 && <div className="flex justify-between text-muted-foreground"><span>Discount</span><span>- {formatMoney(sale.discount)}</span></div>}
-              <div className="flex justify-between border-t border-border pt-1 text-base font-semibold"><span>Total</span><span>{formatMoney(sale.total)}</span></div>
+            <div className="flex justify-end">
+              <div className="w-full max-w-xs space-y-1 text-sm">
+                <div className="flex justify-between text-muted-foreground"><span>Subtotal</span><span>{formatMoney(sale.subtotal)}</span></div>
+                {Number(sale.discount) > 0 && <div className="flex justify-between text-muted-foreground"><span>Discount</span><span>- {formatMoney(sale.discount)}</span></div>}
+                <div className="flex justify-between text-muted-foreground"><span>Tax</span><span>{formatMoney(sale.tax)}</span></div>
+                <div className="flex justify-between border-t border-border pt-1 text-base font-semibold"><span>Total</span><span>{formatMoney(sale.total)}</span></div>
+                <div className="flex justify-between text-muted-foreground"><span>Paid</span><span>{formatMoney(sale.amountPaid)}</span></div>
+                {due > 0 && <div className="flex justify-between font-medium text-destructive"><span>Balance due</span><span>{formatMoney(due)}</span></div>}
+              </div>
             </div>
 
             {sale.status !== 'RETURNED' && (
               <ReturnSection sale={sale} returnQty={returnQty} setReturnQty={setReturnQty} />
             )}
           </div>
-        )}
+          );
+        })()}
         <DialogFooter>
           {sale && (
             <>
@@ -142,7 +170,7 @@ export default function SalesPage() {
                 <Printer className="h-4 w-4" /> Receipt
               </Button>
               <Button variant="outline" onClick={() => printSale(sale, 'a4')}>
-                <Printer className="h-4 w-4" /> Invoice
+                <FileDown className="h-4 w-4" /> Export PDF
               </Button>
               <Button variant="outline" loading={emailReceipt.isPending} onClick={() => emailReceipt.mutate()}>
                 <Mail className="h-4 w-4" /> Email

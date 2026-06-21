@@ -1,7 +1,7 @@
 'use client';
 import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Pencil, Store as StoreIcon, Building2, Download } from 'lucide-react';
+import { Plus, Pencil, Store as StoreIcon, Building2, Download, Percent } from 'lucide-react';
 import { BusinessApi, StoresApi } from '@/api';
 import type { Store } from '@/types';
 import { useStores } from '@/hooks/useStores';
@@ -33,7 +33,7 @@ export default function SettingsPage() {
   // Business profile editing. The vertical (type) is locked — only a platform
   // super-admin can change it — so it isn't part of the editable form.
   const [bizOpen, setBizOpen] = useState(false);
-  const [biz, setBiz] = useState({ name: '', salesModel: 'RETAIL', currency: 'USD' });
+  const [biz, setBiz] = useState({ name: '', salesModel: 'RETAIL', currency: 'USD', taxId: '' });
 
   // Full data export (owner).
   const [exporting, setExporting] = useState(false);
@@ -61,6 +61,7 @@ export default function SettingsPage() {
       name: user?.business?.name ?? '',
       salesModel: user?.business?.salesModel ?? 'RETAIL',
       currency: user?.business?.currency ?? 'USD',
+      taxId: user?.business?.taxId ?? '',
     });
     setBizOpen(true);
   };
@@ -71,6 +72,30 @@ export default function SettingsPage() {
       await refresh(); // reloads session + re-applies currency app-wide
       show('Business updated');
       setBizOpen(false);
+    },
+    onError: (e) => show(apiError(e), 'error'),
+  });
+
+  // Master tax switch. When off, no sale charges tax (even for taxable products).
+  const taxEnabled = user?.business?.taxEnabled ?? true;
+  const canManageBiz = user?.role === 'OWNER' || user?.role === 'MANAGER';
+  const saveTax = useMutation({
+    mutationFn: (next: boolean) => BusinessApi.update({ taxEnabled: next }),
+    onSuccess: async (_data, next) => {
+      await refresh();
+      show(next ? 'Tax enabled' : 'Tax disabled');
+    },
+    onError: (e) => show(apiError(e), 'error'),
+  });
+
+  // Whether the PAN/VAT number prints on bills and invoices.
+  const showPan = user?.business?.showTaxIdOnBill ?? false;
+  const hasPan = !!user?.business?.taxId;
+  const savePan = useMutation({
+    mutationFn: (next: boolean) => BusinessApi.update({ showTaxIdOnBill: next }),
+    onSuccess: async (_data, next) => {
+      await refresh();
+      show(next ? 'PAN will show on bills' : 'PAN hidden on bills');
     },
     onError: (e) => show(apiError(e), 'error'),
   });
@@ -101,6 +126,68 @@ export default function SettingsPage() {
           <div><div className="text-muted-foreground">Type</div><div className="font-medium">{user?.business?.type}</div></div>
           <div><div className="text-muted-foreground">Sells as</div><div className="font-medium">{user?.business?.salesModel === 'WHOLESALE' ? 'Wholesaler' : 'Retailer'}</div></div>
           <div><div className="text-muted-foreground">Currency</div><div className="font-medium">{user?.business?.currency}</div></div>
+          <div><div className="text-muted-foreground">PAN / VAT</div><div className="font-medium">{user?.business?.taxId || '—'}</div></div>
+        </CardContent>
+      </Card>
+
+      <Card className="mb-6">
+        <CardHeader className="flex-row items-center justify-between">
+          <CardTitle className="flex items-center gap-2"><Percent className="h-5 w-5 text-primary" /> Tax</CardTitle>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={taxEnabled}
+            disabled={!canManageBiz || saveTax.isPending}
+            onClick={() => saveTax.mutate(!taxEnabled)}
+            className={
+              'relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-50 ' +
+              (taxEnabled ? 'bg-primary' : 'bg-muted')
+            }
+          >
+            <span
+              className={
+                'inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ' +
+                (taxEnabled ? 'translate-x-5' : 'translate-x-0.5')
+              }
+            />
+          </button>
+        </CardHeader>
+        <CardContent className="text-sm text-muted-foreground">
+          {taxEnabled
+            ? 'Tax is ON. Each sale charges tax on products marked “Taxable” using their tax rate. Products that aren’t taxable are never taxed.'
+            : 'Tax is OFF. No sale charges tax, even for products marked “Taxable”.'}
+          {!canManageBiz && <span className="block pt-1">Only an owner or manager can change this.</span>}
+        </CardContent>
+      </Card>
+
+      <Card className="mb-6">
+        <CardHeader className="flex-row items-center justify-between">
+          <CardTitle className="flex items-center gap-2"><Building2 className="h-5 w-5 text-primary" /> PAN on bill</CardTitle>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={showPan}
+            disabled={!canManageBiz || savePan.isPending}
+            onClick={() => savePan.mutate(!showPan)}
+            className={
+              'relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-50 ' +
+              (showPan ? 'bg-primary' : 'bg-muted')
+            }
+          >
+            <span
+              className={
+                'inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ' +
+                (showPan ? 'translate-x-5' : 'translate-x-0.5')
+              }
+            />
+          </button>
+        </CardHeader>
+        <CardContent className="text-sm text-muted-foreground">
+          {showPan
+            ? 'Your PAN/VAT number is printed on receipts and invoices.'
+            : 'Your PAN/VAT number is hidden on receipts and invoices.'}
+          {!hasPan && <span className="block pt-1">Add a PAN/VAT number with “Edit” above for it to appear.</span>}
+          {!canManageBiz && <span className="block pt-1">Only an owner or manager can change this.</span>}
         </CardContent>
       </Card>
 
@@ -175,6 +262,10 @@ export default function SettingsPage() {
               </Select>
             </Field>
           </div>
+          <Field label="PAN / VAT number (optional)">
+            <Input value={biz.taxId} onChange={(e) => setBiz((b) => ({ ...b, taxId: e.target.value }))}
+              placeholder="e.g. 301234567" />
+          </Field>
           <p className="text-xs text-muted-foreground">
             Business type: <span className="font-medium">{user?.business?.type}</span>
           </p>

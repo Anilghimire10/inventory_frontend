@@ -109,7 +109,7 @@ export default function SuppliersPage() {
             <Field label="Contact name"><Input value={form.contactName} onChange={set('contactName')} /></Field>
             <Field label="Phone"><Input value={form.phone} onChange={set('phone')} /></Field>
           </div>
-          <Field label="Email"><Input type="email" value={form.email} onChange={set('email')} /></Field>
+          <Field label="Email (optional)"><Input type="email" value={form.email} onChange={set('email')} /></Field>
           <Field label="Address"><Input value={form.address} onChange={set('address')} /></Field>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
