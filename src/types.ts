@@ -74,6 +74,7 @@ export interface Product {
   costPrice: string;
   sellingPrice: string;
   taxRate: string;
+  isTaxable: boolean;
   isRxRequired: boolean;
   trackBatches: boolean;
   reorderLevel: number;
@@ -162,9 +163,11 @@ export interface Sale extends SaleListItem {
   amountPaid: string;
   prescriptionRef?: string | null;
   note?: string | null;
+  // findOne returns the full customer record (phone/email/address), not just id+name.
+  customer?: Customer | null;
   items: SaleItem[];
   store?: { id: string; name: string; address?: string | null; phone?: string | null };
-  business?: { name: string; currency: string; taxId?: string | null };
+  business?: { name: string; currency: string; taxId?: string | null; showTaxIdOnBill?: boolean };
 }
 
 export interface Purchase {

@@ -23,6 +23,9 @@ export interface SessionUser {
     type: string;
     salesModel: string;
     currency: string;
+    taxEnabled?: boolean;
+    taxId?: string | null;
+    showTaxIdOnBill?: boolean;
   };
 }
 

@@ -40,7 +40,7 @@ export function Dialog({
       />
       <div
         className={cn(
-          'relative z-10 my-8 w-full max-w-lg rounded-lg border border-border bg-card p-6 shadow-lg animate-slide-up',
+          'relative z-10 my-8 flex max-h-[calc(100vh-4rem)] w-full max-w-lg flex-col rounded-lg border border-border bg-card p-6 shadow-lg animate-slide-up',
           className,
         )}
         role="dialog"
@@ -53,11 +53,14 @@ export function Dialog({
         >
           <X className="h-4 w-4" />
         </button>
-        {title && <h2 className="text-lg font-semibold">{title}</h2>}
+        {title && <h2 className="pr-8 text-lg font-semibold">{title}</h2>}
         {description && (
           <p className="mt-1 text-sm text-muted-foreground">{description}</p>
         )}
-        <div className={cn(title && 'mt-4')}>{children}</div>
+        {/* Body scrolls on its own so tall dialogs never clip their top/footer. */}
+        <div className={cn('min-h-0 flex-1 overflow-y-auto', title && 'mt-4')}>
+          {children}
+        </div>
       </div>
     </div>,
     document.body,

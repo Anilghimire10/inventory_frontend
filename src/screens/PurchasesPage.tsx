@@ -1,7 +1,7 @@
 'use client';
 import { useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, ClipboardList, Trash2 } from 'lucide-react';
+import { Plus, ClipboardList, Trash2, Pencil } from 'lucide-react';
 import { ProductsApi, PurchasesApi, SuppliersApi } from '@/api';
 import { useStores } from '@/hooks/useStores';
 import { PageHeader, LoadingBlock, EmptyState } from '@/components/ui/misc';
@@ -29,6 +29,7 @@ export default function PurchasesPage() {
   const { show } = useToast();
   const { data: stores } = useStores();
   const [open, setOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [storeId, setStoreId] = useState('');
   const [supplierId, setSupplierId] = useState('');
   const [reference, setReference] = useState('');
@@ -62,9 +63,9 @@ export default function PurchasesPage() {
     [lines],
   );
 
-  const create = useMutation({
-    mutationFn: () =>
-      PurchasesApi.create({
+  const save = useMutation({
+    mutationFn: () => {
+      const body = {
         storeId: storeId || stores?.[0]?.id,
         supplierId: supplierId || undefined,
         reference: reference || undefined,
@@ -78,17 +79,22 @@ export default function PurchasesPage() {
           batchNumber: l.batchNumber || undefined,
           expiryDate: l.expiryDate || undefined,
         })),
-      }),
+      };
+      return editingId
+        ? PurchasesApi.update(editingId, body)
+        : PurchasesApi.create(body);
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['purchases'] });
       qc.invalidateQueries({ queryKey: ['stock'] });
-      show('Stock received');
+      show(editingId ? 'Purchase updated' : 'Stock received');
       setOpen(false);
     },
     onError: (e) => show(apiError(e), 'error'),
   });
 
   const openNew = () => {
+    setEditingId(null);
     setStoreId(stores?.[0]?.id ?? '');
     setSupplierId('');
     setReference('');
@@ -96,6 +102,37 @@ export default function PurchasesPage() {
     setPayMode('full');
     setAmountPaid(0);
     setOpen(true);
+  };
+
+  // Load a purchase's full lines and open the dialog in edit mode.
+  const openEdit = async (id: string) => {
+    try {
+      const p = await PurchasesApi.get(id);
+      setEditingId(p.id);
+      setStoreId(p.store?.id ?? stores?.[0]?.id ?? '');
+      setSupplierId(p.supplier?.id ?? '');
+      setReference(p.reference ?? '');
+      setLines(
+        (p.items ?? []).map((it) => ({
+          productId: it.productId,
+          quantity: it.quantity,
+          costPrice: Number(it.costPrice),
+          batchNumber: it.batchNumber ?? '',
+          expiryDate: it.expiryDate ? it.expiryDate.slice(0, 10) : '',
+        })),
+      );
+      const paid = Number(p.amountPaid);
+      const tot = Number(p.total);
+      if (paid >= tot) setPayMode('full');
+      else if (paid <= 0) setPayMode('credit');
+      else {
+        setPayMode('partial');
+        setAmountPaid(paid);
+      }
+      setOpen(true);
+    } catch (e) {
+      show(apiError(e), 'error');
+    }
   };
 
   const addLine = (productId: string) => {
@@ -156,7 +193,7 @@ export default function PurchasesPage() {
             action={<Button onClick={openNew}><Plus className="h-4 w-4" /> Receive stock</Button>} />
         ) : (
           <Table>
-            <THead><TR><TH>Date</TH><TH>Reference</TH><TH>Supplier</TH><TH>Status</TH><TH>Payment</TH><TH className="text-right">Items</TH><TH className="text-right">Total</TH></TR></THead>
+            <THead><TR><TH>Date</TH><TH>Reference</TH><TH>Supplier</TH><TH>Status</TH><TH>Payment</TH><TH className="text-right">Items</TH><TH className="text-right">Total</TH><TH></TH></TR></THead>
             <TBody>
               {data.data.map((p) => {
                 const outstanding = p.outstanding ?? Number(p.total) - Number(p.amountPaid);
@@ -177,6 +214,14 @@ export default function PurchasesPage() {
                     </TD>
                     <TD className="text-right">{p._count?.items ?? 0}</TD>
                     <TD className="text-right font-medium">{formatMoney(p.total)}</TD>
+                    <TD className="text-right">
+                      {p.status !== 'CANCELLED' && (
+                        <Button size="icon" variant="ghost" title="Edit purchase"
+                          onClick={() => openEdit(p.id)}>
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                      )}
+                    </TD>
                   </TR>
                 );
               })}
@@ -184,7 +229,7 @@ export default function PurchasesPage() {
           </Table>
         )}
 
-      <Dialog open={open} onClose={() => setOpen(false)} title="Receive stock" className="max-w-3xl">
+      <Dialog open={open} onClose={() => setOpen(false)} title={editingId ? 'Edit purchase' : 'Receive stock'} className="max-w-3xl">
         <div className="space-y-4">
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             {stores && stores.length > 1 && (
@@ -282,8 +327,10 @@ export default function PurchasesPage() {
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
-          <Button loading={create.isPending} disabled={lines.length === 0} onClick={() => create.mutate()}>
-            Receive {lines.length} item{lines.length !== 1 ? 's' : ''}
+          <Button loading={save.isPending} disabled={lines.length === 0} onClick={() => save.mutate()}>
+            {editingId
+              ? 'Save changes'
+              : `Receive ${lines.length} item${lines.length !== 1 ? 's' : ''}`}
           </Button>
         </DialogFooter>
       </Dialog>

@@ -143,6 +143,7 @@ export const PurchasesApi = {
   list: (params?: object) => get<Paginated<Purchase>>('/purchases', params),
   get: (id: string) => get<Purchase>(`/purchases/${id}`),
   create: (body: object) => post<Purchase>('/purchases', body),
+  update: (id: string, body: object) => patch<Purchase>(`/purchases/${id}`, body),
   receive: (id: string) => post<Purchase>(`/purchases/${id}/receive`),
   pay: (id: string, amount: number) =>
     post<Purchase>(`/purchases/${id}/pay`, { amount }),
