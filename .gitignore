@@ -5,3 +5,6 @@ dist
 
 # Next.js build output — should never be committed (causes stale-cache 500s)
 .next
+
+# Capacitor static export output
+out

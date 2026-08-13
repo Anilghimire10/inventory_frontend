@@ -8,8 +8,11 @@ export const setToken = (t: string) => localStorage.setItem(TOKEN_KEY, t);
 export const clearToken = () => localStorage.removeItem(TOKEN_KEY);
 
 export const api = axios.create({
-  // /api is proxied to the backend by next.config.mjs rewrites.
-  baseURL: '/api',
+  // On web (dev/prod server) `/api` is proxied to the backend by next.config.mjs
+  // rewrites. In the mobile (Capacitor static export) build there is no proxy, so
+  // NEXT_PUBLIC_API_URL must point at the absolute backend base, e.g.
+  // https://api.yourdomain.com/api
+  baseURL: process.env.NEXT_PUBLIC_API_URL || '/api',
 });
 
 // Attach the JWT to every request.
