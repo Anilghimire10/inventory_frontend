@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { AuthApi } from '@/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { PasswordInput } from '@/components/ui/password-input';
 import { Field } from '@/components/ui/label';
 import { apiError } from '@/lib/api';
 import { AuthShell } from './LoginPage';
@@ -88,8 +89,7 @@ export default function ForgotPasswordPage() {
             />
           </Field>
           <Field label="New password">
-            <Input
-              type="password"
+            <PasswordInput
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="At least 8 characters"

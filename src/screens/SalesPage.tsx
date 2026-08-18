@@ -1,12 +1,23 @@
 'use client';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Receipt, Printer, Undo2, Mail, FileDown } from 'lucide-react';
+import {
+  Receipt,
+  Printer,
+  Undo2,
+  Mail,
+  FileDown,
+  Search,
+  Check,
+  Eye,
+  MoreVertical,
+} from 'lucide-react';
 import { SalesApi } from '@/api';
-import type { Sale, SaleStatus } from '@/types';
+import type { PaymentMethod, Sale, SaleListItem } from '@/types';
 import { PageHeader, LoadingBlock, EmptyState } from '@/components/ui/misc';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogFooter } from '@/components/ui/dialog';
 import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
@@ -16,18 +27,43 @@ import { apiError } from '@/lib/api';
 import { printSale } from '@/lib/print';
 import { formatMoney, formatDateTime } from '@/lib/format';
 
-const statusTone: Record<SaleStatus, 'success' | 'muted' | 'warning' | 'destructive'> = {
-  COMPLETED: 'success',
-  HELD: 'muted',
-  PARTIALLY_RETURNED: 'warning',
-  RETURNED: 'destructive',
+type DateFilter = 'all' | 'today' | '7d' | '30d';
+type StatusFilter = 'all' | 'paid' | 'due' | 'partial' | 'return' | 'held';
+
+type StatusView = {
+  key: string;
+  label: string;
+  tone: 'success' | 'muted' | 'warning' | 'destructive';
+  paid?: boolean;
 };
+
+const PAYMENT_LABEL: Record<PaymentMethod, string> = {
+  CASH: 'Cash',
+  CARD: 'Card',
+  MOBILE: 'Mobile',
+  CREDIT: 'Credit',
+  MIXED: 'Cash + Credit',
+};
+
+/** Friendly, payment-aware status: credit sales read as "Due", part-paid as "Partial". */
+function viewStatus(s: SaleListItem): StatusView {
+  if (s.status === 'RETURNED') return { key: 'return', label: 'Return', tone: 'destructive' };
+  if (s.status === 'PARTIALLY_RETURNED')
+    return { key: 'return', label: 'Part return', tone: 'warning' };
+  if (s.status === 'HELD') return { key: 'held', label: 'Held', tone: 'muted' };
+  if (s.paymentMethod === 'CREDIT') return { key: 'due', label: 'Due', tone: 'destructive' };
+  if (s.paymentMethod === 'MIXED') return { key: 'partial', label: 'Partial', tone: 'warning' };
+  return { key: 'paid', label: 'Paid', tone: 'success', paid: true };
+}
 
 export default function SalesPage() {
   const qc = useQueryClient();
   const { show } = useToast();
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
+  const [dateFilter, setDateFilter] = useState<DateFilter>('all');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [payFilter, setPayFilter] = useState<'all' | PaymentMethod>('all');
   const [openId, setOpenId] = useState<string | null>(null);
   const [returnQty, setReturnQty] = useState<Record<string, number>>({});
 
@@ -40,6 +76,24 @@ export default function SalesPage() {
     queryFn: () => SalesApi.get(openId!),
     enabled: !!openId,
   });
+
+  // Date / status / payment filters are applied client-side over the fetched page.
+  const sales = useMemo(() => {
+    if (!data) return [];
+    const now = Date.now();
+    const cutoff = (() => {
+      if (dateFilter === 'today') return now - 24 * 3600 * 1000;
+      if (dateFilter === '7d') return now - 7 * 24 * 3600 * 1000;
+      if (dateFilter === '30d') return now - 30 * 24 * 3600 * 1000;
+      return 0;
+    })();
+    return data.data.filter((s) => {
+      if (dateFilter !== 'all' && new Date(s.createdAt).getTime() < cutoff) return false;
+      if (payFilter !== 'all' && (s.paymentMethod ?? 'CASH') !== payFilter) return false;
+      if (statusFilter !== 'all' && viewStatus(s).key !== statusFilter) return false;
+      return true;
+    });
+  }, [data, dateFilter, statusFilter, payFilter]);
 
   const doReturn = useMutation({
     mutationFn: () => {
@@ -64,34 +118,102 @@ export default function SalesPage() {
     onError: (e) => show(apiError(e), 'error'),
   });
 
+  const emailOne = useMutation({
+    mutationFn: (id: string) => SalesApi.emailReceipt(id),
+    onSuccess: (res) => show(res.message),
+    onError: (e) => show(apiError(e), 'error'),
+  });
+
+  const printOne = async (id: string) => {
+    try {
+      const full = await SalesApi.get(id);
+      printSale(full, 'thermal');
+    } catch (e) {
+      show(apiError(e), 'error');
+    }
+  };
+
   const sale = detail.data;
+  const hasFilters = search !== '' || dateFilter !== 'all' || statusFilter !== 'all' || payFilter !== 'all';
 
   return (
     <div>
       <PageHeader title="Sales" description="Transaction history and returns." />
 
-      <div className="mb-4 max-w-sm">
-        <Input placeholder="Search receipt #…" value={search}
-          onChange={(e) => { setSearch(e.target.value); setPage(1); }} />
+      {/* Filter bar */}
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <div className="relative min-w-52 flex-1">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input className="pl-9" placeholder="Search receipt #…" value={search}
+            onChange={(e) => { setSearch(e.target.value); setPage(1); }} />
+        </div>
+        <div className="w-36">
+          <Select value={dateFilter} onChange={(e) => setDateFilter(e.target.value as DateFilter)}>
+            <option value="all">All dates</option>
+            <option value="today">Today</option>
+            <option value="7d">Last 7 days</option>
+            <option value="30d">Last 30 days</option>
+          </Select>
+        </div>
+        <div className="w-36">
+          <Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}>
+            <option value="all">All statuses</option>
+            <option value="paid">Paid</option>
+            <option value="due">Due</option>
+            <option value="partial">Partial</option>
+            <option value="return">Return</option>
+            <option value="held">Held</option>
+          </Select>
+        </div>
+        <div className="w-40">
+          <Select value={payFilter} onChange={(e) => setPayFilter(e.target.value as 'all' | PaymentMethod)}>
+            <option value="all">All payments</option>
+            <option value="CASH">Cash</option>
+            <option value="CARD">Card</option>
+            <option value="MOBILE">Mobile</option>
+            <option value="CREDIT">Credit</option>
+            <option value="MIXED">Cash + Credit</option>
+          </Select>
+        </div>
       </div>
 
       {isLoading ? <LoadingBlock /> :
         !data || data.data.length === 0 ? (
           <EmptyState title="No sales yet" description="Completed sales will show up here." icon={Receipt} />
+        ) : sales.length === 0 ? (
+          <EmptyState title="No sales match your filters" description="Try widening your date, status, or payment filters." icon={Search} />
         ) : (
           <>
             <Table>
-              <THead><TR><TH>Receipt</TH><TH>When</TH><TH>Customer</TH><TH>Status</TH><TH className="text-right">Total</TH></TR></THead>
+              <THead><TR><TH>Receipt</TH><TH>When</TH><TH>Customer</TH><TH>Payment</TH><TH>Status</TH><TH className="text-right">Total</TH><TH /></TR></THead>
               <TBody>
-                {data.data.map((s) => (
-                  <TR key={s.id} className="cursor-pointer" onClick={() => { setOpenId(s.id); setReturnQty({}); }}>
-                    <TD className="font-medium">{s.receiptNo}</TD>
-                    <TD className="whitespace-nowrap text-muted-foreground">{formatDateTime(s.createdAt)}</TD>
-                    <TD>{s.customer?.name ?? 'Walk-in'}</TD>
-                    <TD><Badge tone={statusTone[s.status]}>{s.status.replace('_', ' ')}</Badge></TD>
-                    <TD className="text-right font-medium">{formatMoney(s.total)}</TD>
-                  </TR>
-                ))}
+                {sales.map((s) => {
+                  const v = viewStatus(s);
+                  return (
+                    <TR key={s.id}>
+                      <TD className="font-medium">{s.receiptNo}</TD>
+                      <TD className="whitespace-nowrap text-muted-foreground">{formatDateTime(s.createdAt)}</TD>
+                      <TD>{s.customer?.name ?? 'Walk-in'}</TD>
+                      <TD className="text-muted-foreground">{PAYMENT_LABEL[s.paymentMethod ?? 'CASH']}</TD>
+                      <TD>
+                        <Badge tone={v.tone} className="gap-1">
+                          {v.paid && <Check className="h-3 w-3" />}
+                          {v.label}
+                        </Badge>
+                      </TD>
+                      <TD className="text-right font-medium">{formatMoney(s.total)}</TD>
+                      <TD>
+                        <div className="flex justify-end">
+                          <RowMenu
+                            onView={() => { setOpenId(s.id); setReturnQty({}); }}
+                            onPrint={() => printOne(s.id)}
+                            onEmail={() => emailOne.mutate(s.id)}
+                          />
+                        </div>
+                      </TD>
+                    </TR>
+                  );
+                })}
               </TBody>
             </Table>
             <Pagination page={data.meta.page} pages={data.meta.pages} onPage={setPage} />
@@ -189,6 +311,47 @@ export default function SalesPage() {
           )}
         </DialogFooter>
       </Dialog>
+    </div>
+  );
+}
+
+function RowMenu({
+  onView,
+  onPrint,
+  onEmail,
+}: {
+  onView: () => void;
+  onPrint: () => void;
+  onEmail: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="relative" onBlur={() => setTimeout(() => setOpen(false), 120)}>
+      <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => setOpen((o) => !o)}>
+        <MoreVertical className="h-4 w-4" />
+      </Button>
+      {open && (
+        <div className="absolute right-0 z-20 mt-1 w-44 rounded-md border border-border bg-popover p-1 shadow-lg animate-fade-in">
+          <button
+            onClick={() => { setOpen(false); onView(); }}
+            className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent"
+          >
+            <Eye className="h-4 w-4" /> View details
+          </button>
+          <button
+            onClick={() => { setOpen(false); onPrint(); }}
+            className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent"
+          >
+            <Printer className="h-4 w-4" /> Print receipt
+          </button>
+          <button
+            onClick={() => { setOpen(false); onEmail(); }}
+            className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent"
+          >
+            <Mail className="h-4 w-4" /> Email receipt
+          </button>
+        </div>
+      )}
     </div>
   );
 }

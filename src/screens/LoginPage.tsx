@@ -2,10 +2,11 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Package } from 'lucide-react';
+import { Package, CheckCircle2 } from 'lucide-react';
 import { useAuth } from '@/auth/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { PasswordInput } from '@/components/ui/password-input';
 import { Field } from '@/components/ui/label';
 import { apiError } from '@/lib/api';
 
@@ -53,8 +54,7 @@ export default function LoginPage() {
           />
         </Field>
         <Field label="Password">
-          <Input
-            type="password"
+          <PasswordInput
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             placeholder="••••••••"
@@ -85,17 +85,55 @@ export default function LoginPage() {
 }
 
 export function AuthShell({ children }: { children: React.ReactNode }) {
+  const features = [
+    'Point of Sale with barcode scanning',
+    'Real-time stock & expiry tracking',
+    'Sales, credit & profit analytics',
+  ];
   return (
-    <div className="flex min-h-screen items-center justify-center bg-muted/30 p-4">
-      <div className="w-full max-w-sm">
-        <div className="mb-6 flex items-center justify-center gap-2">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+    <div className="grid min-h-screen lg:grid-cols-2">
+      {/* Brand panel — mirrors the app's sidebar/header look */}
+      <div className="relative hidden flex-col justify-between overflow-hidden bg-primary p-10 text-primary-foreground lg:flex">
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.15),transparent_45%)]" />
+        <div className="relative flex items-center gap-2">
+          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary-foreground/15">
             <Package className="h-5 w-5" />
           </div>
           <span className="text-lg font-semibold">Inventory Manager</span>
         </div>
-        <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
-          {children}
+        <div className="relative">
+          <h2 className="max-w-sm text-3xl font-semibold leading-tight tracking-tight">
+            Run your store from one place.
+          </h2>
+          <p className="mt-3 max-w-sm text-sm text-primary-foreground/85">
+            POS, stock, customers, credit and analytics — everything your business needs, in a single dashboard.
+          </p>
+          <ul className="mt-8 space-y-3">
+            {features.map((f) => (
+              <li key={f} className="flex items-center gap-3 text-sm">
+                <CheckCircle2 className="h-4 w-4 shrink-0 text-primary-foreground/90" />
+                <span className="text-primary-foreground/90">{f}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+        <p className="relative text-xs text-primary-foreground/70">
+          © {new Date().getFullYear()} Inventory Manager
+        </p>
+      </div>
+
+      {/* Form panel */}
+      <div className="flex items-center justify-center bg-muted/30 p-6">
+        <div className="w-full max-w-sm">
+          <div className="mb-6 flex items-center justify-center gap-2 lg:hidden">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+              <Package className="h-5 w-5" />
+            </div>
+            <span className="text-lg font-semibold">Inventory Manager</span>
+          </div>
+          <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
+            {children}
+          </div>
         </div>
       </div>
     </div>

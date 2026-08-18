@@ -306,8 +306,27 @@ export interface Analytics {
     cost: number;
     profit: number;
     margin: number;
+    units: number;
   };
+  comparison: { revenue: number; orders: number; netRevenue: number; profit: number } | null;
   byProduct: ProductAnalytics[];
-  byDay: { date: string; total: number; count: number }[];
-  byPaymentMethod: { method: PaymentMethod; total: number; count: number }[];
+  byDay: { date: string; total: number; count: number; units: number }[];
+  byCategory: { category: string; revenue: number; units: number; share: number }[];
+  byPaymentMethod: { method: PaymentMethod; total: number; count: number; share: number }[];
+  hourly: { hour: number; total: number; count: number; units: number }[];
+  inventory: {
+    value: number;
+    stockTurnover: number;
+    sellThrough: number;
+    deadStockValue: number;
+    deadStockPct: number;
+  };
+  stockMovement: {
+    date: string;
+    purchases: number;
+    sales: number;
+    adjustments: number;
+    closing: number;
+  }[];
+  needsAttention: { lowStock: number; unsold: number; expiring: number };
 }

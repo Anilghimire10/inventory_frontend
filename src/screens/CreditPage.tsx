@@ -8,6 +8,7 @@ import {
   ChevronDown,
   Wallet,
   HandCoins,
+  Search,
 } from 'lucide-react';
 import { CreditApi, CustomersApi, PurchasesApi } from '@/api';
 import type { CreditInvoice, Payable, Receivable } from '@/types';
@@ -18,6 +19,7 @@ import { Input } from '@/components/ui/input';
 import { Field } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogFooter } from '@/components/ui/dialog';
+import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
 import { useToast } from '@/components/ui/toast';
 import { apiError } from '@/lib/api';
 import { formatMoney, formatDate } from '@/lib/format';
@@ -34,6 +36,7 @@ export default function CreditPage() {
   const qc = useQueryClient();
   const { show } = useToast();
   const [tab, setTab] = useState<Tab>('receivables');
+  const [query, setQuery] = useState('');
   const [payTarget, setPayTarget] = useState<PayTarget | null>(null);
 
   const summary = useQuery({ queryKey: ['credit', 'summary'], queryFn: () => CreditApi.summary() });
@@ -69,6 +72,17 @@ export default function CreditPage() {
     onError: (e) => show(apiError(e), 'error'),
   });
 
+  const q = query.trim().toLowerCase();
+  const filteredReceivables = (receivables.data ?? []).filter(
+    (r) => !q || r.name.toLowerCase().includes(q),
+  );
+  const filteredPayables = (payables.data ?? []).filter(
+    (p) => !q || p.name.toLowerCase().includes(q),
+  );
+
+  const receivablesTotal = summary.data?.receivablesTotal ?? 0;
+  const payablesTotal = summary.data?.payablesTotal ?? 0;
+
   return (
     <div>
       <PageHeader
@@ -80,35 +94,46 @@ export default function CreditPage() {
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <SummaryCard
           label="Receivables"
-          value={formatMoney(summary.data?.receivablesTotal ?? 0)}
+          value={formatMoney(receivablesTotal)}
           sub={`${summary.data?.customersOwing ?? 0} customers owe you`}
           icon={ArrowDownLeft}
           tone="success"
         />
         <SummaryCard
           label="Payables"
-          value={formatMoney(summary.data?.payablesTotal ?? 0)}
-          sub={`owed to ${summary.data?.suppliersOwed ?? 0} suppliers`}
+          value={formatMoney(payablesTotal)}
+          sub={`${summary.data?.suppliersOwed ?? 0} suppliers to pay`}
           icon={ArrowUpRight}
           tone="destructive"
         />
         <SummaryCard
-          label="Net position"
-          value={formatMoney(summary.data?.netPosition ?? 0)}
-          sub="receivables − payables"
+          label="Outstanding"
+          value={formatMoney(receivablesTotal + payablesTotal)}
+          sub="receivables + payables"
           icon={Scale}
-          tone={(summary.data?.netPosition ?? 0) >= 0 ? 'primary' : 'warning'}
+          tone="primary"
         />
       </div>
 
-      {/* Tabs */}
-      <div className="mt-6 inline-flex rounded-lg border border-border bg-card p-1">
-        <TabButton active={tab === 'receivables'} onClick={() => setTab('receivables')} icon={Wallet}>
-          Receivables
-        </TabButton>
-        <TabButton active={tab === 'payables'} onClick={() => setTab('payables')} icon={HandCoins}>
-          Payables
-        </TabButton>
+      {/* Tabs + search */}
+      <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
+        <div className="inline-flex rounded-lg border border-border bg-card p-1">
+          <TabButton active={tab === 'receivables'} onClick={() => setTab('receivables')} icon={Wallet}>
+            Receivables
+          </TabButton>
+          <TabButton active={tab === 'payables'} onClick={() => setTab('payables')} icon={HandCoins}>
+            Payables
+          </TabButton>
+        </div>
+        <div className="relative w-full max-w-xs">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            className="pl-9"
+            placeholder={tab === 'receivables' ? 'Search customer…' : 'Search supplier…'}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+        </div>
       </div>
 
       <div className="mt-4">
@@ -122,17 +147,37 @@ export default function CreditPage() {
               icon={Wallet}
             />
           ) : (
-            <div className="space-y-3">
-              {receivables.data.map((r) => (
-                <ReceivableRow
-                  key={r.id}
-                  r={r}
-                  onPay={() =>
-                    setPayTarget({ kind: 'customer', id: r.id, name: r.name, max: r.balance })
-                  }
-                />
-              ))}
-            </div>
+            <Table>
+              <THead>
+                <TR>
+                  <TH>Customer</TH>
+                  <TH className="text-right">Invoices</TH>
+                  <TH className="text-right">Total</TH>
+                  <TH className="text-right">Paid</TH>
+                  <TH className="text-right">Outstanding</TH>
+                  <TH />
+                </TR>
+              </THead>
+              <TBody>
+                {filteredReceivables.length === 0 ? (
+                  <TR>
+                    <TD colSpan={6} className="py-8 text-center text-muted-foreground">
+                      No customer matches your search.
+                    </TD>
+                  </TR>
+                ) : (
+                  filteredReceivables.map((r) => (
+                    <ReceivableRow
+                      key={r.id}
+                      r={r}
+                      onPay={() =>
+                        setPayTarget({ kind: 'customer', id: r.id, name: r.name, max: r.balance })
+                      }
+                    />
+                  ))
+                )}
+              </TBody>
+            </Table>
           )
         ) : payables.isLoading ? (
           <LoadingBlock />
@@ -143,22 +188,42 @@ export default function CreditPage() {
             icon={HandCoins}
           />
         ) : (
-          <div className="space-y-3">
-            {payables.data.map((p) => (
-              <PayableRow
-                key={p.id ?? 'none'}
-                p={p}
-                onPayInvoice={(inv) =>
-                  setPayTarget({
-                    kind: 'purchase',
-                    id: inv.id,
-                    name: `${p.name} · ${inv.reference ?? inv.id.slice(0, 6)}`,
-                    max: inv.outstanding ?? inv.total - inv.amountPaid,
-                  })
-                }
-              />
-            ))}
-          </div>
+          <Table>
+            <THead>
+              <TR>
+                <TH>Supplier</TH>
+                <TH className="text-right">Invoices</TH>
+                <TH className="text-right">Total</TH>
+                <TH className="text-right">Paid</TH>
+                <TH className="text-right">Outstanding</TH>
+                <TH />
+              </TR>
+            </THead>
+            <TBody>
+              {filteredPayables.length === 0 ? (
+                <TR>
+                  <TD colSpan={6} className="py-8 text-center text-muted-foreground">
+                    No supplier matches your search.
+                  </TD>
+                </TR>
+              ) : (
+                filteredPayables.map((p) => (
+                  <PayableRow
+                    key={p.id ?? 'none'}
+                    p={p}
+                    onPayInvoice={(inv) =>
+                      setPayTarget({
+                        kind: 'purchase',
+                        id: inv.id,
+                        name: `${p.name} · ${inv.reference ?? inv.id.slice(0, 6)}`,
+                        max: inv.outstanding ?? inv.total - inv.amountPaid,
+                      })
+                    }
+                  />
+                ))
+              )}
+            </TBody>
+          </Table>
         )}
       </div>
 
@@ -176,26 +241,49 @@ export default function CreditPage() {
 
 function ReceivableRow({ r, onPay }: { r: Receivable; onPay: () => void }) {
   const [open, setOpen] = useState(false);
+  const total = r.invoices.reduce((s, i) => s + Number(i.total), 0);
+  const paid = r.invoices.reduce((s, i) => s + Number(i.amountPaid), 0);
   return (
-    <Card className="overflow-hidden">
-      <div className="flex items-center gap-3 p-4">
-        <button onClick={() => setOpen((o) => !o)} className="flex flex-1 items-center gap-3 text-left">
-          <ChevronDown className={cn('h-4 w-4 text-muted-foreground transition-transform', open && 'rotate-180')} />
-          <div>
-            <div className="font-medium">{r.name}</div>
-            <div className="text-xs text-muted-foreground">
-              {r.phone || `${r.invoices.length} credit invoice${r.invoices.length === 1 ? '' : 's'}`}
-            </div>
+    <>
+      <TR>
+        <TD>
+          <button onClick={() => setOpen((o) => !o)} className="flex items-center gap-2 text-left">
+            <ChevronDown className={cn('h-4 w-4 text-muted-foreground transition-transform', open && 'rotate-180')} />
+            <span className="font-medium">{r.name}</span>
+            {r.phone && <span className="text-xs text-muted-foreground">{r.phone}</span>}
+          </button>
+        </TD>
+        <TD className="text-right tabular-nums">{r.invoices.length}</TD>
+        <TD className="text-right tabular-nums">{formatMoney(total)}</TD>
+        <TD className="text-right tabular-nums text-muted-foreground">{formatMoney(paid)}</TD>
+        <TD className="text-right">
+          <span
+            className={cn(
+              'font-semibold tabular-nums',
+              r.balance > 0 ? 'text-success' : 'text-muted-foreground',
+            )}
+          >
+            {formatMoney(r.balance)}
+          </span>
+        </TD>
+        <TD>
+          <div className="flex justify-end">
+            {r.balance > 0 ? (
+              <Button size="sm" onClick={onPay}>Record payment</Button>
+            ) : (
+              <Badge tone="muted">Paid</Badge>
+            )}
           </div>
-        </button>
-        <div className="text-right">
-          <div className="font-semibold text-success">{formatMoney(r.balance)}</div>
-          <div className="text-xs text-muted-foreground">outstanding</div>
-        </div>
-        <Button size="sm" onClick={onPay}>Record payment</Button>
-      </div>
-      {open && <InvoiceTable invoices={r.invoices} />}
-    </Card>
+        </TD>
+      </TR>
+      {open && (
+        <TR>
+          <TD colSpan={6} className="bg-muted/30 p-3">
+            <InvoiceCards invoices={r.invoices} tone="success" />
+          </TD>
+        </TR>
+      )}
+    </>
   );
 }
 
@@ -206,75 +294,112 @@ function PayableRow({
   p: Payable;
   onPayInvoice: (inv: CreditInvoice) => void;
 }) {
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(false);
+  const total = p.invoices.reduce((s, i) => s + Number(i.total), 0);
+  const paid = p.invoices.reduce((s, i) => s + Number(i.amountPaid), 0);
+  const outstandingInvoices = p.invoices.filter(
+    (inv) => (inv.outstanding ?? inv.total - inv.amountPaid) > 0,
+  );
+  const single = outstandingInvoices.length === 1 ? outstandingInvoices[0] : null;
   return (
-    <Card className="overflow-hidden">
-      <div className="flex items-center gap-3 p-4">
-        <button onClick={() => setOpen((o) => !o)} className="flex flex-1 items-center gap-3 text-left">
-          <ChevronDown className={cn('h-4 w-4 text-muted-foreground transition-transform', open && 'rotate-180')} />
-          <div>
-            <div className="font-medium">{p.name}</div>
-            <div className="text-xs text-muted-foreground">
-              {p.invoices.length} unpaid invoice{p.invoices.length === 1 ? '' : 's'}
-            </div>
+    <>
+      <TR>
+        <TD>
+          <button onClick={() => setOpen((o) => !o)} className="flex items-center gap-2 text-left">
+            <ChevronDown className={cn('h-4 w-4 text-muted-foreground transition-transform', open && 'rotate-180')} />
+            <span className="font-medium">{p.name}</span>
+          </button>
+        </TD>
+        <TD className="text-right tabular-nums">{p.invoices.length}</TD>
+        <TD className="text-right tabular-nums">{formatMoney(total)}</TD>
+        <TD className="text-right tabular-nums text-muted-foreground">{formatMoney(paid)}</TD>
+        <TD className="text-right">
+          <span
+            className={cn(
+              'font-semibold tabular-nums',
+              p.outstanding > 0 ? 'text-destructive' : 'text-muted-foreground',
+            )}
+          >
+            {formatMoney(p.outstanding)}
+          </span>
+        </TD>
+        <TD>
+          <div className="flex justify-end">
+            {outstandingInvoices.length === 0 ? (
+              <Badge tone="muted">Paid</Badge>
+            ) : single ? (
+              <Button size="sm" variant="outline" onClick={() => onPayInvoice(single)}>
+                Pay
+              </Button>
+            ) : (
+              <Button size="sm" variant="outline" onClick={() => setOpen((o) => !o)}>
+                Pay invoices
+              </Button>
+            )}
           </div>
-        </button>
-        <div className="text-right">
-          <div className="font-semibold text-destructive">{formatMoney(p.outstanding)}</div>
-          <div className="text-xs text-muted-foreground">you owe</div>
-        </div>
-      </div>
-      {open && <InvoiceTable invoices={p.invoices} onPay={onPayInvoice} />}
-    </Card>
+        </TD>
+      </TR>
+      {open && (
+        <TR>
+          <TD colSpan={6} className="bg-muted/30 p-3">
+            <InvoiceCards invoices={p.invoices} onPay={onPayInvoice} tone="destructive" />
+          </TD>
+        </TR>
+      )}
+    </>
   );
 }
 
-function InvoiceTable({
+function InvoiceCards({
   invoices,
   onPay,
+  tone,
 }: {
   invoices: CreditInvoice[];
   onPay?: (inv: CreditInvoice) => void;
+  tone: 'success' | 'destructive';
 }) {
+  const outstandingColor = { success: 'text-success', destructive: 'text-destructive' }[tone];
   return (
-    <div className="border-t border-border bg-muted/30">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="text-left text-xs uppercase tracking-wide text-muted-foreground">
-            <th className="px-4 py-2 font-medium">Invoice</th>
-            <th className="px-4 py-2 font-medium">Date</th>
-            <th className="px-4 py-2 text-right font-medium">Total</th>
-            <th className="px-4 py-2 text-right font-medium">Paid</th>
-            <th className="px-4 py-2 text-right font-medium">Outstanding</th>
-            {onPay && <th className="px-4 py-2" />}
-          </tr>
-        </thead>
-        <tbody>
-          {invoices.map((inv) => {
-            const outstanding = inv.outstanding ?? inv.total - inv.amountPaid;
-            return (
-              <tr key={inv.id} className="border-t border-border/60">
-                <td className="px-4 py-2 font-medium">{inv.reference ?? inv.id.slice(0, 8)}</td>
-                <td className="px-4 py-2 text-muted-foreground">{formatDate(inv.createdAt)}</td>
-                <td className="px-4 py-2 text-right">{formatMoney(inv.total)}</td>
-                <td className="px-4 py-2 text-right text-muted-foreground">{formatMoney(inv.amountPaid)}</td>
-                <td className="px-4 py-2 text-right font-medium">{formatMoney(outstanding)}</td>
-                {onPay && (
-                  <td className="px-4 py-2 text-right">
-                    {outstanding > 0 ? (
-                      <Button size="sm" variant="outline" onClick={() => onPay(inv)}>
-                        Pay
-                      </Button>
-                    ) : (
-                      <Badge tone="muted">Paid</Badge>
-                    )}
-                  </td>
+    <div className="space-y-2">
+      {invoices.map((inv) => {
+        const outstanding = inv.outstanding ?? inv.total - inv.amountPaid;
+        return (
+          <div
+            key={inv.id}
+            className="flex items-center justify-between gap-3 rounded-md border border-border bg-card p-3"
+          >
+            <div className="min-w-0">
+              <div className="truncate text-sm font-medium">
+                {inv.reference ?? inv.id.slice(0, 8)}
+              </div>
+              <div className="text-xs text-muted-foreground">{formatDate(inv.createdAt)}</div>
+            </div>
+            <div className="text-right">
+              <div
+                className={cn(
+                  'font-semibold tabular-nums',
+                  outstanding > 0 ? outstandingColor : 'text-muted-foreground',
                 )}
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+              >
+                {formatMoney(outstanding)}
+              </div>
+              <div className="text-xs text-muted-foreground">of {formatMoney(inv.total)}</div>
+            </div>
+            {onPay && (
+              <div className="shrink-0">
+                {outstanding > 0 ? (
+                  <Button size="sm" variant="outline" onClick={() => onPay(inv)}>
+                    Pay
+                  </Button>
+                ) : (
+                  <Badge tone="muted">Paid</Badge>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -377,7 +502,7 @@ function SummaryCard({
       <div className="flex items-start justify-between">
         <div>
           <p className="text-sm text-muted-foreground">{label}</p>
-          <p className="mt-1 text-2xl font-semibold">{value}</p>
+          <p className="mt-1 text-2xl font-semibold tabular-nums">{value}</p>
           <p className="mt-1 text-xs text-muted-foreground">{sub}</p>
         </div>
         <div className={cn('flex h-10 w-10 items-center justify-center rounded-lg', toneClasses)}>

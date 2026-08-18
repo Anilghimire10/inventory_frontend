@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Field } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
+import { RxBadge } from '@/components/ui/RxBadge';
 import { Dialog, DialogFooter } from '@/components/ui/dialog';
 import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
 import { useToast } from '@/components/ui/toast';
@@ -273,9 +274,11 @@ export default function ProductsPage() {
                         </div>
                       )}
                       <div>
-                        <div className="font-medium">{p.name}</div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-medium">{p.name}</span>
+                          {p.isRxRequired && <RxBadge />}
+                        </div>
                         <div className="flex gap-1 pt-1">
-                          {p.isRxRequired && <Badge tone="destructive">Rx</Badge>}
                           {p.trackBatches && <Badge tone="warning">Batch</Badge>}
                         </div>
                       </div>
