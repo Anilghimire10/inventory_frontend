@@ -7,9 +7,11 @@ import { AuthApi } from '@/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
+import { PasswordInput } from '@/components/ui/password-input';
 import { Field } from '@/components/ui/label';
 import { apiError } from '@/lib/api';
 import { CURRENCIES } from '@/lib/currencies';
+import { cn } from '@/lib/utils';
 import { AuthShell } from './LoginPage';
 
 export default function RegisterPage() {
@@ -24,6 +26,7 @@ export default function RegisterPage() {
     email: '',
     password: '',
   });
+  const [confirm, setConfirm] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   // Once registered, we switch to the email-verification step.
@@ -39,6 +42,10 @@ export default function RegisterPage() {
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    if (form.password !== confirm) {
+      setError('Passwords do not match.');
+      return;
+    }
     setLoading(true);
     try {
       const res = await register(form);
@@ -96,14 +103,28 @@ export default function RegisterPage() {
           <Input type="email" value={form.email} onChange={set('email')} required />
         </Field>
         <Field label="Password">
-          <Input
-            type="password"
+          <PasswordInput
             value={form.password}
             onChange={set('password')}
             placeholder="At least 8 characters"
             minLength={8}
             required
           />
+        </Field>
+        <Field label="Confirm password">
+          <PasswordInput
+            value={confirm}
+            onChange={(e) => setConfirm(e.target.value)}
+            placeholder="Re-enter your password"
+            minLength={8}
+            required
+            className={cn(
+              confirm && confirm !== form.password && 'border-destructive focus-visible:ring-destructive',
+            )}
+          />
+          {confirm && confirm !== form.password && (
+            <p className="mt-1 text-xs text-destructive">Passwords do not match.</p>
+          )}
         </Field>
         {error && <p className="text-sm text-destructive">{error}</p>}
         <Button type="submit" className="w-full" loading={loading}>

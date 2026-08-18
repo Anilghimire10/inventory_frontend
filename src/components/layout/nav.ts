@@ -48,6 +48,11 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { to: '/pos', label: 'Point of Sale', icon: ShoppingCart, roles: TILL },
       { to: '/sales', label: 'Sales', icon: Receipt, roles: TILL },
+    ],
+  },
+  {
+    label: 'Customers',
+    items: [
       { to: '/customers', label: 'Customers', icon: Users, roles: TILL },
       { to: '/credit', label: 'Credit & Invoices', icon: CreditCard, roles: ADMIN },
     ],

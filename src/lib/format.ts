@@ -18,6 +18,11 @@ export function formatMoney(value: number | string | null | undefined): string {
   }
 }
 
+export function formatNumber(value: number | null | undefined): string {
+  const n = typeof value === 'string' ? Number(value) : (value ?? 0);
+  return new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 }).format(n);
+}
+
 export function formatDate(value: string | Date | null | undefined): string {
   if (!value) return '—';
   const d = typeof value === 'string' ? new Date(value) : value;

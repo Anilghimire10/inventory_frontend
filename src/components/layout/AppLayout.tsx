@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
@@ -10,6 +10,7 @@ import {
   Sun,
   LogOut,
   ChevronDown,
+  ChevronRight,
   KeyRound,
 } from 'lucide-react';
 import { NAV_GROUPS, canSee } from './nav';
@@ -25,6 +26,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [pwOpen, setPwOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const pathname = usePathname() ?? '';
   if (!user) return null;
 
@@ -33,6 +35,18 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     label: g.label,
     items: g.items.filter((i) => canSee(i, user.role)),
   })).filter((g) => g.items.length > 0);
+
+  // Which group holds the current page (for auto-expanding the nav).
+  const activeLabel = groups.find((g) =>
+    g.items.some((i) => (i.to === '/' ? pathname === '/' : pathname.startsWith(i.to))),
+  )?.label;
+
+  // Auto-expand the group that contains the active page.
+  useEffect(() => {
+    if (activeLabel) {
+      setCollapsed((c) => (c[activeLabel] ? { ...c, [activeLabel]: false } : c));
+    }
+  }, [activeLabel]);
 
   return (
     <div className="flex min-h-screen">
@@ -56,35 +70,59 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           </button>
         </div>
         <nav className="flex flex-col gap-4 overflow-y-auto p-3">
-          {groups.map((group) => (
-            <div key={group.label} className="flex flex-col gap-1">
-              <p className="px-3 pb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground/70">
-                {group.label}
-              </p>
-              {group.items.map((item) => {
-                const isActive =
-                  item.to === '/'
-                    ? pathname === '/'
-                    : pathname.startsWith(item.to);
-                return (
-                  <Link
-                    key={item.to}
-                    href={item.to}
-                    onClick={() => setMobileOpen(false)}
-                    className={cn(
-                      'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
-                      isActive
-                        ? 'bg-primary/10 text-primary'
-                        : 'text-muted-foreground hover:bg-accent hover:text-foreground',
-                    )}
+          {groups.map((group) => {
+            const isOverview = group.label === 'Overview';
+            const isCollapsed = !isOverview && !!collapsed[group.label];
+            return (
+              <div key={group.label} className="flex flex-col gap-1">
+                {isOverview ? (
+                  <p className="px-3 pb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground/70">
+                    {group.label}
+                  </p>
+                ) : (
+                  <button
+                    onClick={() =>
+                      setCollapsed((c) => ({ ...c, [group.label]: !c[group.label] }))
+                    }
+                    className="flex w-full items-center rounded-md px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground/70 transition-colors hover:bg-accent hover:text-foreground"
                   >
-                    <item.icon className="h-4 w-4" />
-                    {item.label}
-                  </Link>
-                );
-              })}
-            </div>
-          ))}
+                    {group.label}
+                    {isCollapsed ? (
+                      <ChevronRight className="ml-auto h-4 w-4" />
+                    ) : (
+                      <ChevronDown className="ml-auto h-4 w-4" />
+                    )}
+                  </button>
+                )}
+                {!isCollapsed && (
+                  <div className="flex flex-col gap-1">
+                    {group.items.map((item) => {
+                      const isActive =
+                        item.to === '/'
+                          ? pathname === '/'
+                          : pathname.startsWith(item.to);
+                      return (
+                        <Link
+                          key={item.to}
+                          href={item.to}
+                          onClick={() => setMobileOpen(false)}
+                          className={cn(
+                            'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
+                            isActive
+                              ? 'bg-primary/10 text-primary'
+                              : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+                          )}
+                        >
+                          <item.icon className="h-4 w-4" />
+                          {item.label}
+                        </Link>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </nav>
       </aside>
 

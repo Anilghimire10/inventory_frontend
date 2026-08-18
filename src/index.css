@@ -6,12 +6,13 @@
  * ========================================================================
  *  THEME — change your brand color here (one place).
  *  Colors are HSL channels: "H S% L%". The app's brand is `--primary`.
- *  To re-brand: swap the --primary / --primary-foreground / --ring values
- *  (and their .dark counterparts). Everything else inherits automatically.
+ *  To re-brand: swap the --primary / --primary-foreground / --ring / --accent
+ *  / --accent-foreground values (and their .dark counterparts). Everything
+ *  else inherits automatically.
  *
- *  Current brand: EMERALD.  e.g. emerald-600 = 160 84% 39%
- *  Want indigo instead? set --primary: 243 75% 59%
- *  Want teal?           set --primary: 173 80% 36%
+ *  Current brand: INDIGO.  e.g. indigo-600 = 246 69% 47%
+ *  Want emerald?  set --primary: 160 84% 39%  (accent: 160 84% 95% / 25%)
+ *  Want teal?     set --primary: 173 80% 36%
  * ========================================================================
  */
 
@@ -27,8 +28,8 @@
     --popover: 0 0% 100%;
     --popover-foreground: 222 47% 11%;
 
-    /* BRAND — emerald */
-    --primary: 160 84% 39%;
+    /* BRAND — indigo */
+    --primary: 246 69% 47%;
     --primary-foreground: 0 0% 100%;
 
     /* Neutrals */
@@ -36,21 +37,21 @@
     --secondary-foreground: 222 47% 11%;
     --muted: 210 40% 96%;
     --muted-foreground: 215 16% 47%;
-    --accent: 160 84% 95%;
-    --accent-foreground: 160 84% 25%;
+    --accent: 246 69% 95%;
+    --accent-foreground: 246 69% 25%;
 
     /* Status */
     --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 100%;
     --success: 142 71% 45%;
     --success-foreground: 0 0% 100%;
-    --warning: 38 92% 50%;
+    --warning: 38 92% 45%;
     --warning-foreground: 0 0% 100%;
 
     /* Lines & focus */
     --border: 214 32% 91%;
     --input: 214 32% 91%;
-    --ring: 160 84% 39%;
+    --ring: 246 69% 47%;
   }
 
   .dark {
@@ -61,8 +62,8 @@
     --popover: 222 44% 10%;
     --popover-foreground: 210 40% 98%;
 
-    /* BRAND — emerald (slightly brighter for dark) */
-    --primary: 158 64% 52%;
+    /* BRAND — indigo (slightly brighter for dark) */
+    --primary: 246 80% 75%;
     --primary-foreground: 222 47% 9%;
 
     --secondary: 217 33% 17%;
@@ -70,18 +71,18 @@
     --muted: 217 33% 17%;
     --muted-foreground: 215 20% 65%;
     --accent: 217 33% 17%;
-    --accent-foreground: 158 64% 60%;
+    --accent-foreground: 246 80% 75%;
 
     --destructive: 0 63% 50%;
     --destructive-foreground: 0 0% 100%;
     --success: 142 71% 45%;
     --success-foreground: 0 0% 100%;
-    --warning: 38 92% 50%;
+    --warning: 38 92% 48%;
     --warning-foreground: 222 47% 9%;
 
     --border: 217 33% 20%;
     --input: 217 33% 22%;
-    --ring: 158 64% 52%;
+    --ring: 246 80% 75%;
   }
 }
 

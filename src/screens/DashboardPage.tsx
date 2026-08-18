@@ -2,7 +2,7 @@
 import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
 import {
-  DollarSign,
+  Banknote,
   ShoppingBag,
   AlertTriangle,
   CalendarClock,
@@ -60,7 +60,7 @@ export default function DashboardPage() {
                 label="Today's Sales"
                 value={formatMoney(data.todaySalesTotal ?? 0)}
                 sub={`${data.todaySalesCount} transactions`}
-                icon={DollarSign}
+                icon={Banknote}
                 tone="primary"
               />
             ) : (
@@ -78,7 +78,7 @@ export default function DashboardPage() {
                 value={formatMoney(data.inventoryValue ?? 0)}
                 sub="at cost price"
                 icon={Boxes}
-                tone="default"
+                tone="primary"
               />
             )}
             <Stat
@@ -106,6 +106,7 @@ export default function DashboardPage() {
                 title="Sales & revenue trend"
                 subtitle="Last 14 days"
                 icon={TrendingUp}
+                tone="text-primary"
                 empty={!data.salesTrend?.some((d) => d.total > 0)}
               >
                 <ResponsiveContainer width="100%" height={240}>
@@ -133,20 +134,22 @@ export default function DashboardPage() {
 
               <ChartCard
                 title="Hourly sales today"
-                subtitle="Revenue by hour"
+                subtitle="Today's revenue by hour"
                 icon={Clock}
                 empty={!data.hourlyToday?.some((h) => h.total > 0)}
               >
                 <ResponsiveContainer width="100%" height={240}>
                   <BarChart
-                    data={(data.hourlyToday ?? []).map((h) => ({
-                      hour: `${h.hour}:00`,
-                      total: h.total,
-                    }))}
+                    data={(data.hourlyToday ?? [])
+                      .filter((h) => h.total > 0)
+                      .map((h) => ({
+                        label: h.hour === 12 ? '12 PM' : h.hour === 0 ? '12 AM' : `${h.hour % 12} ${h.hour < 12 ? 'AM' : 'PM'}`,
+                        total: h.total,
+                      }))}
                     margin={{ top: 8, right: 8, left: -12, bottom: 0 }}
                   >
                     <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
-                    <XAxis dataKey="hour" tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} interval={2} />
+                    <XAxis dataKey="label" tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} />
                     <YAxis tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} width={48} />
                     <Tooltip content={<ChartTooltip moneyKeys={['total']} />} cursor={{ fill: 'hsl(var(--accent))' }} />
                     <Bar dataKey="total" name="Revenue" fill={PRIMARY} radius={[4, 4, 0, 0]} />
@@ -167,7 +170,10 @@ export default function DashboardPage() {
               emptyText="Your best sellers will appear here once you start selling."
             >
               {data.topProducts.map((p, i) => (
-                <li key={p.productId} className="flex items-center gap-3">
+                <li
+                  key={p.productId}
+                  className="flex items-center gap-3 rounded-md px-2 py-1.5 transition-colors hover:bg-accent/60"
+                >
                   <Rank n={i + 1} tone="bg-primary/10 text-primary" />
                   <span className="flex-1 truncate">{p.name}</span>
                   <span className="text-sm font-medium text-muted-foreground">{p.quantitySold} sold</span>
@@ -184,8 +190,11 @@ export default function DashboardPage() {
               emptyText="No stocked products yet."
             >
               {data.slowProducts.map((p) => (
-                <li key={p.productId} className="flex items-center gap-3">
-                  <Rank n={p.inStock} tone="bg-warning/15 text-warning" label="in stock" />
+                <li
+                  key={p.productId}
+                  className="flex items-center gap-3 rounded-md px-2 py-1.5 transition-colors hover:bg-accent/60"
+                >
+                  <Rank n={p.inStock} tone="bg-warning/15 text-warning" label="in stock" pill />
                   <span className="flex-1 truncate">{p.name}</span>
                   <span className="text-sm font-medium text-muted-foreground">{p.quantitySold} sold</span>
                 </li>
@@ -198,11 +207,22 @@ export default function DashboardPage() {
   );
 }
 
-function Rank({ n, tone, label }: { n: number; tone: string; label?: string }) {
+function Rank({
+  n,
+  tone,
+  label,
+  pill,
+}: {
+  n: number;
+  tone: string;
+  label?: string;
+  pill?: boolean;
+}) {
   return (
     <span
       className={cn(
-        'flex h-8 min-w-8 items-center justify-center rounded-full px-2 text-xs font-semibold',
+        'flex h-8 min-w-8 items-center justify-center px-2 text-xs font-semibold',
+        pill ? 'rounded-md' : 'rounded-full',
         tone,
       )}
       title={label}
@@ -238,11 +258,11 @@ function ListCard({
           <p className="text-xs text-muted-foreground">{subtitle}</p>
         </div>
       </div>
-      <div className="p-5">
+      <div className="p-2">
         {empty ? (
           <EmptyState title="Nothing to show yet" description={emptyText} icon={ShoppingBag} />
         ) : (
-          <ul className="space-y-3">{children}</ul>
+          <ul className="space-y-1">{children}</ul>
         )}
       </div>
     </Card>
@@ -253,19 +273,21 @@ function ChartCard({
   title,
   subtitle,
   icon: Icon,
+  tone = 'text-primary',
   empty,
   children,
 }: {
   title: string;
   subtitle: string;
   icon: React.ComponentType<{ className?: string }>;
+  tone?: string;
   empty: boolean;
   children: React.ReactNode;
 }) {
   return (
     <Card>
       <div className="flex items-center gap-2 border-b border-border p-5">
-        <Icon className="h-5 w-5 text-primary" />
+        <Icon className={cn('h-5 w-5', tone)} />
         <div>
           <h2 className="font-semibold leading-tight">{title}</h2>
           <p className="text-xs text-muted-foreground">{subtitle}</p>
@@ -322,12 +344,13 @@ function Stat({
   value: string;
   sub: string;
   icon: React.ComponentType<{ className?: string }>;
-  tone: 'primary' | 'default' | 'warning' | 'destructive';
+  tone: 'primary' | 'default' | 'success' | 'warning' | 'destructive';
   to?: string;
 }) {
   const toneClasses = {
     primary: 'bg-primary/10 text-primary',
     default: 'bg-secondary text-secondary-foreground',
+    success: 'bg-success/15 text-success',
     warning: 'bg-warning/15 text-warning',
     destructive: 'bg-destructive/10 text-destructive',
   }[tone];
@@ -337,7 +360,7 @@ function Stat({
       <div className="flex items-start justify-between">
         <div>
           <p className="text-sm text-muted-foreground">{label}</p>
-          <p className="mt-1 text-2xl font-semibold">{value}</p>
+          <p className="mt-1 text-2xl font-semibold tracking-tight">{value}</p>
           <p className="mt-1 text-xs text-muted-foreground">{sub}</p>
         </div>
         <div className={cn('flex h-10 w-10 items-center justify-center rounded-lg', toneClasses)}>
