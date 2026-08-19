@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Field } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogFooter } from '@/components/ui/dialog';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
 import { useToast } from '@/components/ui/toast';
 import { apiError } from '@/lib/api';
@@ -30,6 +31,7 @@ export default function CustomersPage() {
   const [form, setForm] = useState<Form>(empty);
   const [payFor, setPayFor] = useState<Customer | null>(null);
   const [payAmount, setPayAmount] = useState(0);
+  const [removeTarget, setRemoveTarget] = useState<Customer | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ['customers'],
@@ -97,13 +99,14 @@ export default function CustomersPage() {
                       <div className="flex justify-end gap-1">
                         {due > 0 && (
                           <Button size="icon" variant="ghost" title="Record payment"
+                            aria-label={`Record payment for ${c.name}`}
                             onClick={() => { setPayFor(c); setPayAmount(due); }}>
                             <HandCoins className="h-4 w-4 text-success" />
                           </Button>
                         )}
-                        <Button size="icon" variant="ghost" onClick={() => openEdit(c)}><Pencil className="h-4 w-4" /></Button>
+                        <Button size="icon" variant="ghost" onClick={() => openEdit(c)} aria-label={`Edit ${c.name}`}><Pencil className="h-4 w-4" /></Button>
                         {canDelete && (
-                          <Button size="icon" variant="ghost" onClick={() => confirm(`Remove "${c.name}"?`) && remove.mutate(c.id)}>
+                          <Button size="icon" variant="ghost" onClick={() => setRemoveTarget(c)} aria-label={`Remove ${c.name}`}>
                             <Trash2 className="h-4 w-4 text-destructive" /></Button>
                         )}
                       </div>
@@ -145,6 +148,18 @@ export default function CustomersPage() {
           </DialogFooter>
         </form>
       </Dialog>
+
+      <ConfirmDialog
+        open={!!removeTarget}
+        title="Remove customer"
+        description={removeTarget ? `Remove "${removeTarget.name}" and their record?` : undefined}
+        confirmLabel="Remove"
+        loading={remove.isPending}
+        onConfirm={() => {
+          if (removeTarget) remove.mutate(removeTarget.id);
+        }}
+        onCancel={() => setRemoveTarget(null)}
+      />
     </div>
   );
 }

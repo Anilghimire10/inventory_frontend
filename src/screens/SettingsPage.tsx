@@ -198,9 +198,13 @@ export default function SettingsPage() {
         </Button>
       </div>
 
-      {isLoading ? <LoadingBlock /> : (
+      {isLoading ? <LoadingBlock /> : !stores || stores.length === 0 ? (
+        <Card className="p-6 text-center text-sm text-muted-foreground">
+          No stores yet — add one to organize stock and sales by location.
+        </Card>
+      ) : (
         <div className="space-y-2">
-          {stores?.map((s) => (
+          {stores.map((s) => (
             <Card key={s.id} className="flex items-center justify-between p-4">
               <div>
                 <div className="flex items-center gap-2 font-medium">
@@ -210,7 +214,7 @@ export default function SettingsPage() {
                   {[s.address, s.phone].filter(Boolean).join(' · ') || 'No address set'}
                 </div>
               </div>
-              <Button size="icon" variant="ghost" onClick={() => openEdit(s)}><Pencil className="h-4 w-4" /></Button>
+              <Button size="icon" variant="ghost" onClick={() => openEdit(s)} aria-label={`Edit ${s.name}`}><Pencil className="h-4 w-4" /></Button>
             </Card>
           ))}
         </div>
@@ -238,7 +242,7 @@ export default function SettingsPage() {
           Use the sun/moon toggle in the top bar to switch light/dark mode.
           To change the brand color across the whole app, edit the
           <code className="mx-1 rounded bg-muted px-1.5 py-0.5 text-xs">--primary</code>
-          value in <code className="rounded bg-muted px-1.5 py-0.5 text-xs">web/src/index.css</code>.
+          value in <code className="rounded bg-muted px-1.5 py-0.5 text-xs">src/index.css</code>.
         </CardContent>
       </Card>
 

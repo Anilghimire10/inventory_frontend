@@ -7,7 +7,6 @@ const API_TARGET = process.env.API_URL || 'http://localhost:3000';
 const isMobile = process.env.BUILD_TARGET === 'mobile';
 
 const nextConfig = {
-  eslint: { ignoreDuringBuilds: true },
   ...(isMobile
     ? {
         output: 'export',

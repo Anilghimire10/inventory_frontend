@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Field } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogFooter } from '@/components/ui/dialog';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
 import { useToast } from '@/components/ui/toast';
 import { apiError } from '@/lib/api';
@@ -27,6 +28,7 @@ export default function TaxesPage() {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Tax | null>(null);
   const [form, setForm] = useState<Form>(empty);
+  const [removeTarget, setRemoveTarget] = useState<Tax | null>(null);
 
   const { data, isLoading } = useQuery({ queryKey: ['taxes'], queryFn: () => TaxesApi.list() });
 
@@ -81,8 +83,8 @@ export default function TaxesPage() {
                 <TD>
                   {canManage && (
                     <div className="flex justify-end gap-1">
-                      <Button size="icon" variant="ghost" onClick={() => openEdit(t)}><Pencil className="h-4 w-4" /></Button>
-                      <Button size="icon" variant="ghost" onClick={() => confirm(`Delete "${t.name}"?`) && remove.mutate(t.id)}>
+                      <Button size="icon" variant="ghost" onClick={() => openEdit(t)} aria-label={`Edit ${t.name}`}><Pencil className="h-4 w-4" /></Button>
+                      <Button size="icon" variant="ghost" aria-label={`Delete ${t.name}`} onClick={() => setRemoveTarget(t)}>
                         <Trash2 className="h-4 w-4 text-destructive" />
                       </Button>
                     </div>
@@ -119,6 +121,18 @@ export default function TaxesPage() {
           </DialogFooter>
         </form>
       </Dialog>
+
+      <ConfirmDialog
+        open={!!removeTarget}
+        title="Delete tax"
+        description={removeTarget ? `Delete the tax rate "${removeTarget.name}"?` : undefined}
+        confirmLabel="Delete"
+        loading={remove.isPending}
+        onConfirm={() => {
+          if (removeTarget) remove.mutate(removeTarget.id);
+        }}
+        onCancel={() => setRemoveTarget(null)}
+      />
     </div>
   );
 }

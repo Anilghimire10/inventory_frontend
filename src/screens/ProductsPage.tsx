@@ -11,7 +11,9 @@ import { Field } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { RxBadge } from '@/components/ui/RxBadge';
 import { Dialog, DialogFooter } from '@/components/ui/dialog';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
+import { Pagination } from '@/components/ui/pagination';
 import { useToast } from '@/components/ui/toast';
 import { apiError } from '@/lib/api';
 import { exportCsv, parseCsv } from '@/lib/csv';
@@ -64,6 +66,7 @@ export default function ProductsPage() {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Product | null>(null);
   const [form, setForm] = useState<Form>(empty);
+  const [removeTarget, setRemoveTarget] = useState<Product | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ['products', search, page],
@@ -300,16 +303,15 @@ export default function ProductsPage() {
                   <TD className="text-right font-medium">{formatMoney(p.sellingPrice)}</TD>
                   <TD>
                     <div className="flex justify-end gap-1">
-                      <Button size="icon" variant="ghost" onClick={() => openEdit(p)}>
+                      <Button size="icon" variant="ghost" onClick={() => openEdit(p)} aria-label={`Edit ${p.name}`}>
                         <Pencil className="h-4 w-4" />
                       </Button>
                       {canDelete && (
                         <Button
                           size="icon"
                           variant="ghost"
-                          onClick={() =>
-                            confirm(`Remove "${p.name}"?`) && remove.mutate(p.id)
-                          }
+                          onClick={() => setRemoveTarget(p)}
+                          aria-label={`Remove ${p.name}`}
                         >
                           <Trash2 className="h-4 w-4 text-destructive" />
                         </Button>
@@ -464,6 +466,18 @@ export default function ProductsPage() {
           </DialogFooter>
         </form>
       </Dialog>
+
+      <ConfirmDialog
+        open={!!removeTarget}
+        title="Remove product"
+        description={removeTarget ? `Remove "${removeTarget.name}" from your catalog?` : undefined}
+        confirmLabel="Remove"
+        loading={remove.isPending}
+        onConfirm={() => {
+          if (removeTarget) remove.mutate(removeTarget.id);
+        }}
+        onCancel={() => setRemoveTarget(null)}
+      />
     </div>
   );
 }
@@ -557,31 +571,6 @@ function CategoryMultiSelect({
           )}
         </div>
       )}
-    </div>
-  );
-}
-
-export function Pagination({
-  page,
-  pages,
-  onPage,
-}: {
-  page: number;
-  pages: number;
-  onPage: (p: number) => void;
-}) {
-  if (pages <= 1) return null;
-  return (
-    <div className="mt-4 flex items-center justify-end gap-2">
-      <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => onPage(page - 1)}>
-        Previous
-      </Button>
-      <span className="text-sm text-muted-foreground">
-        Page {page} of {pages}
-      </span>
-      <Button size="sm" variant="outline" disabled={page >= pages} onClick={() => onPage(page + 1)}>
-        Next
-      </Button>
     </div>
   );
 }

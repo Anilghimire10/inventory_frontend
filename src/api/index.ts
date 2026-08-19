@@ -1,11 +1,11 @@
 import { api } from '@/lib/api';
 import type {
   Analytics,
-  AppNotification,
   AppUser,
   AuthUserLite,
   AuditEntry,
   Batch,
+  Business,
   Category,
   CreditSummary,
   Customer,
@@ -16,6 +16,7 @@ import type {
   Product,
   Purchase,
   Receivable,
+  SessionUser,
   Tax,
   Sale,
   SaleListItem,
@@ -63,13 +64,13 @@ export const AuthApi = {
       currentPassword,
       newPassword,
     }),
-  me: () => get<any>('/auth/me'),
+  me: () => get<SessionUser>('/auth/me'),
 };
 
 export const BusinessApi = {
-  get: () => get<any>('/business'),
-  update: (body: object) => patch<any>('/business', body),
-  exportData: () => get<any>('/business/export'),
+  get: () => get<Business>('/business'),
+  update: (body: object) => patch<Business>('/business', body),
+  exportData: () => get<unknown>('/business/export'),
 };
 
 export const StoresApi = {
@@ -194,7 +195,7 @@ export const UsersApi = {
 export const ReportsApi = {
   dashboard: (storeId?: string) =>
     get<Dashboard>('/reports/dashboard', storeId ? { storeId } : undefined),
-  salesSummary: (params?: object) => get<any>('/reports/sales-summary', params),
+  salesSummary: (params?: object) => get<unknown>('/reports/sales-summary', params),
   analytics: (params?: object) => get<Analytics>('/reports/analytics', params),
   taxReport: (params?: object) => get<TaxReport>('/reports/tax', params),
 };

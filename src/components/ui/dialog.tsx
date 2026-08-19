@@ -1,5 +1,5 @@
 'use client';
-import { useEffect } from 'react';
+import { useEffect, useId, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -19,14 +19,49 @@ export function Dialog({
   children: React.ReactNode;
   className?: string;
 }) {
+  const titleId = useId();
+  const descId = useId();
+  const panelRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    const panel = panelRef.current;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+        return;
+      }
+      if (e.key !== 'Tab' || !panel) return;
+      // Trap focus inside the dialog.
+      const focusables = Array.from(
+        panel.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])',
+        ),
+      ).filter((el) => !el.hasAttribute('disabled'));
+      if (focusables.length === 0) return;
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
     document.addEventListener('keydown', onKey);
     document.body.style.overflow = 'hidden';
+    // Move focus into the dialog once it opens.
+    const active = document.activeElement;
+    const focusables = panel?.querySelectorAll<HTMLElement>(
+      'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])',
+    );
+    const first = focusables && focusables[0];
+    first?.focus();
     return () => {
       document.removeEventListener('keydown', onKey);
       document.body.style.overflow = '';
+      if (active instanceof HTMLElement) active.focus();
     };
   }, [open, onClose]);
 
@@ -39,12 +74,16 @@ export function Dialog({
         onClick={onClose}
       />
       <div
+        ref={panelRef}
         className={cn(
           'relative z-10 my-8 flex max-h-[calc(100vh-4rem)] w-full max-w-lg flex-col rounded-lg border border-border bg-card p-6 shadow-lg animate-slide-up',
           className,
         )}
         role="dialog"
         aria-modal="true"
+        aria-labelledby={title ? titleId : undefined}
+        aria-describedby={description ? descId : undefined}
+        tabIndex={-1}
       >
         <button
           onClick={onClose}
@@ -53,9 +92,9 @@ export function Dialog({
         >
           <X className="h-4 w-4" />
         </button>
-        {title && <h2 className="pr-8 text-lg font-semibold">{title}</h2>}
+        {title && <h2 id={titleId} className="pr-8 text-lg font-semibold">{title}</h2>}
         {description && (
-          <p className="mt-1 text-sm text-muted-foreground">{description}</p>
+          <p id={descId} className="mt-1 text-sm text-muted-foreground">{description}</p>
         )}
         {/* Body scrolls on its own so tall dialogs never clip their top/footer. */}
         <div className={cn('min-h-0 flex-1 overflow-y-auto', title && 'mt-4')}>

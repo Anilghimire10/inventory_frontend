@@ -23,9 +23,37 @@ export interface AuthUserLite {
   role: UserRole;
 }
 
+export interface Business {
+  id: string;
+  name: string;
+  type: string;
+  salesModel: string;
+  currency: string;
+  taxEnabled?: boolean;
+  taxId?: string | null;
+  showTaxIdOnBill?: boolean;
+}
+
+export interface SessionUser {
+  id: string;
+  email: string;
+  name: string;
+  role: UserRole;
+  storeId?: string | null;
+  business?: Business;
+}
+
 export interface Paginated<T> {
   data: T[];
-  meta: { total: number; page: number; limit: number; pages: number };
+  meta: {
+    total: number;
+    page: number;
+    limit: number;
+    pages: number;
+    revenue?: number;
+    todayRevenue?: number;
+    todayCount?: number;
+  };
 }
 
 export interface Store {
@@ -255,7 +283,7 @@ export interface AppUser {
 }
 
 export interface Dashboard {
-  todaySalesCount: number;
+  totalSalesCount: number;
   lowStockCount: number;
   expiringSoonCount: number;
   topProducts: { productId: string; name: string; quantitySold: number }[];
@@ -266,7 +294,7 @@ export interface Dashboard {
     inStock: number;
   }[];
   // Owner-only financial figures + charts (absent for other roles).
-  todaySalesTotal?: number;
+  totalSalesTotal?: number;
   inventoryValue?: number;
   salesTrend?: { date: string; total: number; count: number }[];
   hourlyToday?: { hour: number; total: number; count: number }[];

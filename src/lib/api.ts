@@ -28,7 +28,11 @@ api.interceptors.response.use(
   (error: AxiosError) => {
     if (error.response?.status === 401 && getToken()) {
       clearToken();
-      if (!location.pathname.startsWith('/login')) location.href = '/login';
+      if (!location.pathname.startsWith('/login')) {
+        // Full-page redirect from an axios interceptor (no router in scope).
+        // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+        location.href = '/login';
+      }
     }
     return Promise.reject(error);
   },

@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Field } from '@/components/ui/label';
 import { Dialog, DialogFooter } from '@/components/ui/dialog';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
 import { useToast } from '@/components/ui/toast';
 import { apiError } from '@/lib/api';
@@ -26,6 +27,7 @@ export default function CategoriesPage() {
   const [name, setName] = useState('');
   // The category whose products we're currently viewing.
   const [viewing, setViewing] = useState<Category | null>(null);
+  const [removeTarget, setRemoveTarget] = useState<Category | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ['categories'],
@@ -94,16 +96,16 @@ export default function CategoriesPage() {
                 <TD>
                   <div className="flex justify-end gap-1">
                     <Button size="icon" variant="ghost" onClick={() => setViewing(c)}
-                      title="View products">
+                      title="View products" aria-label={`View products in ${c.name}`}>
                       <Package className="h-4 w-4" />
                     </Button>
-                    <Button size="icon" variant="ghost"
+                    <Button size="icon" variant="ghost" aria-label={`Edit ${c.name}`}
                       onClick={() => { setEditing(c); setName(c.name); setOpen(true); }}>
                       <Pencil className="h-4 w-4" />
                     </Button>
                     {canDelete && (
-                      <Button size="icon" variant="ghost"
-                        onClick={() => confirm(`Delete "${c.name}"?`) && remove.mutate(c.id)}>
+                      <Button size="icon" variant="ghost" aria-label={`Delete ${c.name}`}
+                        onClick={() => setRemoveTarget(c)}>
                         <Trash2 className="h-4 w-4 text-destructive" />
                       </Button>
                     )}
@@ -126,6 +128,18 @@ export default function CategoriesPage() {
           </DialogFooter>
         </form>
       </Dialog>
+
+      <ConfirmDialog
+        open={!!removeTarget}
+        title="Delete category"
+        description={removeTarget ? `Delete "${removeTarget.name}" and its grouping?` : undefined}
+        confirmLabel="Delete"
+        loading={remove.isPending}
+        onConfirm={() => {
+          if (removeTarget) remove.mutate(removeTarget.id);
+        }}
+        onCancel={() => setRemoveTarget(null)}
+      />
 
       {viewing && (
         <CategoryProductsDialog

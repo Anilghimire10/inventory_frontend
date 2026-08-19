@@ -11,7 +11,7 @@ export const Select = forwardRef<
       ref={ref}
       className={cn(
         'flex h-10 w-full appearance-none rounded-md border border-input bg-background px-3 pr-9 py-2 text-sm',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+        'focus-visible:outline-2 focus-visible:outline-ring outline-offset-0',
         'disabled:cursor-not-allowed disabled:opacity-50',
         className,
       )}

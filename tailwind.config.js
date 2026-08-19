@@ -1,5 +1,5 @@
 /** @type {import('tailwindcss').Config} */
-export default {
+const config = {
   darkMode: 'class', // toggled by adding/removing `.dark` on <html>
   content: ['./src/**/*.{ts,tsx}'],
   theme: {
@@ -60,12 +60,19 @@ export default {
           from: { opacity: '0', transform: 'translateY(8px)' },
           to: { opacity: '1', transform: 'translateY(0)' },
         },
+        'slide-down': {
+          from: { opacity: '0', transform: 'translateY(-8px)' },
+          to: { opacity: '1', transform: 'translateY(0)' },
+        },
       },
       animation: {
         'fade-in': 'fade-in 0.15s ease-out',
         'slide-up': 'slide-up 0.2s ease-out',
+        'slide-down': 'slide-down 0.2s ease-out',
       },
     },
   },
   plugins: [],
 };
+
+export default config;
