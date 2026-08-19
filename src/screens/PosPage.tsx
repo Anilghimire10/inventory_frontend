@@ -1,8 +1,7 @@
 'use client';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  Search,
   Plus,
   Minus,
   ShoppingCart,
@@ -10,7 +9,6 @@ import {
   Printer,
   Package,
   Barcode,
-  Store,
   ClipboardPlus,
   Pause,
   RotateCcw,
@@ -19,7 +17,6 @@ import {
 import { CategoriesApi, CustomersApi, InventoryApi, ProductsApi, SalesApi } from '@/api';
 import type { Product, Paginated, StockItem } from '@/types';
 import { useAuth } from '@/auth/AuthContext';
-import { useStores } from '@/hooks/useStores';
 import { printSale } from '@/lib/print';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -56,8 +53,12 @@ export default function PosPage() {
   const [prescriptionRef, setPrescriptionRef] = useState('');
   const [lastSaleId, setLastSaleId] = useState<string | null>(null);
 
-  const { data: stores } = useStores();
-  const activeStore = stores?.find((s) => s.isActive) ?? stores?.[0];
+  // Keep the newest line item in view as the sale grows.
+  const cartScrollRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = cartScrollRef.current;
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+  }, [cart]);
 
   const { data: products } = useQuery({
     queryKey: ['pos-products', search],
@@ -221,10 +222,6 @@ export default function PosPage() {
       {/* Header — register + last-receipt print */}
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <h1 className="text-xl font-semibold tracking-tight">Point of Sale</h1>
-        <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
-          <Store className="h-4 w-4" />
-          {activeStore?.name ?? 'Register'}
-        </span>
         <div className="ml-auto flex items-center gap-2">
           {lastSaleId && (
             <Button variant="outline" size="sm" onClick={printLast} title="Print the last sale's receipt">
@@ -235,8 +232,8 @@ export default function PosPage() {
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col gap-4 lg:flex-row">
-        {/* Product picker (60%) */}
-        <div className="flex min-h-0 flex-1 flex-col gap-3 lg:w-3/5">
+        {/* Product picker (55%) */}
+        <div className="flex min-h-0 flex-1 flex-col gap-3 lg:w-[55%]">
           <form onSubmit={scan} className="relative">
             <Input
               className="h-11 pr-10"
@@ -261,7 +258,7 @@ export default function PosPage() {
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto pr-1">
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-2 xl:grid-cols-3">
               {filteredProducts.map((p) => {
                 const available = onHand.get(p.id) ?? 0;
                 const out = available <= 0;
@@ -273,7 +270,7 @@ export default function PosPage() {
                     onClick={out ? undefined : () => add(p)}
                     onKeyDown={out ? undefined : (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); add(p); } }}
                     className={cn(
-                      'group flex cursor-pointer flex-col overflow-hidden rounded-lg border border-border bg-card shadow-sm transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                      'group flex cursor-pointer flex-col overflow-hidden rounded-lg border border-border bg-card shadow-sm transition-all focus-visible:outline-2 focus-visible:outline-ring outline-offset-1',
                       out ? 'cursor-default opacity-50' : 'hover:border-primary/50 hover:shadow-md',
                     )}
                   >
@@ -301,23 +298,23 @@ export default function PosPage() {
                         </div>
                       )}
                     </div>
-                    <div className="flex flex-1 flex-col gap-1 p-3">
+                    <div className="flex flex-1 flex-col gap-1.5 p-4">
                       <div className="flex items-start gap-1">
-                        <span className="line-clamp-2 flex-1 text-sm font-medium">{p.name}</span>
+                        <span className="line-clamp-2 flex-1 text-base font-medium">{p.name}</span>
                         {p.isRxRequired && <RxBadge />}
                       </div>
-                      <div className="mt-auto flex items-center justify-between pt-1">
-                        <span className="font-semibold text-primary">{formatMoney(p.sellingPrice)}</span>
+                      <div className="mt-auto flex items-center justify-between pt-2">
+                        <span className="text-base font-bold text-primary">{formatMoney(p.sellingPrice)}</span>
                         <button
                           disabled={out}
                           onClick={(e) => { e.stopPropagation(); add(p); }}
                           aria-label={`Add ${p.name}`}
-                          className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-primary-foreground transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-40"
+                          className="flex h-9 w-9 items-center justify-center rounded-full bg-primary text-primary-foreground transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-40"
                         >
-                          <Plus className="h-4 w-4" />
+                          <Plus className="h-5 w-5" />
                         </button>
                       </div>
-                      <div className="text-xs text-muted-foreground">{p.sku || p.unit}</div>
+                      <div className="text-sm text-muted-foreground">{p.sku || p.unit}</div>
                     </div>
                   </div>
                 );
@@ -329,10 +326,15 @@ export default function PosPage() {
           </div>
         </div>
 
-        {/* Cart (40%) */}
-        <div className="flex min-h-0 flex-col lg:w-2/5">
-          <Card className="flex min-h-0 flex-1 flex-col overflow-hidden">
-            <div className="flex items-center gap-2 border-b border-border bg-muted/30 px-4 py-3">
+        {/* Cart (45%) */}
+        <div className="flex min-h-0 flex-col lg:w-[45%]">
+          <Card className={cn(
+            'flex min-h-0 flex-1 flex-col overflow-hidden transition-colors',
+            cartCount > 0
+              ? 'border-primary'
+              : 'border-border hover:border-primary',
+          )}>
+            <div className="flex items-center gap-2 border-b border-primary/30 bg-muted/30 px-4 py-3">
               <ShoppingCart className="h-5 w-5 text-primary" />
               <h2 className="font-semibold">Current Sale</h2>
               {cartCount > 0 && (
@@ -342,6 +344,8 @@ export default function PosPage() {
               )}
             </div>
 
+            {/* Whole sale content scrolls together (header stays pinned) */}
+            <div ref={cartScrollRef} className="min-h-0 flex-1 overflow-y-auto">
             {heldCart && cart.length === 0 && (
               <div className="flex items-center gap-2 border-b border-warning/40 bg-warning/10 px-4 py-2.5">
                 <AlertTriangle className="h-4 w-4 shrink-0 text-warning" />
@@ -367,8 +371,8 @@ export default function PosPage() {
               </Field>
             </div>
 
-            {/* Scrollable middle: line items + payment options */}
-            <div className="min-h-0 flex-1 overflow-y-auto">
+            {/* Line items */}
+            <div>
               {cart.length === 0 ? (
                 <div className="flex flex-col items-center justify-center gap-2 px-4 py-16 text-center">
                   <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
@@ -380,38 +384,38 @@ export default function PosPage() {
               ) : (
                 <ul className="divide-y divide-border">
                   {cart.map((l) => (
-                    <li key={l.product.id} className="flex items-center gap-3 px-4 py-3">
+                    <li key={l.product.id} className="flex items-center gap-4 px-4 py-5">
                       {l.product.imageUrl ? (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img src={l.product.imageUrl} alt={l.product.name}
-                          className="h-10 w-10 shrink-0 rounded-md border border-border object-cover" />
+                          className="h-16 w-16 shrink-0 rounded-md border border-border object-cover" />
                       ) : (
-                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-muted text-muted-foreground">
-                          <Package className="h-4 w-4" />
+                        <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-md border border-border bg-muted text-muted-foreground">
+                          <Package className="h-6 w-6" />
                         </div>
                       )}
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-1">
-                          <span className="truncate text-sm font-medium">{l.product.name}</span>
+                          <span className="truncate text-lg font-medium">{l.product.name}</span>
                           {l.product.isRxRequired && <RxBadge />}
                         </div>
-                        <div className="text-xs text-muted-foreground">{l.product.sku || l.product.unit}</div>
-                        <div className="mt-1.5 flex items-center gap-1">
+                        <div className="text-sm text-muted-foreground">{l.product.sku || l.product.unit}</div>
+                        <div className="mt-3 flex items-center gap-2">
                           <div className="flex items-center gap-1">
-                            <Button size="icon" variant="outline" className="h-6 w-6"
-                              onClick={() => setQty(l.product.id, l.quantity - 1)}><Minus className="h-3 w-3" /></Button>
-                            <input className="h-6 w-10 rounded border border-input bg-background text-center text-sm"
+                            <Button size="icon" variant="outline" className="h-9 w-9" aria-label={`Decrease quantity of ${l.product.name}`}
+                              onClick={() => setQty(l.product.id, l.quantity - 1)}><Minus className="h-4 w-4" /></Button>
+                            <input className="h-9 w-14 rounded border border-input bg-background text-center text-base"
                               value={l.quantity}
                               onChange={(e) => setQty(l.product.id, parseInt(e.target.value) || 0)} />
-                            <Button size="icon" variant="outline" className="h-6 w-6"
-                              onClick={() => setQty(l.product.id, l.quantity + 1)}><Plus className="h-3 w-3" /></Button>
+                            <Button size="icon" variant="outline" className="h-9 w-9" aria-label={`Increase quantity of ${l.product.name}`}
+                              onClick={() => setQty(l.product.id, l.quantity + 1)}><Plus className="h-4 w-4" /></Button>
                           </div>
-                          <span className="ml-auto font-medium">
+                          <span className="ml-auto text-lg font-semibold">
                             {formatMoney(Number(l.product.sellingPrice) * l.quantity)}
                           </span>
-                          <Button size="icon" variant="ghost" className="h-6 w-6 shrink-0"
+                          <Button size="icon" variant="ghost" className="h-9 w-9 shrink-0" aria-label={`Remove ${l.product.name} from cart`}
                             onClick={() => setQty(l.product.id, 0)}>
-                            <X className="h-3.5 w-3.5 text-muted-foreground" />
+                            <X className="h-5 w-5 text-muted-foreground" />
                           </Button>
                         </div>
                       </div>
@@ -419,13 +423,21 @@ export default function PosPage() {
                   ))}
                 </ul>
               )}
+            </div>
 
-              {cart.length > 0 && (
-                <div className="space-y-3 border-t border-border p-4">
+            {/* Payment details — fixed section, clearly separate from items */}
+            {cart.length > 0 && (
+              <div className="border-t border-border px-4 py-3">
+                <div className="mb-3 flex items-center gap-2">
+                  <ClipboardPlus className="h-4 w-4 text-primary" />
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Payment details
+                  </h3>
+                </div>
+                <div className="space-y-3">
                   {needsRx && (
                     <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3">
                       <div className="mb-2 flex items-center gap-2">
-                        <ClipboardPlus className="h-4 w-4 text-destructive" />
                         <span className="text-sm font-medium">Prescription required</span>
                         <RxBadge className="ml-auto" />
                       </div>
@@ -470,8 +482,8 @@ export default function PosPage() {
                     </Field>
                   </div>
                 </div>
-              )}
-            </div>
+              </div>
+            )}
 
             {/* Pinned totals + checkout */}
             {cart.length > 0 && (
@@ -512,6 +524,7 @@ export default function PosPage() {
                 )}
               </div>
             )}
+            </div>
           </Card>
         </div>
       </div>

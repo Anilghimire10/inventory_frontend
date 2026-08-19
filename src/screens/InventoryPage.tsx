@@ -13,6 +13,7 @@ import { Field } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogFooter } from '@/components/ui/dialog';
 import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
+import { Pagination } from '@/components/ui/pagination';
 import { useToast } from '@/components/ui/toast';
 import { apiError } from '@/lib/api';
 import { formatDate, formatDateTime } from '@/lib/format';
@@ -25,14 +26,16 @@ export default function InventoryPage() {
   const { show } = useToast();
   const { data: stores } = useStores();
   const [tab, setTab] = useState<Tab>('stock');
+  const [stockPage, setStockPage] = useState(1);
+  const [movementPage, setMovementPage] = useState(1);
   const [adjusting, setAdjusting] = useState<StockItem | null>(null);
   const [delta, setDelta] = useState(0);
   const [reason, setReason] = useState('COUNT_CORRECTION');
   const [note, setNote] = useState('');
 
   const stock = useQuery({
-    queryKey: ['stock'],
-    queryFn: () => InventoryApi.stock({ limit: 100 }),
+    queryKey: ['stock', stockPage],
+    queryFn: () => InventoryApi.stock({ page: stockPage, limit: 20 }),
     enabled: tab === 'stock',
   });
   const low = useQuery({
@@ -46,8 +49,8 @@ export default function InventoryPage() {
     enabled: tab === 'expiring',
   });
   const movements = useQuery({
-    queryKey: ['movements'],
-    queryFn: () => InventoryApi.movements({ limit: 100 }),
+    queryKey: ['movements', movementPage],
+    queryFn: () => InventoryApi.movements({ page: movementPage, limit: 20 }),
     enabled: tab === 'movements',
   });
 
@@ -110,7 +113,10 @@ export default function InventoryPage() {
         !stock.data || stock.data.data.length === 0 ? (
           <EmptyState title="No stock records" description="Stock appears once you receive purchases or adjust manually." icon={Boxes} />
         ) : (
-          <StockTable items={stock.data.data} onAdjust={openAdjust} />
+          <>
+            <StockTable items={stock.data.data} onAdjust={openAdjust} />
+            <Pagination page={stock.data.meta.page} pages={stock.data.meta.pages} onPage={setStockPage} />
+          </>
         )
       )}
 
@@ -149,22 +155,25 @@ export default function InventoryPage() {
         !movements.data || movements.data.data.length === 0 ? (
           <EmptyState title="No movements yet" description="Every stock change will be logged here." icon={History} />
         ) : (
-          <Table>
-            <THead><TR><TH>When</TH><TH>Product</TH><TH>Type</TH><TH className="text-right">Change</TH><TH>By</TH></TR></THead>
-            <TBody>
-              {movements.data.data.map((m) => (
-                <TR key={m.id}>
-                  <TD className="whitespace-nowrap text-muted-foreground">{formatDateTime(m.createdAt)}</TD>
-                  <TD className="font-medium">{m.product.name}</TD>
-                  <TD><Badge tone="muted">{m.type}</Badge></TD>
-                  <TD className={cn('text-right font-medium', m.quantity >= 0 ? 'text-success' : 'text-destructive')}>
-                    {m.quantity >= 0 ? '+' : ''}{m.quantity}
-                  </TD>
-                  <TD className="text-muted-foreground">{m.user?.name ?? '—'}</TD>
-                </TR>
-              ))}
-            </TBody>
-          </Table>
+          <>
+            <Table>
+              <THead><TR><TH>When</TH><TH>Product</TH><TH>Type</TH><TH className="text-right">Change</TH><TH>By</TH></TR></THead>
+              <TBody>
+                {movements.data.data.map((m) => (
+                  <TR key={m.id}>
+                    <TD className="whitespace-nowrap text-muted-foreground">{formatDateTime(m.createdAt)}</TD>
+                    <TD className="font-medium">{m.product.name}</TD>
+                    <TD><Badge tone="muted">{m.type}</Badge></TD>
+                    <TD className={cn('text-right font-medium', m.quantity >= 0 ? 'text-success' : 'text-destructive')}>
+                      {m.quantity >= 0 ? '+' : ''}{m.quantity}
+                    </TD>
+                    <TD className="text-muted-foreground">{m.user?.name ?? '—'}</TD>
+                  </TR>
+                ))}
+              </TBody>
+            </Table>
+            <Pagination page={movements.data.meta.page} pages={movements.data.meta.pages} onPage={setMovementPage} />
+          </>
         )
       )}
 

@@ -1,5 +1,5 @@
 'use client';
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Receipt,
@@ -9,8 +9,9 @@ import {
   FileDown,
   Search,
   Check,
-  Eye,
   MoreVertical,
+  Banknote,
+  TrendingUp,
 } from 'lucide-react';
 import { SalesApi } from '@/api';
 import type { PaymentMethod, Sale, SaleListItem } from '@/types';
@@ -21,11 +22,13 @@ import { Select } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogFooter } from '@/components/ui/dialog';
 import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
-import { Pagination } from './ProductsPage';
+import { Pagination } from '@/components/ui/pagination';
 import { useToast } from '@/components/ui/toast';
 import { apiError } from '@/lib/api';
 import { printSale } from '@/lib/print';
 import { formatMoney, formatDateTime } from '@/lib/format';
+import { Card } from '@/components/ui/card';
+import { cn } from '@/lib/utils';
 
 type DateFilter = 'all' | 'today' | '7d' | '30d';
 type StatusFilter = 'all' | 'paid' | 'due' | 'partial' | 'return' | 'held';
@@ -44,6 +47,16 @@ const PAYMENT_LABEL: Record<PaymentMethod, string> = {
   CREDIT: 'Credit',
   MIXED: 'Cash + Credit',
 };
+
+const CUTOFF_MS: Record<Exclude<DateFilter, 'all'>, number> = {
+  today: 24 * 3600 * 1000,
+  '7d': 7 * 24 * 3600 * 1000,
+  '30d': 30 * 24 * 3600 * 1000,
+};
+
+function cutoffDate(filter: Exclude<DateFilter, 'all'>): string {
+  return new Date(Date.now() - CUTOFF_MS[filter]).toISOString();
+}
 
 /** Friendly, payment-aware status: credit sales read as "Due", part-paid as "Partial". */
 function viewStatus(s: SaleListItem): StatusView {
@@ -68,8 +81,16 @@ export default function SalesPage() {
   const [returnQty, setReturnQty] = useState<Record<string, number>>({});
 
   const { data, isLoading } = useQuery({
-    queryKey: ['sales', page, search],
-    queryFn: () => SalesApi.list({ page, limit: 20, search: search || undefined }),
+    queryKey: ['sales', page, search, dateFilter, statusFilter, payFilter],
+    queryFn: () =>
+      SalesApi.list({
+        page,
+        limit: 20,
+        search: search || undefined,
+        from: dateFilter === 'all' ? undefined : cutoffDate(dateFilter),
+        status: statusFilter === 'all' ? undefined : statusFilter,
+        paymentMethod: payFilter === 'all' ? undefined : payFilter,
+      }),
   });
   const detail = useQuery({
     queryKey: ['sale', openId],
@@ -77,23 +98,7 @@ export default function SalesPage() {
     enabled: !!openId,
   });
 
-  // Date / status / payment filters are applied client-side over the fetched page.
-  const sales = useMemo(() => {
-    if (!data) return [];
-    const now = Date.now();
-    const cutoff = (() => {
-      if (dateFilter === 'today') return now - 24 * 3600 * 1000;
-      if (dateFilter === '7d') return now - 7 * 24 * 3600 * 1000;
-      if (dateFilter === '30d') return now - 30 * 24 * 3600 * 1000;
-      return 0;
-    })();
-    return data.data.filter((s) => {
-      if (dateFilter !== 'all' && new Date(s.createdAt).getTime() < cutoff) return false;
-      if (payFilter !== 'all' && (s.paymentMethod ?? 'CASH') !== payFilter) return false;
-      if (statusFilter !== 'all' && viewStatus(s).key !== statusFilter) return false;
-      return true;
-    });
-  }, [data, dateFilter, statusFilter, payFilter]);
+  const sales = data?.data ?? [];
 
   const doReturn = useMutation({
     mutationFn: () => {
@@ -140,6 +145,35 @@ export default function SalesPage() {
     <div>
       <PageHeader title="Sales" description="Transaction history and returns." />
 
+{/* Summary cards — always today's completed sales */}
+      <div className="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <SaleStat
+          label="Today's Sales"
+          value={formatMoney(data?.meta.todayRevenue ?? 0)}
+          sub="Total from all completed sales today"
+          icon={Banknote}
+          tone="bg-primary/10 text-primary"
+        />
+        <SaleStat
+          label="Transactions"
+          value={String(data?.meta.todayCount ?? 0)}
+          sub="Number of receipts made today"
+          icon={Receipt}
+          tone="bg-primary/10 text-primary"
+        />
+        <SaleStat
+          label="Average Sale"
+          value={formatMoney(
+            (data?.meta.todayCount ?? 0) > 0
+              ? (data?.meta.todayRevenue ?? 0) / (data?.meta.todayCount ?? 1)
+              : 0,
+          )}
+          sub="Average of today's sales"
+          icon={TrendingUp}
+          tone="bg-primary/10 text-primary"
+        />
+      </div>
+
       {/* Filter bar */}
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <div className="relative min-w-52 flex-1">
@@ -179,9 +213,11 @@ export default function SalesPage() {
 
       {isLoading ? <LoadingBlock /> :
         !data || data.data.length === 0 ? (
-          <EmptyState title="No sales yet" description="Completed sales will show up here." icon={Receipt} />
-        ) : sales.length === 0 ? (
-          <EmptyState title="No sales match your filters" description="Try widening your date, status, or payment filters." icon={Search} />
+          hasFilters ? (
+            <EmptyState title="No sales match your filters" description="Try widening your date, status, or payment filters." icon={Search} />
+          ) : (
+            <EmptyState title="No sales yet" description="Completed sales will show up here." icon={Receipt} />
+          )
         ) : (
           <>
             <Table>
@@ -190,7 +226,7 @@ export default function SalesPage() {
                 {sales.map((s) => {
                   const v = viewStatus(s);
                   return (
-                    <TR key={s.id}>
+                    <TR key={s.id} className="cursor-pointer" onClick={() => { setOpenId(s.id); setReturnQty({}); }}>
                       <TD className="font-medium">{s.receiptNo}</TD>
                       <TD className="whitespace-nowrap text-muted-foreground">{formatDateTime(s.createdAt)}</TD>
                       <TD>{s.customer?.name ?? 'Walk-in'}</TD>
@@ -205,7 +241,6 @@ export default function SalesPage() {
                       <TD>
                         <div className="flex justify-end">
                           <RowMenu
-                            onView={() => { setOpenId(s.id); setReturnQty({}); }}
                             onPrint={() => printOne(s.id)}
                             onEmail={() => emailOne.mutate(s.id)}
                           />
@@ -237,7 +272,7 @@ export default function SalesPage() {
               <div className="text-right text-sm">
                 <div className="font-semibold">{sale.receiptNo}</div>
                 <div className="text-muted-foreground">{formatDateTime(sale.createdAt)}</div>
-                <div className="text-muted-foreground">Payment: {sale.paymentMethod}</div>
+                <div className="text-muted-foreground">Payment: {PAYMENT_LABEL[sale.paymentMethod ?? 'CASH']}</div>
                 {sale.prescriptionRef && <div className="text-muted-foreground">Rx: {sale.prescriptionRef}</div>}
               </div>
             </div>
@@ -315,29 +350,58 @@ export default function SalesPage() {
   );
 }
 
+function SaleStat({
+  label,
+  value,
+  sub,
+  icon: Icon,
+  tone,
+}: {
+  label: string;
+  value: string;
+  sub: string;
+  icon: React.ComponentType<{ className?: string }>;
+  tone: string;
+}) {
+  return (
+    <Card className="p-5">
+      <div className="flex items-start justify-between">
+        <div>
+          <p className="text-sm text-muted-foreground">{label}</p>
+          <p className="mt-1 text-2xl font-semibold tracking-tight">{value}</p>
+          <p className="mt-1 text-xs text-muted-foreground">{sub}</p>
+        </div>
+        <div className={cn('flex h-10 w-10 items-center justify-center rounded-lg', tone)}>
+          <Icon className="h-5 w-5" />
+        </div>
+      </div>
+    </Card>
+  );
+}
+
 function RowMenu({
-  onView,
   onPrint,
   onEmail,
 }: {
-  onView: () => void;
   onPrint: () => void;
   onEmail: () => void;
 }) {
   const [open, setOpen] = useState(false);
   return (
     <div className="relative" onBlur={() => setTimeout(() => setOpen(false), 120)}>
-      <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => setOpen((o) => !o)}>
+      <Button
+        size="icon"
+        variant="ghost"
+        className="h-8 w-8"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label="Receipt actions"
+        onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }}
+      >
         <MoreVertical className="h-4 w-4" />
       </Button>
       {open && (
         <div className="absolute right-0 z-20 mt-1 w-44 rounded-md border border-border bg-popover p-1 shadow-lg animate-fade-in">
-          <button
-            onClick={() => { setOpen(false); onView(); }}
-            className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent"
-          >
-            <Eye className="h-4 w-4" /> View details
-          </button>
           <button
             onClick={() => { setOpen(false); onPrint(); }}
             className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent"

@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Field } from '@/components/ui/label';
 import { Dialog, DialogFooter } from '@/components/ui/dialog';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
 import { useToast } from '@/components/ui/toast';
 import { apiError } from '@/lib/api';
@@ -26,6 +27,7 @@ export default function SuppliersPage() {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Supplier | null>(null);
   const [form, setForm] = useState<Form>(empty);
+  const [removeTarget, setRemoveTarget] = useState<Supplier | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ['suppliers'],
@@ -89,9 +91,9 @@ export default function SuppliersPage() {
                   <TD className="text-muted-foreground">{s.email || '—'}</TD>
                   <TD>
                     <div className="flex justify-end gap-1">
-                      <Button size="icon" variant="ghost" onClick={() => openEdit(s)}><Pencil className="h-4 w-4" /></Button>
+                      <Button size="icon" variant="ghost" onClick={() => openEdit(s)} aria-label={`Edit ${s.name}`}><Pencil className="h-4 w-4" /></Button>
                       {canDelete && (
-                        <Button size="icon" variant="ghost" onClick={() => confirm(`Remove "${s.name}"?`) && remove.mutate(s.id)}>
+                        <Button size="icon" variant="ghost" onClick={() => setRemoveTarget(s)} aria-label={`Remove ${s.name}`}>
                           <Trash2 className="h-4 w-4 text-destructive" /></Button>
                       )}
                     </div>
@@ -117,6 +119,18 @@ export default function SuppliersPage() {
           </DialogFooter>
         </form>
       </Dialog>
+
+      <ConfirmDialog
+        open={!!removeTarget}
+        title="Remove supplier"
+        description={removeTarget ? `Remove "${removeTarget.name}" and their record?` : undefined}
+        confirmLabel="Remove"
+        loading={remove.isPending}
+        onConfirm={() => {
+          if (removeTarget) remove.mutate(removeTarget.id);
+        }}
+        onCancel={() => setRemoveTarget(null)}
+      />
     </div>
   );
 }

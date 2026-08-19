@@ -1,5 +1,5 @@
 'use client';
-import { useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, ClipboardList, Trash2, Pencil } from 'lucide-react';
 import { ProductsApi, PurchasesApi, SuppliersApi } from '@/api';
@@ -34,6 +34,7 @@ export default function PurchasesPage() {
   const [supplierId, setSupplierId] = useState('');
   const [reference, setReference] = useState('');
   const [lines, setLines] = useState<Line[]>([]);
+  const [nameCache, setNameCache] = useState<Record<string, string>>({});
   const [pickProduct, setPickProduct] = useState('');
   // Supplier payment: pay in full now, buy on credit, or pay part now.
   const [payMode, setPayMode] = useState<'full' | 'credit' | 'partial'>('full');
@@ -43,7 +44,6 @@ export default function PurchasesPage() {
   const newProductEmpty = { name: '', sku: '', unit: 'pcs', costPrice: 0, sellingPrice: 0 };
   const [newProdOpen, setNewProdOpen] = useState(false);
   const [newProd, setNewProd] = useState(newProductEmpty);
-  const cachedNames = useRef<Record<string, string>>({});
 
   const { data, isLoading } = useQuery({
     queryKey: ['purchases'],
@@ -169,7 +169,7 @@ export default function PurchasesPage() {
         { productId: product.id, quantity: 1, costPrice: Number(product.costPrice), batchNumber: '', expiryDate: '' },
       ]);
       // keep the name handy for the line label until products refetch
-      cachedNames.current[product.id] = product.name;
+      setNameCache((c) => ({ ...c, [product.id]: product.name }));
       show(`"${product.name}" created`);
       setNewProdOpen(false);
     },
@@ -180,7 +180,7 @@ export default function PurchasesPage() {
   const removeLine = (i: number) => setLines((ls) => ls.filter((_, idx) => idx !== i));
 
   const productName = (id: string) =>
-    products?.data.find((p) => p.id === id)?.name ?? cachedNames.current[id] ?? id;
+    products?.data.find((p) => p.id === id)?.name ?? nameCache[id] ?? id;
 
   return (
     <div>
@@ -216,7 +216,7 @@ export default function PurchasesPage() {
                     <TD className="text-right font-medium">{formatMoney(p.total)}</TD>
                     <TD className="text-right">
                       {p.status !== 'CANCELLED' && (
-                        <Button size="icon" variant="ghost" title="Edit purchase"
+                        <Button size="icon" variant="ghost" title="Edit purchase" aria-label="Edit purchase"
                           onClick={() => openEdit(p.id)}>
                           <Pencil className="h-4 w-4" />
                         </Button>
@@ -269,7 +269,7 @@ export default function PurchasesPage() {
                 <div key={l.productId} className="rounded-md border border-border p-3">
                   <div className="mb-2 flex items-center justify-between">
                     <span className="font-medium">{productName(l.productId)}</span>
-                    <Button size="icon" variant="ghost" onClick={() => removeLine(i)}>
+                    <Button size="icon" variant="ghost" onClick={() => removeLine(i)} aria-label={`Remove ${productName(l.productId)}`}>
                       <Trash2 className="h-4 w-4 text-destructive" />
                     </Button>
                   </div>

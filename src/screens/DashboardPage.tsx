@@ -57,16 +57,16 @@ export default function DashboardPage() {
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
             {showMoney ? (
               <Stat
-                label="Today's Sales"
-                value={formatMoney(data.todaySalesTotal ?? 0)}
-                sub={`${data.todaySalesCount} transactions`}
+                label="Total Sales"
+                value={formatMoney(data.totalSalesTotal ?? 0)}
+                sub={`${data.totalSalesCount} transactions`}
                 icon={Banknote}
                 tone="primary"
               />
             ) : (
               <Stat
-                label="Today's Sales"
-                value={String(data.todaySalesCount)}
+                label="Total Sales"
+                value={String(data.totalSalesCount)}
                 sub="transactions"
                 icon={Receipt}
                 tone="primary"
@@ -147,6 +147,7 @@ export default function DashboardPage() {
                         total: h.total,
                       }))}
                     margin={{ top: 8, right: 8, left: -12, bottom: 0 }}
+                    maxBarSize={48}
                   >
                     <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
                     <XAxis dataKey="label" tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} />

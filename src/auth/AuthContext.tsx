@@ -9,25 +9,7 @@ import {
 import { AuthApi } from '@/api';
 import { clearToken, setToken, getToken } from '@/lib/api';
 import { setCurrency } from '@/lib/format';
-import type { UserRole } from '@/types';
-
-export interface SessionUser {
-  id: string;
-  email: string;
-  name: string;
-  role: UserRole;
-  storeId?: string | null;
-  business?: {
-    id: string;
-    name: string;
-    type: string;
-    salesModel: string;
-    currency: string;
-    taxEnabled?: boolean;
-    taxId?: string | null;
-    showTaxIdOnBill?: boolean;
-  };
-}
+import type { SessionUser } from '@/types';
 
 interface AuthState {
   user: SessionUser | null;
@@ -99,6 +81,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const logout = () => {
     clearToken();
     setUser(null);
+    // Full-page redirect resets the app to a clean login state.
+    // eslint-disable-next-line @next/next/no-location-assign-relative-destination
     location.href = '/login';
   };
 

@@ -9,6 +9,7 @@ import { PasswordInput } from '@/components/ui/password-input';
 import { Field } from '@/components/ui/label';
 import { apiError } from '@/lib/api';
 import { AuthShell } from './LoginPage';
+import { cn } from '@/lib/utils';
 
 export default function ForgotPasswordPage() {
   const router = useRouter();
@@ -17,6 +18,7 @@ export default function ForgotPasswordPage() {
   const [email, setEmail] = useState('');
   const [code, setCode] = useState('');
   const [password, setPassword] = useState('');
+  const [confirm, setConfirm] = useState('');
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
   const [loading, setLoading] = useState(false);
@@ -39,6 +41,10 @@ export default function ForgotPasswordPage() {
   const reset = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    if (confirm !== password) {
+      setError('Passwords do not match');
+      return;
+    }
     setLoading(true);
     try {
       await AuthApi.resetPassword(email, code.trim(), password);
@@ -95,6 +101,18 @@ export default function ForgotPasswordPage() {
               placeholder="At least 8 characters"
               minLength={8}
               required
+            />
+          </Field>
+          <Field label="Confirm new password">
+            <PasswordInput
+              value={confirm}
+              onChange={(e) => setConfirm(e.target.value)}
+              placeholder="Re-enter your new password"
+              minLength={8}
+              required
+              className={cn(
+                confirm && confirm !== password && 'border-destructive focus-visible:outline-destructive',
+              )}
             />
           </Field>
           {info && <p className="text-sm text-primary">{info}</p>}

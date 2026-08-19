@@ -46,7 +46,11 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   return (
     <Ctx.Provider value={{ show }}>
       {children}
-      <div className="fixed bottom-4 right-4 z-[60] flex w-full max-w-sm flex-col gap-2">
+      <div
+        role="status"
+        aria-live="polite"
+        className="fixed right-4 top-16 z-[60] flex w-full max-w-md flex-col gap-2"
+      >
         {toasts.map((t) => (
           <ToastItem key={t.id} toast={t} onClose={() => remove(t.id)} />
         ))}
@@ -70,9 +74,9 @@ function ToastItem({ toast, onClose }: { toast: Toast; onClose: () => void }) {
         : 'text-primary';
   useEffect(() => {}, []);
   return (
-    <div className="flex items-start gap-3 rounded-lg border border-border bg-card p-3 shadow-lg animate-slide-up">
+    <div className="flex items-start gap-3 rounded-lg border border-border bg-card p-3.5 shadow-lg animate-slide-down">
       <Icon className={cn('mt-0.5 h-5 w-5 shrink-0', tone)} />
-      <p className="flex-1 text-sm">{toast.message}</p>
+      <p className="flex-1 text-base font-medium leading-snug">{toast.message}</p>
       <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
         <X className="h-4 w-4" />
       </button>

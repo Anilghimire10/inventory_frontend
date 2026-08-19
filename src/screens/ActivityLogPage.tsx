@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
 import { formatDateTime } from '@/lib/format';
-import { Pagination } from './ProductsPage';
+import { Pagination } from '@/components/ui/pagination';
 
 // Colour the action badge by intent.
 function actionTone(action: string): 'default' | 'success' | 'warning' | 'destructive' | 'muted' {

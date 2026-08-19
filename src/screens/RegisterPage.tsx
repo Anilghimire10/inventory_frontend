@@ -15,7 +15,7 @@ import { cn } from '@/lib/utils';
 import { AuthShell } from './LoginPage';
 
 export default function RegisterPage() {
-  const { user, register, verifyEmail } = useAuth();
+  const { user, register } = useAuth();
   const router = useRouter();
   const [form, setForm] = useState({
     businessName: '',
@@ -65,7 +65,7 @@ export default function RegisterPage() {
     <AuthShell>
       <h1 className="text-xl font-semibold">Create your business</h1>
       <p className="mb-6 mt-1 text-sm text-muted-foreground">
-        Set up your account — you'll be the owner.
+        Set up your account — you&apos;ll be the owner.
       </p>
       <form onSubmit={submit} className="space-y-4">
         <Field label="Business name">
@@ -119,7 +119,7 @@ export default function RegisterPage() {
             minLength={8}
             required
             className={cn(
-              confirm && confirm !== form.password && 'border-destructive focus-visible:ring-destructive',
+              confirm && confirm !== form.password && 'border-destructive focus-visible:outline-destructive',
             )}
           />
           {confirm && confirm !== form.password && (
