@@ -1,6 +1,7 @@
 'use client';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useAuth } from '@/auth/AuthContext';
 import AppLayout from '@/components/layout/AppLayout';
 import { LoadingBlock } from '@/components/ui/misc';
@@ -15,6 +16,16 @@ export default function AppGroupLayout({ children }: { children: React.ReactNode
   const { user, loading } = useAuth();
   const router = useRouter();
   const pathname = usePathname() ?? '/';
+  // React Query lives only inside the authenticated area — public pages never
+  // download its ~40KB bundle.
+  const [client] = useState(
+    () =>
+      new QueryClient({
+        defaultOptions: {
+          queries: { retry: 1, refetchOnWindowFocus: false, staleTime: 30_000 },
+        },
+      }),
+  );
 
   useEffect(() => {
     if (loading) return;
@@ -34,5 +45,9 @@ export default function AppGroupLayout({ children }: { children: React.ReactNode
       </div>
     );
   }
-  return <AppLayout>{children}</AppLayout>;
+  return (
+    <QueryClientProvider client={client}>
+      <AppLayout>{children}</AppLayout>
+    </QueryClientProvider>
+  );
 }
