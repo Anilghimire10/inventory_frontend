@@ -22,13 +22,19 @@ export function Dialog({
   const titleId = useId();
   const descId = useId();
   const panelRef = useRef<HTMLDivElement>(null);
+  // Keep a stable ref so the open effect doesn't re-run (and re-steal focus)
+  // on every parent re-render when an inline onClose is passed.
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
 
   useEffect(() => {
     if (!open) return;
     const panel = panelRef.current;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        onClose();
+        onCloseRef.current();
         return;
       }
       if (e.key !== 'Tab' || !panel) return;
@@ -51,10 +57,10 @@ export function Dialog({
     };
     document.addEventListener('keydown', onKey);
     document.body.style.overflow = 'hidden';
-    // Move focus into the dialog once it opens.
+    // Move focus into the dialog once it opens, skipping the close button.
     const active = document.activeElement;
     const focusables = panel?.querySelectorAll<HTMLElement>(
-      'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])',
+      'a[href], button:not([disabled]):not([aria-label="Close"]), textarea, input, select, [tabindex]:not([tabindex="-1"])',
     );
     const first = focusables && focusables[0];
     first?.focus();
@@ -63,7 +69,7 @@ export function Dialog({
       document.body.style.overflow = '';
       if (active instanceof HTMLElement) active.focus();
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
 

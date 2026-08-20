@@ -3,7 +3,6 @@ import {
   createContext,
   useCallback,
   useContext,
-  useEffect,
   useState,
 } from 'react';
 import { CheckCircle2, XCircle, Info, X } from 'lucide-react';
@@ -72,7 +71,6 @@ function ToastItem({ toast, onClose }: { toast: Toast; onClose: () => void }) {
       : toast.type === 'error'
         ? 'text-destructive'
         : 'text-primary';
-  useEffect(() => {}, []);
   return (
     <div className="flex items-start gap-3 rounded-lg border border-border bg-card p-3.5 shadow-lg animate-slide-down">
       <Icon className={cn('mt-0.5 h-5 w-5 shrink-0', tone)} />
