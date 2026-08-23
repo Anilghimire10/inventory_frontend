@@ -123,7 +123,7 @@ export function AuthShell({ children }: { children: React.ReactNode }) {
       </div>
 
       {/* Form panel */}
-      <div className="flex items-center justify-center bg-muted/30 p-6">
+      <div className="flex items-center justify-center bg-muted/30 p-4 sm:p-6">
         <div className="w-full max-w-sm">
           <div className="mb-6 flex items-center justify-center gap-2 lg:hidden">
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary text-primary-foreground">
@@ -131,7 +131,7 @@ export function AuthShell({ children }: { children: React.ReactNode }) {
             </div>
             <span className="text-lg font-semibold">Inventory Manager</span>
           </div>
-          <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
+          <div className="rounded-xl border border-border bg-card p-5 sm:p-6 shadow-sm">
             {children}
           </div>
         </div>

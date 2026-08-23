@@ -18,6 +18,8 @@ interface AuthState {
   register: (body: {
     businessName: string;
     businessType?: string;
+    salesModel?: string;
+    currency?: string;
     email: string;
     name: string;
     password: string;

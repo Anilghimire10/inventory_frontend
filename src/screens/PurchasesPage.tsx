@@ -342,7 +342,7 @@ export default function PurchasesPage() {
           <Field label="Name">
             <Input value={newProd.name} onChange={(e) => setNewProd((p) => ({ ...p, name: e.target.value }))} required autoFocus />
           </Field>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Field label="SKU (optional)">
               <Input value={newProd.sku} onChange={(e) => setNewProd((p) => ({ ...p, sku: e.target.value }))} />
             </Field>
@@ -350,7 +350,7 @@ export default function PurchasesPage() {
               <Input value={newProd.unit} onChange={(e) => setNewProd((p) => ({ ...p, unit: e.target.value }))} />
             </Field>
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Field label="Cost price">
               <Input type="number" step="0.01" min="0" value={newProd.costPrice}
                 onChange={(e) => setNewProd((p) => ({ ...p, costPrice: Number(e.target.value) }))} />

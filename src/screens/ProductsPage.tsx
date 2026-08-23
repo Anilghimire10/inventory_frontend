@@ -345,7 +345,7 @@ export default function ProductsPage() {
           <Field label="Name">
             <Input value={form.name} onChange={(e) => set('name', e.target.value)} required />
           </Field>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Field label="SKU">
               <Input value={form.sku} onChange={(e) => set('sku', e.target.value)} />
             </Field>
@@ -405,7 +405,7 @@ export default function ProductsPage() {
             </div>
           </Field>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Field label="Unit">
               <Input value={form.unit} onChange={(e) => set('unit', e.target.value)} />
             </Field>
@@ -417,7 +417,7 @@ export default function ProductsPage() {
               />
             </Field>
           </div>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <Field label="Cost price">
               <Input type="number" step="0.01" min="0" value={form.costPrice}
                 onChange={(e) => set('costPrice', Number(e.target.value))} />

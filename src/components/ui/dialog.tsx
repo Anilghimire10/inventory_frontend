@@ -74,7 +74,7 @@ export function Dialog({
   if (!open) return null;
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4 sm:items-center">
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-3 sm:p-4 sm:items-center">
       <div
         className="fixed inset-0 bg-black/50 animate-fade-in"
         onClick={onClose}
@@ -82,7 +82,7 @@ export function Dialog({
       <div
         ref={panelRef}
         className={cn(
-          'relative z-10 my-8 flex max-h-[calc(100vh-4rem)] w-full max-w-lg flex-col rounded-lg border border-border bg-card p-6 shadow-lg animate-slide-up',
+          'relative z-10 my-4 sm:my-8 flex max-h-[calc(100dvh-2rem)] sm:max-h-[calc(100dvh-4rem)] w-full max-w-lg flex-col rounded-lg border border-border bg-card p-4 sm:p-6 shadow-lg animate-slide-up',
           className,
         )}
         role="dialog"
@@ -118,7 +118,7 @@ export function DialogFooter({
 }: React.HTMLAttributes<HTMLDivElement>) {
   return (
     <div
-      className={cn('mt-6 flex justify-end gap-2', className)}
+      className={cn('mt-6 flex flex-wrap justify-end gap-2', className)}
       {...props}
     />
   );

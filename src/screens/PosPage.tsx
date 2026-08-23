@@ -247,7 +247,7 @@ export default function PosPage() {
   };
 
   return (
-    <div className="flex h-[calc(100vh-6rem)] flex-col lg:h-[calc(100vh-7rem)]">
+    <div className="flex h-[calc(100dvh-6rem)] flex-col lg:h-[calc(100dvh-7rem)]">
       {/* Header — register + last-receipt print */}
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <h1 className="text-xl font-semibold tracking-tight">Point of Sale</h1>
@@ -287,7 +287,7 @@ export default function PosPage() {
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto pr-1">
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-4">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4">
               {filteredProducts.map((p) => {
                 const available = onHand.get(p.id) ?? 0;
                 const out = available <= 0;

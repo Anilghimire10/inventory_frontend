@@ -149,14 +149,14 @@ export default function AnalyticsPage() {
             {p.label}
           </Button>
         ))}
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Input type="date" className="h-8 w-auto" value={customFrom}
             onChange={(e) => { setCustomFrom(e.target.value); setRange('custom'); }} />
           <span className="text-sm text-muted-foreground">to</span>
           <Input type="date" className="h-8 w-auto" value={customTo}
             onChange={(e) => { setCustomTo(e.target.value); setRange('custom'); }} />
         </div>
-        <Button size="sm" variant="outline" className="ml-auto" onClick={exportAll}
+        <Button size="sm" variant="outline" className="sm:ml-auto" onClick={exportAll}
           disabled={!data}>
           <Download className="h-4 w-4" /> Export
         </Button>
@@ -196,7 +196,7 @@ function AnalyticsBody({ data, orderValue }: { data: Analytics; orderValue: numb
   return (
     <>
       {/* KPI cards */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <KpiCard icon={Banknote} tone="primary" label="Revenue"
           value={money(data.totals.grossSales)} delta={revDelta} money />
         <KpiCard icon={TrendingUp} tone="primary" label="Gross Profit"

@@ -71,7 +71,7 @@ export default function RegisterPage() {
         <Field label="Business name">
           <Input value={form.businessName} onChange={set('businessName')} required autoFocus />
         </Field>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Field label="Business type">
             <Select value={form.businessType} onChange={set('businessType')}>
               <option value="GROCERY">Grocery</option>

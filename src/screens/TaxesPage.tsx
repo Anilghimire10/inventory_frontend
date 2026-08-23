@@ -98,7 +98,7 @@ export default function TaxesPage() {
 
       <Dialog open={open} onClose={() => setOpen(false)} title={editing ? 'Edit tax' : 'New tax'}>
         <form onSubmit={(e) => { e.preventDefault(); save.mutate(); }} className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Field label="Name">
               <Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} required autoFocus placeholder="VAT" />
             </Field>

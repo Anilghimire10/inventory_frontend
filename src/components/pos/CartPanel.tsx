@@ -163,7 +163,9 @@ export function CartPanel({
         96,
         Math.min(192, window.innerHeight - top - 110),
       );
-      setCustRect({ top, left: r.left, width: r.width, listMax });
+      const width = Math.min(r.width, window.innerWidth - 32);
+      const left = Math.max(16, Math.min(r.left, window.innerWidth - width - 16));
+      setCustRect({ top, left, width, listMax });
     };
     update();
     window.addEventListener('resize', update);

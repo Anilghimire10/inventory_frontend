@@ -72,7 +72,7 @@ export default function Notifications() {
       </button>
 
       {open && (
-        <div className="absolute right-0 mt-1 w-80 overflow-hidden rounded-lg border border-border bg-popover shadow-lg animate-fade-in">
+        <div className="absolute right-0 mt-1 w-[calc(100vw-2rem)] max-w-xs sm:w-80 overflow-hidden rounded-lg border border-border bg-popover shadow-lg animate-fade-in">
           <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
             <span className="text-sm font-semibold">Notifications</span>
             {items.length > 0 && (
