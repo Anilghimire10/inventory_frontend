@@ -107,7 +107,7 @@ export default function SuppliersPage() {
       <Dialog open={open} onClose={() => setOpen(false)} title={editing ? 'Edit supplier' : 'New supplier'}>
         <form onSubmit={(e) => { e.preventDefault(); save.mutate(); }} className="space-y-4">
           <Field label="Name"><Input value={form.name} onChange={set('name')} required autoFocus /></Field>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Field label="Contact name"><Input value={form.contactName} onChange={set('contactName')} /></Field>
             <Field label="Phone"><Input value={form.phone} onChange={set('phone')} /></Field>
           </div>

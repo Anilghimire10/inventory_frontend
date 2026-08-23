@@ -176,12 +176,12 @@ export default function SalesPage() {
 
       {/* Filter bar */}
       <div className="mb-4 flex flex-wrap items-center gap-2">
-        <div className="relative min-w-52 flex-1">
+        <div className="relative min-w-[200px] flex-1">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input className="pl-9" placeholder="Search receipt #…" value={search}
             onChange={(e) => { setSearch(e.target.value); setPage(1); }} />
         </div>
-        <div className="w-36">
+        <div className="w-full sm:w-36">
           <Select value={dateFilter} onChange={(e) => setDateFilter(e.target.value as DateFilter)}>
             <option value="all">All dates</option>
             <option value="today">Today</option>
@@ -189,7 +189,7 @@ export default function SalesPage() {
             <option value="30d">Last 30 days</option>
           </Select>
         </div>
-        <div className="w-36">
+        <div className="w-full sm:w-36">
           <Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}>
             <option value="all">All statuses</option>
             <option value="paid">Paid</option>
@@ -199,7 +199,7 @@ export default function SalesPage() {
             <option value="held">Held</option>
           </Select>
         </div>
-        <div className="w-40">
+        <div className="w-full sm:w-40">
           <Select value={payFilter} onChange={(e) => setPayFilter(e.target.value as 'all' | PaymentMethod)}>
             <option value="all">All payments</option>
             <option value="CASH">Cash</option>
@@ -262,14 +262,14 @@ export default function SalesPage() {
           return (
           <div id="receipt" className="space-y-4">
             {/* Invoice header — business + bill-to */}
-            <div className="flex items-start justify-between gap-4 rounded-md border border-border p-4">
+            <div className="flex flex-col sm:flex-row items-start justify-between gap-3 sm:gap-4 rounded-md border border-border p-4">
               <div className="text-sm">
                 <div className="text-base font-semibold">{sale.business?.name ?? sale.store?.name ?? 'Invoice'}</div>
                 {sale.store?.address && <div className="text-muted-foreground">{sale.store.address}</div>}
                 {sale.store?.phone && <div className="text-muted-foreground">{sale.store.phone}</div>}
                 {showPan && <div className="text-muted-foreground">PAN/VAT: {sale.business?.taxId}</div>}
               </div>
-              <div className="text-right text-sm">
+              <div className="text-left sm:text-right text-sm">
                 <div className="font-semibold">{sale.receiptNo}</div>
                 <div className="text-muted-foreground">{formatDateTime(sale.createdAt)}</div>
                 <div className="text-muted-foreground">Payment: {PAYMENT_LABEL[sale.paymentMethod ?? 'CASH']}</div>

@@ -121,7 +121,7 @@ export default function SettingsPage() {
             <Pencil className="h-4 w-4" /> Edit
           </Button>
         </CardHeader>
-        <CardContent className="grid grid-cols-2 gap-4 text-sm sm:grid-cols-4">
+        <CardContent className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2 md:grid-cols-4">
           <div><div className="text-muted-foreground">Name</div><div className="font-medium">{user?.business?.name}</div></div>
           <div><div className="text-muted-foreground">Type</div><div className="font-medium">{user?.business?.type}</div></div>
           <div><div className="text-muted-foreground">Sells as</div><div className="font-medium">{user?.business?.salesModel === 'WHOLESALE' ? 'Wholesaler' : 'Retailer'}</div></div>
@@ -251,7 +251,7 @@ export default function SettingsPage() {
           <Field label="Name">
             <Input value={biz.name} onChange={(e) => setBiz((b) => ({ ...b, name: e.target.value }))} required autoFocus />
           </Field>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Field label="Sells as">
               <Select value={biz.salesModel} onChange={(e) => setBiz((b) => ({ ...b, salesModel: e.target.value }))}>
                 <option value="RETAIL">Retailer</option>
