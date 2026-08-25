@@ -1,9 +1,10 @@
 'use client';
 import { useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { Plus, Pencil, Trash2, Tags, Package } from 'lucide-react';
 import { CategoriesApi, ProductsApi } from '@/api';
 import type { Category } from '@/types';
+import { useCrudResource } from '@/hooks/useCrudResource';
 import { PageHeader, LoadingBlock, EmptyState } from '@/components/ui/misc';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,50 +12,34 @@ import { Field } from '@/components/ui/label';
 import { Dialog, DialogFooter } from '@/components/ui/dialog';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
-import { useToast } from '@/components/ui/toast';
-import { apiError } from '@/lib/api';
 import { formatMoney } from '@/lib/format';
 import { useAuth } from '@/auth/AuthContext';
 import { can } from '@/lib/permissions';
 
 export default function CategoriesPage() {
-  const qc = useQueryClient();
-  const { show } = useToast();
   const { user } = useAuth();
   const canDelete = !!user && can.deleteCatalog(user.role);
-  const [open, setOpen] = useState(false);
-  const [editing, setEditing] = useState<Category | null>(null);
   const [name, setName] = useState('');
   // The category whose products we're currently viewing.
   const [viewing, setViewing] = useState<Category | null>(null);
-  const [removeTarget, setRemoveTarget] = useState<Category | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ['categories'],
     queryFn: () => CategoriesApi.list(),
   });
 
-  const save = useMutation({
-    mutationFn: () =>
-      editing
-        ? CategoriesApi.update(editing.id, { name })
-        : CategoriesApi.create({ name }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['categories'] });
-      show(editing ? 'Category updated' : 'Category created');
-      setOpen(false);
-    },
-    onError: (e) => show(apiError(e), 'error'),
+  const crud = useCrudResource<Category>({
+    queryKey: ['categories'],
+    api: CategoriesApi,
+    messages: { created: 'Category created', updated: 'Category updated', removed: 'Category deleted' },
   });
 
-  const remove = useMutation({
-    mutationFn: (id: string) => CategoriesApi.remove(id),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['categories'] });
-      show('Category deleted');
-    },
-    onError: (e) => show(apiError(e), 'error'),
-  });
+  const openCreate = () => { setName(''); crud.openCreate(); };
+  const openEdit = (c: Category) => { setName(c.name); crud.openEdit(c); };
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    crud.save.mutate({ name });
+  };
 
   return (
     <div>
@@ -62,7 +47,7 @@ export default function CategoriesPage() {
         title="Categories"
         description="Organize your products into groups."
         action={
-          <Button onClick={() => { setEditing(null); setName(''); setOpen(true); }}>
+          <Button onClick={openCreate}>
             <Plus className="h-4 w-4" /> Add category
           </Button>
         }
@@ -100,12 +85,12 @@ export default function CategoriesPage() {
                       <Package className="h-4 w-4" />
                     </Button>
                     <Button size="icon" variant="ghost" aria-label={`Edit ${c.name}`}
-                      onClick={() => { setEditing(c); setName(c.name); setOpen(true); }}>
+                      onClick={() => openEdit(c)}>
                       <Pencil className="h-4 w-4" />
                     </Button>
                     {canDelete && (
                       <Button size="icon" variant="ghost" aria-label={`Delete ${c.name}`}
-                        onClick={() => setRemoveTarget(c)}>
+                        onClick={() => crud.setRemoveTarget(c)}>
                         <Trash2 className="h-4 w-4 text-destructive" />
                       </Button>
                     )}
@@ -117,28 +102,28 @@ export default function CategoriesPage() {
         </Table>
       )}
 
-      <Dialog open={open} onClose={() => setOpen(false)} title={editing ? 'Edit category' : 'New category'}>
-        <form onSubmit={(e) => { e.preventDefault(); save.mutate(); }} className="space-y-4">
+      <Dialog open={crud.open} onClose={crud.close} title={crud.editing ? 'Edit category' : 'New category'}>
+        <form onSubmit={submit} className="space-y-4">
           <Field label="Name">
             <Input value={name} onChange={(e) => setName(e.target.value)} required autoFocus />
           </Field>
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
-            <Button type="submit" loading={save.isPending}>{editing ? 'Save' : 'Create'}</Button>
+            <Button type="button" variant="outline" onClick={crud.close}>Cancel</Button>
+            <Button type="submit" loading={crud.save.isPending}>{crud.editing ? 'Save' : 'Create'}</Button>
           </DialogFooter>
         </form>
       </Dialog>
 
       <ConfirmDialog
-        open={!!removeTarget}
+        open={!!crud.removeTarget}
         title="Delete category"
-        description={removeTarget ? `Delete "${removeTarget.name}" and its grouping?` : undefined}
+        description={crud.removeTarget ? `Delete "${crud.removeTarget.name}" and its grouping?` : undefined}
         confirmLabel="Delete"
-        loading={remove.isPending}
+        loading={crud.remove.isPending}
         onConfirm={() => {
-          if (removeTarget) remove.mutate(removeTarget.id);
+          if (crud.removeTarget) crud.remove.mutate(crud.removeTarget.id);
         }}
-        onCancel={() => setRemoveTarget(null)}
+        onCancel={() => crud.setRemoveTarget(null)}
       />
 
       {viewing && (

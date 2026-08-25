@@ -1,10 +1,11 @@
 'use client';
 import { useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { Plus, Pencil, UserX, UserCog } from 'lucide-react';
 import { UsersApi } from '@/api';
 import type { AppUser, UserRole } from '@/types';
 import { useAuth } from '@/auth/AuthContext';
+import { useCrudResource } from '@/hooks/useCrudResource';
 import { PageHeader, LoadingBlock, EmptyState } from '@/components/ui/misc';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -15,43 +16,33 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogFooter } from '@/components/ui/dialog';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
-import { useToast } from '@/components/ui/toast';
-import { apiError } from '@/lib/api';
 
 const ROLES: UserRole[] = ['OWNER', 'MANAGER', 'CASHIER', 'STOCK_KEEPER'];
 
 export default function UsersPage() {
-  const qc = useQueryClient();
-  const { show } = useToast();
   const { user: me } = useAuth();
-  const [open, setOpen] = useState(false);
-  const [editing, setEditing] = useState<AppUser | null>(null);
   const [form, setForm] = useState({ name: '', email: '', password: '', role: 'CASHIER' as UserRole });
-  const [deactivateTarget, setDeactivateTarget] = useState<AppUser | null>(null);
 
   const { data, isLoading } = useQuery({ queryKey: ['users'], queryFn: () => UsersApi.list() });
 
-  const save = useMutation({
-    mutationFn: () => {
-      if (editing) {
-        const body: Record<string, unknown> = { name: form.name, role: form.role };
-        if (form.password) body.password = form.password;
-        return UsersApi.update(editing.id, body);
-      }
-      return UsersApi.create(form);
-    },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['users'] }); show(editing ? 'Staff updated' : 'Staff added'); setOpen(false); },
-    onError: (e) => show(apiError(e), 'error'),
+  const crud = useCrudResource<AppUser>({
+    queryKey: ['users'],
+    api: UsersApi,
+    messages: { created: 'Staff added', updated: 'Staff updated', removed: 'Staff deactivated' },
   });
 
-  const deactivate = useMutation({
-    mutationFn: (id: string) => UsersApi.remove(id),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['users'] }); show('Staff deactivated'); },
-    onError: (e) => show(apiError(e), 'error'),
-  });
-
-  const openCreate = () => { setEditing(null); setForm({ name: '', email: '', password: '', role: 'CASHIER' }); setOpen(true); };
-  const openEdit = (u: AppUser) => { setEditing(u); setForm({ name: u.name, email: u.email, password: '', role: u.role }); setOpen(true); };
+  const openCreate = () => { setForm({ name: '', email: '', password: '', role: 'CASHIER' }); crud.openCreate(); };
+  const openEdit = (u: AppUser) => { setForm({ name: u.name, email: u.email, password: '', role: u.role }); crud.openEdit(u); };
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (crud.editing) {
+      const body: Record<string, unknown> = { name: form.name, role: form.role };
+      if (form.password) body.password = form.password;
+      crud.save.mutate(body);
+    } else {
+      crud.save.mutate(form);
+    }
+  };
 
   return (
     <div>
@@ -75,7 +66,7 @@ export default function UsersPage() {
                     <div className="flex justify-end gap-1">
                       <Button size="icon" variant="ghost" onClick={() => openEdit(u)} aria-label={`Edit ${u.name}`}><Pencil className="h-4 w-4" /></Button>
                       {u.id !== me?.id && u.isActive && (
-                        <Button size="icon" variant="ghost" aria-label={`Deactivate ${u.name}`} onClick={() => setDeactivateTarget(u)}>
+                        <Button size="icon" variant="ghost" aria-label={`Deactivate ${u.name}`} onClick={() => crud.setRemoveTarget(u)}>
                           <UserX className="h-4 w-4 text-destructive" /></Button>
                       )}
                     </div>
@@ -86,16 +77,16 @@ export default function UsersPage() {
           </Table>
         )}
 
-      <Dialog open={open} onClose={() => setOpen(false)} title={editing ? 'Edit staff' : 'Add staff'}>
-        <form onSubmit={(e) => { e.preventDefault(); save.mutate(); }} className="space-y-4">
+      <Dialog open={crud.open} onClose={crud.close} title={crud.editing ? 'Edit staff' : 'Add staff'}>
+        <form onSubmit={submit} className="space-y-4">
           <Field label="Name"><Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} required autoFocus /></Field>
           <Field label="Email">
-            <Input type="email" value={form.email} disabled={!!editing}
+            <Input type="email" value={form.email} disabled={!!crud.editing}
               onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} required />
           </Field>
-          <Field label={editing ? 'New password (leave blank to keep)' : 'Password'}>
-            <PasswordInput value={form.password} minLength={editing ? undefined : 8}
-              onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))} required={!editing} />
+          <Field label={crud.editing ? 'New password (leave blank to keep)' : 'Password'}>
+            <PasswordInput value={form.password} minLength={crud.editing ? undefined : 8}
+              onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))} required={!crud.editing} />
           </Field>
           <Field label="Role">
             <Select value={form.role} onChange={(e) => setForm((f) => ({ ...f, role: e.target.value as UserRole }))}>
@@ -103,22 +94,22 @@ export default function UsersPage() {
             </Select>
           </Field>
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
-            <Button type="submit" loading={save.isPending}>{editing ? 'Save' : 'Add'}</Button>
+            <Button type="button" variant="outline" onClick={crud.close}>Cancel</Button>
+            <Button type="submit" loading={crud.save.isPending}>{crud.editing ? 'Save' : 'Add'}</Button>
           </DialogFooter>
         </form>
       </Dialog>
 
       <ConfirmDialog
-        open={!!deactivateTarget}
+        open={!!crud.removeTarget}
         title="Deactivate staff"
-        description={deactivateTarget ? `Deactivate ${deactivateTarget.name}? They won't be able to sign in.` : undefined}
+        description={crud.removeTarget ? `Deactivate ${crud.removeTarget.name}? They won't be able to sign in.` : undefined}
         confirmLabel="Deactivate"
-        loading={deactivate.isPending}
+        loading={crud.remove.isPending}
         onConfirm={() => {
-          if (deactivateTarget) deactivate.mutate(deactivateTarget.id);
+          if (crud.removeTarget) crud.remove.mutate(crud.removeTarget.id);
         }}
-        onCancel={() => setDeactivateTarget(null)}
+        onCancel={() => crud.setRemoveTarget(null)}
       />
     </div>
   );

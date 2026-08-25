@@ -1,9 +1,10 @@
 'use client';
 import { useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { Plus, Pencil, Trash2, Percent } from 'lucide-react';
 import { TaxesApi } from '@/api';
 import type { Tax } from '@/types';
+import { useCrudResource } from '@/hooks/useCrudResource';
 import { PageHeader, LoadingBlock, EmptyState } from '@/components/ui/misc';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -12,8 +13,6 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogFooter } from '@/components/ui/dialog';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
-import { useToast } from '@/components/ui/toast';
-import { apiError } from '@/lib/api';
 import { useAuth } from '@/auth/AuthContext';
 import { can } from '@/lib/permissions';
 
@@ -21,38 +20,26 @@ const empty = { name: '', rate: 0, isActive: true, isDefault: false };
 type Form = typeof empty;
 
 export default function TaxesPage() {
-  const qc = useQueryClient();
-  const { show } = useToast();
   const { user } = useAuth();
   const canManage = !!user && can.manageBusiness(user.role);
-  const [open, setOpen] = useState(false);
-  const [editing, setEditing] = useState<Tax | null>(null);
   const [form, setForm] = useState<Form>(empty);
-  const [removeTarget, setRemoveTarget] = useState<Tax | null>(null);
 
   const { data, isLoading } = useQuery({ queryKey: ['taxes'], queryFn: () => TaxesApi.list() });
 
-  const save = useMutation({
-    mutationFn: () => (editing ? TaxesApi.update(editing.id, form) : TaxesApi.create(form)),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['taxes'] });
-      show(editing ? 'Tax updated' : 'Tax created');
-      setOpen(false);
-    },
-    onError: (e) => show(apiError(e), 'error'),
+  const crud = useCrudResource<Tax>({
+    queryKey: ['taxes'],
+    api: TaxesApi,
+    messages: { created: 'Tax created', updated: 'Tax updated', removed: 'Tax deleted' },
   });
 
-  const remove = useMutation({
-    mutationFn: (id: string) => TaxesApi.remove(id),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['taxes'] }); show('Tax deleted'); },
-    onError: (e) => show(apiError(e), 'error'),
-  });
-
-  const openCreate = () => { setEditing(null); setForm(empty); setOpen(true); };
+  const openCreate = () => { setForm(empty); crud.openCreate(); };
   const openEdit = (t: Tax) => {
-    setEditing(t);
     setForm({ name: t.name, rate: Number(t.rate), isActive: t.isActive, isDefault: t.isDefault });
-    setOpen(true);
+    crud.openEdit(t);
+  };
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    crud.save.mutate(form);
   };
 
   return (
@@ -84,7 +71,7 @@ export default function TaxesPage() {
                   {canManage && (
                     <div className="flex justify-end gap-1">
                       <Button size="icon" variant="ghost" onClick={() => openEdit(t)} aria-label={`Edit ${t.name}`}><Pencil className="h-4 w-4" /></Button>
-                      <Button size="icon" variant="ghost" aria-label={`Delete ${t.name}`} onClick={() => setRemoveTarget(t)}>
+                      <Button size="icon" variant="ghost" aria-label={`Delete ${t.name}`} onClick={() => crud.setRemoveTarget(t)}>
                         <Trash2 className="h-4 w-4 text-destructive" />
                       </Button>
                     </div>
@@ -96,8 +83,8 @@ export default function TaxesPage() {
         </Table>
       )}
 
-      <Dialog open={open} onClose={() => setOpen(false)} title={editing ? 'Edit tax' : 'New tax'}>
-        <form onSubmit={(e) => { e.preventDefault(); save.mutate(); }} className="space-y-4">
+      <Dialog open={crud.open} onClose={crud.close} title={crud.editing ? 'Edit tax' : 'New tax'}>
+        <form onSubmit={submit} className="space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Field label="Name">
               <Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} required autoFocus placeholder="VAT" />
@@ -116,22 +103,22 @@ export default function TaxesPage() {
             </label>
           </div>
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
-            <Button type="submit" loading={save.isPending}>{editing ? 'Save' : 'Create'}</Button>
+            <Button type="button" variant="outline" onClick={crud.close}>Cancel</Button>
+            <Button type="submit" loading={crud.save.isPending}>{crud.editing ? 'Save' : 'Create'}</Button>
           </DialogFooter>
         </form>
       </Dialog>
 
       <ConfirmDialog
-        open={!!removeTarget}
+        open={!!crud.removeTarget}
         title="Delete tax"
-        description={removeTarget ? `Delete the tax rate "${removeTarget.name}"?` : undefined}
+        description={crud.removeTarget ? `Delete the tax rate "${crud.removeTarget.name}"?` : undefined}
         confirmLabel="Delete"
-        loading={remove.isPending}
+        loading={crud.remove.isPending}
         onConfirm={() => {
-          if (removeTarget) remove.mutate(removeTarget.id);
+          if (crud.removeTarget) crud.remove.mutate(crud.removeTarget.id);
         }}
-        onCancel={() => setRemoveTarget(null)}
+        onCancel={() => crud.setRemoveTarget(null)}
       />
     </div>
   );
