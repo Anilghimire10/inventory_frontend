@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, Pencil, Trash2, Users, HandCoins } from 'lucide-react';
 import { CustomersApi } from '@/api';
 import type { Customer } from '@/types';
+import { useCrudResource } from '@/hooks/useCrudResource';
 import { PageHeader, LoadingBlock, EmptyState } from '@/components/ui/misc';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -26,36 +27,19 @@ export default function CustomersPage() {
   const { show } = useToast();
   const { user } = useAuth();
   const canDelete = !!user && can.deleteCustomers(user.role);
-  const [open, setOpen] = useState(false);
-  const [editing, setEditing] = useState<Customer | null>(null);
   const [form, setForm] = useState<Form>(empty);
   const [payFor, setPayFor] = useState<Customer | null>(null);
   const [payAmount, setPayAmount] = useState(0);
-  const [removeTarget, setRemoveTarget] = useState<Customer | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ['customers'],
     queryFn: () => CustomersApi.list({ limit: 100 }),
   });
 
-  const save = useMutation({
-    mutationFn: () => {
-      const body = {
-        name: form.name,
-        phone: form.phone || undefined,
-        email: form.email || undefined,
-        address: form.address || undefined,
-      };
-      return editing ? CustomersApi.update(editing.id, body) : CustomersApi.create(body);
-    },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['customers'] }); show(editing ? 'Customer updated' : 'Customer added'); setOpen(false); },
-    onError: (e) => show(apiError(e), 'error'),
-  });
-
-  const remove = useMutation({
-    mutationFn: (id: string) => CustomersApi.remove(id),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['customers'] }); show('Customer removed'); },
-    onError: (e) => show(apiError(e), 'error'),
+  const crud = useCrudResource<Customer>({
+    queryKey: ['customers'],
+    api: CustomersApi,
+    messages: { created: 'Customer added', updated: 'Customer updated', removed: 'Customer removed' },
   });
 
   const pay = useMutation({
@@ -64,18 +48,27 @@ export default function CustomersPage() {
     onError: (e) => show(apiError(e), 'error'),
   });
 
+  const openCreate = () => { setForm(empty); crud.openCreate(); };
   const openEdit = (c: Customer) => {
-    setEditing(c);
     setForm({ name: c.name, phone: c.phone ?? '', email: c.email ?? '', address: c.address ?? '' });
-    setOpen(true);
+    crud.openEdit(c);
   };
   const set = (k: keyof Form) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm((f) => ({ ...f, [k]: e.target.value }));
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    crud.save.mutate({
+      name: form.name,
+      phone: form.phone || undefined,
+      email: form.email || undefined,
+      address: form.address || undefined,
+    });
+  };
 
   return (
     <div>
       <PageHeader title="Customers" description="Customer records and credit balances."
-        action={<Button onClick={() => { setEditing(null); setForm(empty); setOpen(true); }}>
+        action={<Button onClick={openCreate}>
           <Plus className="h-4 w-4" /> Add customer</Button>} />
 
       {isLoading ? <LoadingBlock /> :
@@ -106,7 +99,7 @@ export default function CustomersPage() {
                         )}
                         <Button size="icon" variant="ghost" onClick={() => openEdit(c)} aria-label={`Edit ${c.name}`}><Pencil className="h-4 w-4" /></Button>
                         {canDelete && (
-                          <Button size="icon" variant="ghost" onClick={() => setRemoveTarget(c)} aria-label={`Remove ${c.name}`}>
+                          <Button size="icon" variant="ghost" onClick={() => crud.setRemoveTarget(c)} aria-label={`Remove ${c.name}`}>
                             <Trash2 className="h-4 w-4 text-destructive" /></Button>
                         )}
                       </div>
@@ -118,8 +111,8 @@ export default function CustomersPage() {
           </Table>
         )}
 
-      <Dialog open={open} onClose={() => setOpen(false)} title={editing ? 'Edit customer' : 'New customer'}>
-        <form onSubmit={(e) => { e.preventDefault(); save.mutate(); }} className="space-y-4">
+      <Dialog open={crud.open} onClose={crud.close} title={crud.editing ? 'Edit customer' : 'New customer'}>
+        <form onSubmit={submit} className="space-y-4">
           <Field label="Name"><Input value={form.name} onChange={set('name')} required autoFocus /></Field>
           <div className="grid grid-cols-2 gap-3">
             <Field label="Phone"><Input value={form.phone} onChange={set('phone')} /></Field>
@@ -127,8 +120,8 @@ export default function CustomersPage() {
           </div>
           <Field label="Address"><Input value={form.address} onChange={set('address')} /></Field>
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
-            <Button type="submit" loading={save.isPending}>{editing ? 'Save' : 'Add'}</Button>
+            <Button type="button" variant="outline" onClick={crud.close}>Cancel</Button>
+            <Button type="submit" loading={crud.save.isPending}>{crud.editing ? 'Save' : 'Add'}</Button>
           </DialogFooter>
         </form>
       </Dialog>
@@ -150,15 +143,15 @@ export default function CustomersPage() {
       </Dialog>
 
       <ConfirmDialog
-        open={!!removeTarget}
+        open={!!crud.removeTarget}
         title="Remove customer"
-        description={removeTarget ? `Remove "${removeTarget.name}" and their record?` : undefined}
+        description={crud.removeTarget ? `Remove "${crud.removeTarget.name}" and their record?` : undefined}
         confirmLabel="Remove"
-        loading={remove.isPending}
+        loading={crud.remove.isPending}
         onConfirm={() => {
-          if (removeTarget) remove.mutate(removeTarget.id);
+          if (crud.removeTarget) crud.remove.mutate(crud.removeTarget.id);
         }}
-        onCancel={() => setRemoveTarget(null)}
+        onCancel={() => crud.setRemoveTarget(null)}
       />
     </div>
   );
