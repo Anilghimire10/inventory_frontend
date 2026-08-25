@@ -1,7 +1,5 @@
 'use client';
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useRef, useState } from 'react';
 import {
   AlertTriangle,
   Check,
@@ -12,14 +10,12 @@ import {
   Pause,
   Plus,
   RotateCcw,
-  Search,
   ShoppingCart,
   Tag,
   Trash2,
   User,
   X,
 } from 'lucide-react';
-import { CustomersApi } from '@/api';
 import type { Customer, Product } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -27,11 +23,9 @@ import { Select } from '@/components/ui/select';
 import { Field } from '@/components/ui/label';
 import { RxBadge } from '@/components/ui/RxBadge';
 import { Card } from '@/components/ui/card';
-import { Dialog, DialogFooter } from '@/components/ui/dialog';
-import { useToast } from '@/components/ui/toast';
-import { apiError } from '@/lib/api';
 import { formatMoney } from '@/lib/format';
 import { cn } from '@/lib/utils';
+import { CustomerPicker, type CustomerPickerHandle } from '@/components/pos/CustomerPicker';
 
 export interface CartLine {
   product: Product;
@@ -125,56 +119,14 @@ export function CartPanel({
   onPrescriptionRefChange,
   onClose,
 }: CartPanelProps) {
-  const qc = useQueryClient();
-  const { show } = useToast();
-
   const [menuId, setMenuId] = useState<string | null>(null);
   const [showDiscount, setShowDiscount] = useState(false);
-  const [custOpen, setCustOpen] = useState(false);
-  const [custQuery, setCustQuery] = useState('');
-  const [addCustomerOpen, setAddCustomerOpen] = useState(false);
-  const [newCustomerName, setNewCustomerName] = useState('');
-  const [newCustomerPhone, setNewCustomerPhone] = useState('');
   const [detailsOpen, setDetailsOpen] = useState(false);
 
   const cartScrollRef = useRef<HTMLUListElement>(null);
   const lastItemRef = useRef<HTMLLIElement>(null);
   const prevItemCountRef = useRef(0);
-  // Customer dropdown is portaled to <body> so its "Add new customer" footer
-  // stays visible and is never clipped by the cart's scroll containers.
-  const custButtonRef = useRef<HTMLButtonElement>(null);
-  const [custRect, setCustRect] = useState<{
-    top: number;
-    left: number;
-    width: number;
-    listMax: number;
-  } | null>(null);
-
-  useEffect(() => {
-    if (!custOpen) return;
-    const update = () => {
-      const el = custButtonRef.current;
-      if (!el) return;
-      const r = el.getBoundingClientRect();
-      const top = r.bottom + 4;
-      // Keep the whole dropdown on screen: reserve space for the search bar
-      // and the sticky "Add new customer" footer, cap the list at 12rem.
-      const listMax = Math.max(
-        96,
-        Math.min(192, window.innerHeight - top - 110),
-      );
-      const width = Math.min(r.width, window.innerWidth - 32);
-      const left = Math.max(16, Math.min(r.left, window.innerWidth - width - 16));
-      setCustRect({ top, left, width, listMax });
-    };
-    update();
-    window.addEventListener('resize', update);
-    window.addEventListener('scroll', update, true);
-    return () => {
-      window.removeEventListener('resize', update);
-      window.removeEventListener('scroll', update, true);
-    };
-  }, [custOpen]);
+  const customerPickerRef = useRef<CustomerPickerHandle>(null);
 
   // Reveal a newly added line only when the cart is already at/near the
   // bottom. Reviewing payment details or earlier lines is never interrupted.
@@ -195,28 +147,6 @@ export function CartPanel({
   }, [cart]);
 
   const selectedCustomer = customers.find((c) => c.id === customerId);
-
-  const customerOptions = useMemo(() => {
-    const q = custQuery.trim().toLowerCase();
-    if (!q) return customers;
-    return customers.filter(
-      (c) =>
-        c.name.toLowerCase().includes(q) || (c.phone ?? '').toLowerCase().includes(q),
-    );
-  }, [customers, custQuery]);
-
-  const createCustomer = useMutation({
-    mutationFn: (body: { name: string; phone?: string }) => CustomersApi.create(body),
-    onSuccess: (c) => {
-      qc.invalidateQueries({ queryKey: ['customers'] });
-      onCustomerChange(c.id);
-      setAddCustomerOpen(false);
-      setNewCustomerName('');
-      setNewCustomerPhone('');
-      show('Customer added');
-    },
-    onError: (e) => show(apiError(e), 'error'),
-  });
 
   const checkoutDisabled =
     (due > 0 && !customerId) || (needsRx && !prescriptionRef.trim());
@@ -415,110 +345,20 @@ export function CartPanel({
               <div className="min-h-0 max-h-[42vh] overflow-y-auto border-t border-border">
                 {/* Customer */}
                 <div className="px-4 py-3">
-              <p className="mb-1.5 text-sm font-medium text-foreground">
-                Customer{payMode === 'credit' && <span className="text-destructive"> (required)</span>}
-              </p>
-              <div className="relative">
-                <button
-                  ref={custButtonRef}
-                  type="button"
-                  onClick={() => setCustOpen((o) => !o)}
-                  className={cn(
-                    'flex h-10 w-full items-center gap-2 rounded-md border bg-card px-3 text-sm transition-colors',
-                    payMode === 'credit'
-                      ? 'border-primary/50 bg-primary/5 text-foreground'
-                      : 'border-border text-foreground hover:border-primary/40',
-                  )}
-                >
-                  <User className="h-4 w-4 shrink-0 text-muted-foreground" />
-                  <span className="min-w-0 flex-1 truncate text-left">
-                    {selectedCustomer ? selectedCustomer.name : 'Walk-in Customer'}
-                  </span>
-                  <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
-                </button>
-                {custOpen &&
-                  custRect &&
-                  createPortal(
-                    <>
-                      <div className="fixed inset-0 z-20" onClick={() => setCustOpen(false)} />
-                      <div
-                        className="fixed z-30 mt-1 overflow-hidden rounded-lg border border-border bg-card shadow-lg"
-                        style={{ top: custRect.top, left: custRect.left, width: custRect.width }}
-                      >
-                        <div className="relative border-b border-border">
-                          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                          <input
-                            autoFocus
-                            value={custQuery}
-                            onChange={(e) => setCustQuery(e.target.value)}
-                            placeholder="Search by name or phone…"
-                            className="h-10 w-full bg-transparent pl-9 pr-3 text-sm text-foreground placeholder:text-muted-foreground outline-none"
-                          />
-                        </div>
-                        <ul
-                          className="overflow-y-auto py-1"
-                          style={{ maxHeight: custRect.listMax }}
-                        >
-                          <li>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                onCustomerChange('');
-                                setCustOpen(false);
-                                setCustQuery('');
-                              }}
-                              className={cn(
-                                'flex w-full items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-muted',
-                                customerId === '' && 'bg-muted/60',
-                              )}
-                            >
-                              <User className="h-4 w-4 shrink-0 text-muted-foreground" />
-                              <span className="flex-1 text-left">Walk-in Customer</span>
-                            </button>
-                          </li>
-                          {customerOptions.map((c) => (
-                            <li key={c.id}>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  onCustomerChange(c.id);
-                                  setCustOpen(false);
-                                  setCustQuery('');
-                                }}
-                                className={cn(
-                                  'flex w-full items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-muted',
-                                  c.id === customerId && 'bg-muted/60',
-                                )}
-                              >
-                                <span className="min-w-0 flex-1 truncate text-left">{c.name}</span>
-                                {c.phone && (
-                                  <span className="text-xs text-muted-foreground">{c.phone}</span>
-                                )}
-                              </button>
-                            </li>
-                          ))}
-                          {customerOptions.length === 0 && custQuery.trim() !== '' && (
-                            <li className="px-3 py-2 text-xs text-muted-foreground">
-                              No customers found.
-                            </li>
-                          )}
-                        </ul>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setCustOpen(false);
-                            setAddCustomerOpen(true);
-                          }}
-                          className="sticky bottom-0 flex w-full items-center gap-2 border-t border-border bg-card px-3 py-2.5 text-sm font-medium text-primary hover:bg-muted"
-                        >
-                          <Plus className="h-4 w-4" /> Add new customer
-                        </button>
-                      </div>
-                    </>,
-                    document.body,
-                  )}
-              </div>
-            </div>
+                  <p className="mb-1.5 text-sm font-medium text-foreground">
+                    Customer
+                    {payMode === 'credit' && (
+                      <span className="text-destructive"> (required)</span>
+                    )}
+                  </p>
+                  <CustomerPicker
+                    ref={customerPickerRef}
+                    customers={customers}
+                    customerId={customerId}
+                    onCustomerChange={onCustomerChange}
+                    required={payMode === 'credit'}
+                  />
+                </div>
 
             {/* Payment */}
             <div className="space-y-3 border-t border-border px-4 py-3">
@@ -709,9 +549,16 @@ export function CartPanel({
                 <Check className="h-4 w-4" /> Complete Sale · {formatMoney(total)}
               </Button>
               {due > 0 && !customerId && (
-                <p className="text-center text-xs text-destructive">
-                  Select a customer to leave a balance on credit.
-                </p>
+                <div className="flex items-center justify-center gap-1.5 text-center text-xs text-destructive">
+                  <span>Select a customer to leave a balance on credit.</span>
+                  <button
+                    type="button"
+                    onClick={() => customerPickerRef.current?.openAdd()}
+                    className="font-medium underline underline-offset-2 hover:text-destructive/80"
+                  >
+                    + Add customer
+                  </button>
+                </div>
               )}
               {needsRx && !prescriptionRef.trim() && (
                 <p className="text-center text-xs text-destructive">
@@ -722,47 +569,6 @@ export function CartPanel({
           </>
         )}
       </Card>
-
-      {/* Add customer dialog */}
-      <Dialog
-        open={addCustomerOpen}
-        onClose={() => setAddCustomerOpen(false)}
-        title="Add new customer"
-      >
-        <div className="space-y-3">
-          <Field label="Name">
-            <Input
-              value={newCustomerName}
-              onChange={(e) => setNewCustomerName(e.target.value)}
-              placeholder="Customer name"
-            />
-          </Field>
-          <Field label="Phone">
-            <Input
-              value={newCustomerPhone}
-              onChange={(e) => setNewCustomerPhone(e.target.value)}
-              placeholder="Phone number"
-            />
-          </Field>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setAddCustomerOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              loading={createCustomer.isPending}
-              disabled={!newCustomerName.trim()}
-              onClick={() =>
-                createCustomer.mutate({
-                  name: newCustomerName.trim(),
-                  phone: newCustomerPhone.trim() || undefined,
-                })
-              }
-            >
-              Add customer
-            </Button>
-          </DialogFooter>
-        </div>
-      </Dialog>
     </div>
   );
 }
