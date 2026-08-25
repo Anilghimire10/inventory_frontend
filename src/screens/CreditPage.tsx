@@ -86,7 +86,7 @@ export default function CreditPage() {
   return (
     <div>
       <PageHeader
-        title="Credit & Invoices"
+        title="Credit"
         description="Track what customers owe you and what you owe suppliers."
       />
 

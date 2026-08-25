@@ -320,7 +320,7 @@ export default function PurchasesPage() {
                 <span className="font-medium text-foreground">
                   {formatMoney(Math.max(0, total - (payMode === 'credit' ? 0 : amountPaid)))}
                 </span>{' '}
-                will appear under Credit &amp; Invoices → Payables.
+                will appear under Credit → Payables.
               </p>
             )}
           </div>
