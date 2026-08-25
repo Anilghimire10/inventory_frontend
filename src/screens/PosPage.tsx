@@ -1,5 +1,5 @@
 'use client';
-import { useMemo, useDeferredValue, useState } from 'react';
+import { useEffect, useMemo, useDeferredValue, useState } from 'react';
 import { useMutation, useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { Plus, Package, Barcode, ChevronUp, Printer, ShoppingCart } from 'lucide-react';
 import { CategoriesApi, CustomersApi, InventoryApi, ProductsApi, SalesApi } from '@/api';
@@ -13,7 +13,7 @@ import { useToast } from '@/components/ui/toast';
 import { apiError } from '@/lib/api';
 import { formatMoney } from '@/lib/format';
 import { cn } from '@/lib/utils';
-import { CartPanel } from '@/components/pos/CartPanel';
+import { CartPanel, TENDERS } from '@/components/pos/CartPanel';
 import type { CartLine, DiscountType, PayMode } from '@/components/pos/CartPanel';
 
 export default function PosPage() {
@@ -37,6 +37,7 @@ export default function PosPage() {
   const [lastSaleId, setLastSaleId] = useState<string | null>(null);
   // Mobile cart sheet visibility. On lg+ the cart is an inline column.
   const [cartOpen, setCartOpen] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
 
   // Debounced search for the product grid: typing is instant in the input,
   // but network requests wait for a pause (useDeferredValue + keepPreviousData).
@@ -142,6 +143,61 @@ export default function PosPage() {
     setAmountPaid(0);
   };
 
+  const printLast = async () => {
+    if (!lastSaleId) return;
+    try {
+      const full = await SalesApi.get(lastSaleId);
+      printSale(full, 'thermal');
+    } catch (e) {
+      show(apiError(e), 'error');
+    }
+  };
+
+  const hold = () => {
+    if (cart.length === 0) return;
+    setHeldCart(cart);
+    setCart([]);
+    setCartOpen(false);
+    resetSaleState();
+  };
+
+  useEffect(() => {
+    const focusSearch = () => {
+      setSearch('');
+      const inp = document.querySelector('input[placeholder="Search products, SKUs, or scan a barcode…"]');
+      if (inp) (inp as HTMLInputElement).focus();
+    };
+    const handler = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (e.target as HTMLElement | null)?.isContentEditable) return;
+      if (e.metaKey || e.ctrlKey) {
+        switch (e.key.toLowerCase()) {
+          case 'h': e.preventDefault(); hold(); break;
+          case 'd': e.preventDefault(); setDiscountType(discountType === 'percent' ? 'amount' : 'percent'); break;
+          case 'p': e.preventDefault(); printLast(); break;
+          case 'k': e.preventDefault(); focusSearch(); break;
+        }
+      } else {
+        switch (e.key.toLowerCase()) {
+          case '/': e.preventDefault(); focusSearch(); break;
+          case 'enter': if (cart.length > 0) { const last = cart[cart.length - 1]; setQty(last.product.id, last.quantity + 1); } break;
+          case 'escape': setSearch(''); break;
+          case 'tab':
+            // Credit sales have no tender to cycle.
+            if (payMode === 'credit') break;
+            e.preventDefault();
+            setPaymentMethod((m) => {
+              const i = TENDERS.findIndex((t) => t.value === m);
+              return TENDERS[(i + 1) % TENDERS.length].value;
+            });
+            break;
+        }
+      }
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [cart, discountType, hold, payMode, printLast, setSearch]);
+
   const checkout = useMutation({
     mutationFn: () =>
       SalesApi.create({
@@ -156,6 +212,7 @@ export default function PosPage() {
       }),
     onSuccess: (sale) => {
       qc.invalidateQueries({ queryKey: ['stock'] });
+      qc.invalidateQueries({ queryKey: ['pos-stock'] });
       qc.invalidateQueries({ queryKey: ['dashboard'] });
       qc.invalidateQueries({ queryKey: ['customers'] });
       qc.invalidateQueries({ queryKey: ['credit'] });
@@ -198,16 +255,10 @@ export default function PosPage() {
       next <= 0 ? c.filter((l) => l.product.id !== id) : c.map((l) => (l.product.id === id ? { ...l, quantity: next } : l)),
     );
   };
+
   const atMax = (line: CartLine) => maxOf(line.product.id) <= line.quantity;
 
   // Hold the current sale aside and start a fresh cart; Resume brings it back.
-  const hold = () => {
-    if (cart.length === 0) return;
-    setHeldCart(cart);
-    setCart([]);
-    setCartOpen(false);
-    resetSaleState();
-  };
   const resume = () => {
     if (heldCart) setCart(heldCart);
     setHeldCart(null);
@@ -236,16 +287,6 @@ export default function PosPage() {
     }
   };
 
-  const printLast = async () => {
-    if (!lastSaleId) return;
-    try {
-      const full = await SalesApi.get(lastSaleId);
-      printSale(full, 'thermal');
-    } catch (e) {
-      show(apiError(e), 'error');
-    }
-  };
-
   return (
     <div className="flex h-[calc(100dvh-6rem)] flex-col lg:h-[calc(100dvh-7rem)]">
       {/* Header — register + last-receipt print */}
@@ -257,8 +298,35 @@ export default function PosPage() {
               <Printer className="h-4 w-4" /> Last receipt
             </Button>
           )}
+          <Button variant="outline" size="sm" onClick={() => setShowHelp(true)} title="Show keyboard hints">
+            ?
+          </Button>
         </div>
       </div>
+
+      {/* Help overlay */}
+      {showHelp && (
+        <div className="fixed inset-0 bg-black/60 z-40 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg p-6 max-w-sm w-full text-center">
+            <h2 className="text-lg font-semibold mb-4">Keyboard Shortcuts</h2>
+            <ul className="space-y-2 text-left mx-auto max-h-80 overflow-y-auto">
+              <li>/ or Cmd+K — Focus search</li>
+              <li>Enter — Add quantity to last cart line</li>
+              <li>Tab — Cycle payment methods</li>
+              <li>H — Hold sale</li>
+              <li>D — Toggle discount (amount/percent)</li>
+              <li>P — Print last receipt</li>
+              <li>Esc — Clear search</li>
+            </ul>
+            <button
+              onClick={() => setShowHelp(false)}
+              className="mt-4 inline-block px-4 py-2 bg-primary text-primary-foreground rounded"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="flex min-h-0 flex-1 flex-col gap-4 lg:flex-row">
         {/* Product picker */}
