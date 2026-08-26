@@ -47,6 +47,9 @@ export const TENDERS = [
   { value: 'MOBILE', label: 'Mobile' },
 ] as const;
 
+/** Common note denominations for quick-tender buttons. */
+const QUICK_NOTES = [100, 500, 1000];
+
 interface CartPanelProps {
   cart: CartLine[];
   cartCount: number;
@@ -77,6 +80,11 @@ interface CartPanelProps {
   onPaymentMethodChange: (m: string) => void;
   amountPaid: number;
   onAmountPaidChange: (n: number) => void;
+  /** Cash tendered for a full CASH sale -- purely local, drives the change-due display. */
+  tendered: number;
+  onTenderedChange: (n: number) => void;
+  /** Snapshot of the last completed cash sale's tendered/change, shown until the next item is added. */
+  lastChange: { tendered: number; change: number } | null;
   needsRx: boolean;
   prescriptionRef: string;
   onPrescriptionRefChange: (s: string) => void;
@@ -114,6 +122,9 @@ export function CartPanel({
   onPaymentMethodChange,
   amountPaid,
   onAmountPaidChange,
+  tendered,
+  onTenderedChange,
+  lastChange,
   needsRx,
   prescriptionRef,
   onPrescriptionRefChange,
@@ -147,6 +158,12 @@ export function CartPanel({
   }, [cart]);
 
   const selectedCustomer = customers.find((c) => c.id === customerId);
+
+  // Cash tendered → change due (the highest-frequency operation at the
+  // counter). Only meaningful for a full cash sale; tendered itself is never
+  // sent to the server -- a full sale always posts amountPaid: undefined.
+  const isCashFull = payMode === 'full' && paymentMethod === 'CASH';
+  const change = Math.round((tendered - total) * 100) / 100;
 
   const checkoutDisabled =
     (due > 0 && !customerId) || (needsRx && !prescriptionRef.trim());
@@ -213,13 +230,35 @@ export function CartPanel({
 
         {/* Product list — the only scrollable area */}
         {cart.length === 0 ? (
-          <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-4 py-16 text-center">
-            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
-              <ShoppingCart className="h-6 w-6" />
+          lastChange ? (
+            <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-4 py-16 text-center">
+              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-success/10 text-success">
+                <Check className="h-6 w-6" />
+              </div>
+              <p className="text-sm font-medium text-foreground">Sale complete</p>
+              <div className="w-full max-w-[220px] space-y-1 rounded-lg border border-success/30 bg-success/5 px-4 py-3">
+                <div className="flex justify-between text-xs text-muted-foreground">
+                  <span>Tendered</span>
+                  <span>{formatMoney(lastChange.tendered)}</span>
+                </div>
+                <div className="flex items-baseline justify-between">
+                  <span className="text-sm font-semibold text-foreground">Change due</span>
+                  <span className="text-2xl font-bold tracking-tight text-success">
+                    {formatMoney(lastChange.change)}
+                  </span>
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground">Scan the next item to start a new sale.</p>
             </div>
-            <p className="text-sm font-medium text-foreground">Your cart is empty</p>
-            <p className="text-xs text-muted-foreground">Tap a product on the left to add it.</p>
-          </div>
+          ) : (
+            <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-4 py-16 text-center">
+              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
+                <ShoppingCart className="h-6 w-6" />
+              </div>
+              <p className="text-sm font-medium text-foreground">Your cart is empty</p>
+              <p className="text-xs text-muted-foreground">Tap a product on the left to add it.</p>
+            </div>
+          )
         ) : (
           <ul
             ref={cartScrollRef}
@@ -394,7 +433,9 @@ export function CartPanel({
                       min="0"
                       max={total}
                       value={amountPaid}
-                      onChange={(e) => onAmountPaidChange(Number(e.target.value) || 0)}
+                      onChange={(e) =>
+                        onAmountPaidChange(Math.min(Math.max(Number(e.target.value) || 0, 0), total))
+                      }
                     />
                   </Field>
                 )}
@@ -511,6 +552,66 @@ export function CartPanel({
                   {formatMoney(total)}
                 </span>
               </div>
+
+              {isCashFull && (
+                <div className="space-y-2 border-t border-border pt-2">
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      aria-label="Amount tendered"
+                      placeholder="Amount tendered"
+                      className="h-9"
+                      value={tendered || ''}
+                      onChange={(e) => onTenderedChange(Math.max(0, Number(e.target.value) || 0))}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !checkoutDisabled) {
+                          e.preventDefault();
+                          onCheckout();
+                        }
+                      }}
+                    />
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-9 shrink-0"
+                      onClick={() => onTenderedChange(total)}
+                    >
+                      Exact
+                    </Button>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {QUICK_NOTES.map((n) => (
+                      <Button
+                        key={n}
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-9"
+                        onClick={() => onTenderedChange(n)}
+                      >
+                        {formatMoney(n)}
+                      </Button>
+                    ))}
+                  </div>
+                  {tendered > 0 &&
+                    (change >= 0 ? (
+                      <div className="flex items-baseline justify-between rounded-md bg-success/10 px-3 py-2">
+                        <span className="text-sm font-semibold text-success">Change due</span>
+                        <span className="text-2xl font-bold tracking-tight text-success">
+                          {formatMoney(change)}
+                        </span>
+                      </div>
+                    ) : (
+                      <p className="text-right text-xs font-medium text-destructive">
+                        Short by {formatMoney(-change)}
+                      </p>
+                    ))}
+                </div>
+              )}
+
               {payMode === 'partial' && paidNow > 0 && (
                 <div className="flex justify-between text-sm text-muted-foreground">
                   <span>Paid</span>

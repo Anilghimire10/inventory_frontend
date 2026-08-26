@@ -24,7 +24,7 @@ import {
   Tooltip,
 } from 'recharts';
 import { ReportsApi } from '@/api';
-import { PageHeader, LoadingBlock, EmptyState } from '@/components/ui/misc';
+import { PageHeader, LoadingBlock, EmptyState, ErrorState } from '@/components/ui/misc';
 import { Card } from '@/components/ui/card';
 import { formatMoney } from '@/lib/format';
 import { useAuth } from '@/auth/AuthContext';
@@ -37,7 +37,7 @@ export default function DashboardPage() {
   const { user } = useAuth();
   const showMoney = !!user && can.viewFinancials(user.role);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['dashboard'],
     queryFn: () => ReportsApi.dashboard(),
   });
@@ -49,7 +49,9 @@ export default function DashboardPage() {
         description="Here's how your business is doing today."
       />
 
-      {isLoading || !data ? (
+      {isError ? (
+        <ErrorState onRetry={() => refetch()} />
+      ) : isLoading || !data ? (
         <LoadingBlock />
       ) : (
         <>

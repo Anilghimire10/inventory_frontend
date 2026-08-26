@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 import { CreditApi, CustomersApi, PurchasesApi } from '@/api';
 import type { CreditInvoice, Payable, Receivable } from '@/types';
-import { PageHeader, LoadingBlock, EmptyState } from '@/components/ui/misc';
+import { PageHeader, LoadingBlock, EmptyState, ErrorState } from '@/components/ui/misc';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -138,7 +138,9 @@ export default function CreditPage() {
 
       <div className="mt-4">
         {tab === 'receivables' ? (
-          receivables.isLoading ? (
+          receivables.isError ? (
+            <ErrorState onRetry={() => receivables.refetch()} />
+          ) : receivables.isLoading ? (
             <LoadingBlock />
           ) : !receivables.data || receivables.data.length === 0 ? (
             <EmptyState
@@ -179,6 +181,8 @@ export default function CreditPage() {
               </TBody>
             </Table>
           )
+        ) : payables.isError ? (
+          <ErrorState onRetry={() => payables.refetch()} />
         ) : payables.isLoading ? (
           <LoadingBlock />
         ) : !payables.data || payables.data.length === 0 ? (

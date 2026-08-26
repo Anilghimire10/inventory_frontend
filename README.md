@@ -47,3 +47,4 @@ src/
 
 Each route file is a thin server component that renders a `'use client'`
 screen, e.g. `app/(app)/products/page.tsx` → `screens/ProductsPage`.
+

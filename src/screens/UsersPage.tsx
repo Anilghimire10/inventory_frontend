@@ -6,7 +6,7 @@ import { UsersApi } from '@/api';
 import type { AppUser, UserRole } from '@/types';
 import { useAuth } from '@/auth/AuthContext';
 import { useCrudResource } from '@/hooks/useCrudResource';
-import { PageHeader, LoadingBlock, EmptyState } from '@/components/ui/misc';
+import { PageHeader, LoadingBlock, EmptyState, ErrorState } from '@/components/ui/misc';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { PasswordInput } from '@/components/ui/password-input';
@@ -23,7 +23,7 @@ export default function UsersPage() {
   const { user: me } = useAuth();
   const [form, setForm] = useState({ name: '', email: '', password: '', role: 'CASHIER' as UserRole });
 
-  const { data, isLoading } = useQuery({ queryKey: ['users'], queryFn: () => UsersApi.list() });
+  const { data, isLoading, isError, refetch } = useQuery({ queryKey: ['users'], queryFn: () => UsersApi.list() });
 
   const crud = useCrudResource<AppUser>({
     queryKey: ['users'],
@@ -49,7 +49,8 @@ export default function UsersPage() {
       <PageHeader title="Staff" description="Team members and their roles."
         action={<Button onClick={openCreate}><Plus className="h-4 w-4" /> Add staff</Button>} />
 
-      {isLoading ? <LoadingBlock /> :
+      {isError ? <ErrorState onRetry={() => refetch()} /> :
+        isLoading ? <LoadingBlock /> :
         !data || data.length === 0 ? (
           <EmptyState title="No staff" description="Invite your team and assign roles." icon={UserCog} />
         ) : (

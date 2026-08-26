@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, Search, Pencil, Trash2, Package, Download, Upload, X, Check } from 'lucide-react';
 import { CategoriesApi, ProductsApi, TaxesApi } from '@/api';
 import type { Category, Product } from '@/types';
-import { PageHeader, LoadingBlock, EmptyState } from '@/components/ui/misc';
+import { PageHeader, LoadingBlock, EmptyState, ErrorState } from '@/components/ui/misc';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Field } from '@/components/ui/label';
@@ -68,7 +68,7 @@ export default function ProductsPage() {
   const [form, setForm] = useState<Form>(empty);
   const [removeTarget, setRemoveTarget] = useState<Product | null>(null);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['products', search, page],
     queryFn: () => ProductsApi.list({ search: search || undefined, page, limit: 20 }),
   });
@@ -237,7 +237,9 @@ export default function ProductsPage() {
         />
       </div>
 
-      {isLoading ? (
+      {isError ? (
+        <ErrorState onRetry={() => refetch()} />
+      ) : isLoading ? (
         <LoadingBlock />
       ) : !data || data.data.length === 0 ? (
         <EmptyState

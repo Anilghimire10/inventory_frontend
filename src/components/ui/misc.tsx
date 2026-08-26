@@ -1,5 +1,6 @@
-import { Loader2, Inbox } from 'lucide-react';
+import { Loader2, Inbox, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Button } from './button';
 
 export function Spinner({ className }: { className?: string }) {
   return <Loader2 className={cn('h-5 w-5 animate-spin text-muted-foreground', className)} />;
@@ -33,6 +34,35 @@ export function EmptyState({
         <p className="max-w-sm text-sm text-muted-foreground">{description}</p>
       )}
       {action && <div className="mt-2">{action}</div>}
+    </div>
+  );
+}
+
+/**
+ * Shown when a list/detail query fails, instead of silently falling through
+ * to the empty state (which reads as "zero records" -- indistinguishable
+ * from a real network/server failure, e.g. a cashier seeing an empty POS
+ * grid and concluding the whole catalog is gone).
+ */
+export function ErrorState({
+  title = 'Something went wrong',
+  description = "Couldn't load this. Check your connection and try again.",
+  onRetry,
+}: {
+  title?: string;
+  description?: string;
+  onRetry?: () => void;
+}) {
+  return (
+    <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-destructive/40 bg-destructive/5 py-16 text-center">
+      <AlertTriangle className="h-10 w-10 text-destructive/70" />
+      <h3 className="text-base font-medium text-destructive">{title}</h3>
+      <p className="max-w-sm text-sm text-muted-foreground">{description}</p>
+      {onRetry && (
+        <Button variant="outline" size="sm" className="mt-2" onClick={onRetry}>
+          Retry
+        </Button>
+      )}
     </div>
   );
 }

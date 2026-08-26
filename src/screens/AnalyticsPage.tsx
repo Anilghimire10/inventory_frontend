@@ -31,7 +31,7 @@ import {
 } from 'recharts';
 import { ReportsApi } from '@/api';
 import type { Analytics } from '@/types';
-import { PageHeader, LoadingBlock } from '@/components/ui/misc';
+import { PageHeader, LoadingBlock, ErrorState } from '@/components/ui/misc';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -104,7 +104,7 @@ export default function AnalyticsPage() {
     to: to ? `${to}T23:59:59.999Z` : undefined,
   };
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['analytics', from, to],
     queryFn: () => ReportsApi.analytics(rangeParams),
   });
@@ -162,7 +162,9 @@ export default function AnalyticsPage() {
         </Button>
       </div>
 
-      {isLoading || !data ? (
+      {isError ? (
+        <ErrorState onRetry={() => refetch()} />
+      ) : isLoading || !data ? (
         <LoadingBlock />
       ) : (
         <AnalyticsBody data={data} orderValue={orderValue} />

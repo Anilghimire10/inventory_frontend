@@ -15,7 +15,7 @@ Legend: ⬜ not started · 🚧 in progress · ✅ done
 These three are what separate a demo from something a shop runs its day on.
 All of them are missing today.
 
-### ⬜ 1. Cash tendered → change due
+### ✅ 1. Cash tendered → change due
 
 The cashier currently does mental math on every cash sale. Highest-frequency
 operation in the whole app, and it isn't there.

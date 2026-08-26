@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 import { SalesApi } from '@/api';
 import type { PaymentMethod, Sale, SaleListItem } from '@/types';
-import { PageHeader, LoadingBlock, EmptyState } from '@/components/ui/misc';
+import { PageHeader, LoadingBlock, EmptyState, ErrorState } from '@/components/ui/misc';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
@@ -80,7 +80,7 @@ export default function SalesPage() {
   const [openId, setOpenId] = useState<string | null>(null);
   const [returnQty, setReturnQty] = useState<Record<string, number>>({});
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['sales', page, search, dateFilter, statusFilter, payFilter],
     queryFn: () =>
       SalesApi.list({
@@ -211,7 +211,8 @@ export default function SalesPage() {
         </div>
       </div>
 
-      {isLoading ? <LoadingBlock /> :
+      {isError ? <ErrorState onRetry={() => refetch()} /> :
+        isLoading ? <LoadingBlock /> :
         !data || data.data.length === 0 ? (
           hasFilters ? (
             <EmptyState title="No sales match your filters" description="Try widening your date, status, or payment filters." icon={Search} />

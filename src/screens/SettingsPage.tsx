@@ -6,7 +6,7 @@ import { BusinessApi, StoresApi } from '@/api';
 import type { Store } from '@/types';
 import { useStores } from '@/hooks/useStores';
 import { useAuth } from '@/auth/AuthContext';
-import { PageHeader, LoadingBlock } from '@/components/ui/misc';
+import { PageHeader, LoadingBlock, ErrorState } from '@/components/ui/misc';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
@@ -25,7 +25,7 @@ export default function SettingsPage() {
   const qc = useQueryClient();
   const { show } = useToast();
   const { user, refresh } = useAuth();
-  const { data: stores, isLoading } = useStores();
+  const { data: stores, isLoading, isError, refetch } = useStores();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Store | null>(null);
   const [form, setForm] = useState<Form>(empty);
@@ -198,7 +198,8 @@ export default function SettingsPage() {
         </Button>
       </div>
 
-      {isLoading ? <LoadingBlock /> : !stores || stores.length === 0 ? (
+      {isError ? <ErrorState onRetry={() => refetch()} /> :
+        isLoading ? <LoadingBlock /> : !stores || stores.length === 0 ? (
         <Card className="p-6 text-center text-sm text-muted-foreground">
           No stores yet — add one to organize stock and sales by location.
         </Card>

@@ -5,7 +5,7 @@ import { Plus, Pencil, Trash2, Percent } from 'lucide-react';
 import { TaxesApi } from '@/api';
 import type { Tax } from '@/types';
 import { useCrudResource } from '@/hooks/useCrudResource';
-import { PageHeader, LoadingBlock, EmptyState } from '@/components/ui/misc';
+import { PageHeader, LoadingBlock, EmptyState, ErrorState } from '@/components/ui/misc';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Field } from '@/components/ui/label';
@@ -24,7 +24,7 @@ export default function TaxesPage() {
   const canManage = !!user && can.manageBusiness(user.role);
   const [form, setForm] = useState<Form>(empty);
 
-  const { data, isLoading } = useQuery({ queryKey: ['taxes'], queryFn: () => TaxesApi.list() });
+  const { data, isLoading, isError, refetch } = useQuery({ queryKey: ['taxes'], queryFn: () => TaxesApi.list() });
 
   const crud = useCrudResource<Tax>({
     queryKey: ['taxes'],
@@ -50,7 +50,9 @@ export default function TaxesPage() {
         action={canManage && <Button onClick={openCreate}><Plus className="h-4 w-4" /> Add tax</Button>}
       />
 
-      {isLoading ? (
+      {isError ? (
+        <ErrorState onRetry={() => refetch()} />
+      ) : isLoading ? (
         <LoadingBlock />
       ) : !data || data.length === 0 ? (
         <EmptyState title="No taxes yet" description="Create a tax like “VAT 13%” to apply to your products." icon={Percent} />

@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Search, ScrollText } from 'lucide-react';
 import { AuditApi } from '@/api';
 import type { AuditEntry } from '@/types';
-import { PageHeader, LoadingBlock, EmptyState } from '@/components/ui/misc';
+import { PageHeader, LoadingBlock, EmptyState, ErrorState } from '@/components/ui/misc';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
@@ -24,7 +24,7 @@ export default function ActivityLogPage() {
   const [action, setAction] = useState('');
   const [page, setPage] = useState(1);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['audit', action, page],
     queryFn: () =>
       AuditApi.list({ action: action || undefined, page, limit: 25 }),
@@ -50,7 +50,9 @@ export default function ActivityLogPage() {
         />
       </div>
 
-      {isLoading ? (
+      {isError ? (
+        <ErrorState onRetry={() => refetch()} />
+      ) : isLoading ? (
         <LoadingBlock />
       ) : !data || data.data.length === 0 ? (
         <EmptyState

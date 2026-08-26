@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, ClipboardList, Trash2, Pencil } from 'lucide-react';
 import { ProductsApi, PurchasesApi, SuppliersApi } from '@/api';
 import { useStores } from '@/hooks/useStores';
-import { PageHeader, LoadingBlock, EmptyState } from '@/components/ui/misc';
+import { PageHeader, LoadingBlock, EmptyState, ErrorState } from '@/components/ui/misc';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
@@ -45,7 +45,7 @@ export default function PurchasesPage() {
   const [newProdOpen, setNewProdOpen] = useState(false);
   const [newProd, setNewProd] = useState(newProductEmpty);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['purchases'],
     queryFn: () => PurchasesApi.list({ limit: 50 }),
   });
@@ -71,7 +71,11 @@ export default function PurchasesPage() {
         reference: reference || undefined,
         receiveNow: true,
         amountPaid:
-          payMode === 'full' ? undefined : payMode === 'credit' ? 0 : amountPaid,
+          payMode === 'full'
+            ? undefined
+            : payMode === 'credit'
+              ? 0
+              : Math.min(Math.max(amountPaid, 0), total),
         items: lines.map((l) => ({
           productId: l.productId,
           quantity: l.quantity,
@@ -187,7 +191,8 @@ export default function PurchasesPage() {
       <PageHeader title="Purchases" description="Receive stock from suppliers."
         action={<Button onClick={openNew}><Plus className="h-4 w-4" /> Receive stock</Button>} />
 
-      {isLoading ? <LoadingBlock /> :
+      {isError ? <ErrorState onRetry={() => refetch()} /> :
+        isLoading ? <LoadingBlock /> :
         !data || data.data.length === 0 ? (
           <EmptyState title="No purchases yet" description="Record a purchase to add stock to your inventory." icon={ClipboardList}
             action={<Button onClick={openNew}><Plus className="h-4 w-4" /> Receive stock</Button>} />
@@ -310,7 +315,9 @@ export default function PurchasesPage() {
               {payMode === 'partial' && (
                 <Field label="Amount paid now">
                   <Input type="number" step="0.01" min="0" max={total} value={amountPaid}
-                    onChange={(e) => setAmountPaid(Number(e.target.value) || 0)} />
+                    onChange={(e) =>
+                      setAmountPaid(Math.min(Math.max(Number(e.target.value) || 0, 0), total))
+                    } />
                 </Field>
               )}
             </div>
