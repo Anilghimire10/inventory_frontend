@@ -5,7 +5,7 @@ import { Plus, Pencil, Trash2, Users, HandCoins } from 'lucide-react';
 import { CustomersApi } from '@/api';
 import type { Customer } from '@/types';
 import { useCrudResource } from '@/hooks/useCrudResource';
-import { PageHeader, LoadingBlock, EmptyState } from '@/components/ui/misc';
+import { PageHeader, LoadingBlock, EmptyState, ErrorState } from '@/components/ui/misc';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Field } from '@/components/ui/label';
@@ -26,7 +26,7 @@ export default function CustomersPage() {
   const { user } = useAuth();
   const canDelete = !!user && can.deleteCustomers(user.role);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['customers'],
     queryFn: () => CustomersApi.list({ limit: 100 }),
   });
@@ -84,7 +84,9 @@ export default function CustomersPage() {
         }
       />
 
-      {isLoading ? (
+      {isError ? (
+        <ErrorState onRetry={() => refetch()} />
+      ) : isLoading ? (
         <LoadingBlock />
       ) : customers.length === 0 ? (
         <EmptyState

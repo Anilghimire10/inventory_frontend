@@ -5,7 +5,7 @@ import { Boxes, SlidersHorizontal, AlertTriangle, CalendarClock, History } from 
 import { InventoryApi } from '@/api';
 import type { StockItem } from '@/types';
 import { useStores } from '@/hooks/useStores';
-import { PageHeader, LoadingBlock, EmptyState } from '@/components/ui/misc';
+import { PageHeader, LoadingBlock, EmptyState, ErrorState } from '@/components/ui/misc';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
@@ -109,6 +109,7 @@ export default function InventoryPage() {
       </div>
 
       {tab === 'stock' && (
+        stock.isError ? <ErrorState onRetry={() => stock.refetch()} /> :
         stock.isLoading ? <LoadingBlock /> :
         !stock.data || stock.data.data.length === 0 ? (
           <EmptyState title="No stock records" description="Stock appears once you receive purchases or adjust manually." icon={Boxes} />
@@ -121,6 +122,7 @@ export default function InventoryPage() {
       )}
 
       {tab === 'low' && (
+        low.isError ? <ErrorState onRetry={() => low.refetch()} /> :
         low.isLoading ? <LoadingBlock /> :
         !low.data || low.data.length === 0 ? (
           <EmptyState title="All good!" description="No items are below their reorder level." icon={AlertTriangle} />
@@ -130,6 +132,7 @@ export default function InventoryPage() {
       )}
 
       {tab === 'expiring' && (
+        expiring.isError ? <ErrorState onRetry={() => expiring.refetch()} /> :
         expiring.isLoading ? <LoadingBlock /> :
         !expiring.data || expiring.data.length === 0 ? (
           <EmptyState title="Nothing expiring soon" description="No batches expire within 30 days." icon={CalendarClock} />
@@ -151,6 +154,7 @@ export default function InventoryPage() {
       )}
 
       {tab === 'movements' && (
+        movements.isError ? <ErrorState onRetry={() => movements.refetch()} /> :
         movements.isLoading ? <LoadingBlock /> :
         !movements.data || movements.data.data.length === 0 ? (
           <EmptyState title="No movements yet" description="Every stock change will be logged here." icon={History} />

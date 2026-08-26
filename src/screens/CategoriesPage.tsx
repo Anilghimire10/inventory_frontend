@@ -5,7 +5,7 @@ import { Plus, Pencil, Trash2, Tags, Package } from 'lucide-react';
 import { CategoriesApi, ProductsApi } from '@/api';
 import type { Category } from '@/types';
 import { useCrudResource } from '@/hooks/useCrudResource';
-import { PageHeader, LoadingBlock, EmptyState } from '@/components/ui/misc';
+import { PageHeader, LoadingBlock, EmptyState, ErrorState } from '@/components/ui/misc';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Field } from '@/components/ui/label';
@@ -23,7 +23,7 @@ export default function CategoriesPage() {
   // The category whose products we're currently viewing.
   const [viewing, setViewing] = useState<Category | null>(null);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['categories'],
     queryFn: () => CategoriesApi.list(),
   });
@@ -53,7 +53,9 @@ export default function CategoriesPage() {
         }
       />
 
-      {isLoading ? (
+      {isError ? (
+        <ErrorState onRetry={() => refetch()} />
+      ) : isLoading ? (
         <LoadingBlock />
       ) : !data || data.length === 0 ? (
         <EmptyState title="No categories" description="Group products to keep your catalog tidy." icon={Tags} />
@@ -144,7 +146,7 @@ function CategoryProductsDialog({
   category: Category;
   onClose: () => void;
 }) {
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['products', 'by-category', category.id],
     queryFn: () => ProductsApi.list({ categoryId: category.id, limit: 100 }),
   });
@@ -152,7 +154,9 @@ function CategoryProductsDialog({
 
   return (
     <Dialog open onClose={onClose} title={`Products in “${category.name}”`}>
-      {isLoading ? (
+      {isError ? (
+        <ErrorState onRetry={() => refetch()} />
+      ) : isLoading ? (
         <LoadingBlock />
       ) : products.length === 0 ? (
         <p className="py-6 text-center text-sm text-muted-foreground">

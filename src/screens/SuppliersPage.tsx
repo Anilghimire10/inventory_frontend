@@ -5,7 +5,7 @@ import { Plus, Pencil, Trash2, Truck } from 'lucide-react';
 import { SuppliersApi } from '@/api';
 import type { Supplier } from '@/types';
 import { useCrudResource } from '@/hooks/useCrudResource';
-import { PageHeader, LoadingBlock, EmptyState } from '@/components/ui/misc';
+import { PageHeader, LoadingBlock, EmptyState, ErrorState } from '@/components/ui/misc';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Field } from '@/components/ui/label';
@@ -23,7 +23,7 @@ export default function SuppliersPage() {
   const canDelete = !!user && can.deleteCatalog(user.role);
   const [form, setForm] = useState<Form>(empty);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['suppliers'],
     queryFn: () => SuppliersApi.list({ limit: 100 }),
   });
@@ -61,7 +61,8 @@ export default function SuppliersPage() {
         action={<Button onClick={openCreate}>
           <Plus className="h-4 w-4" /> Add supplier</Button>} />
 
-      {isLoading ? <LoadingBlock /> :
+      {isError ? <ErrorState onRetry={() => refetch()} /> :
+        isLoading ? <LoadingBlock /> :
         !data || data.data.length === 0 ? (
           <EmptyState title="No suppliers" description="Add suppliers to record purchases against them." icon={Truck} />
         ) : (

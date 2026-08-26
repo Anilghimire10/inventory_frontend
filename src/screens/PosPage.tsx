@@ -15,6 +15,7 @@ import { formatMoney } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { CartPanel, TENDERS } from '@/components/pos/CartPanel';
 import type { CartLine, DiscountType, PayMode } from '@/components/pos/CartPanel';
+import { ErrorState, LoadingBlock } from '@/components/ui/misc';
 
 export default function PosPage() {
   const qc = useQueryClient();
@@ -31,6 +32,13 @@ export default function PosPage() {
   // Pay in full now, leave it all on credit, or pay part now (rest to credit).
   const [payMode, setPayMode] = useState<PayMode>('full');
   const [amountPaid, setAmountPaid] = useState(0);
+  // Cash-tendered → change-due (full cash sales only). Kept separate from
+  // amountPaid: tendered is never sent to the server, it's purely to compute
+  // change locally -- a full sale always posts amountPaid: undefined.
+  const [tendered, setTendered] = useState(0);
+  // Snapshot of the last sale's tendered/change, shown in the now-empty cart
+  // until the cashier starts the next sale (see `add`).
+  const [lastChange, setLastChange] = useState<{ tendered: number; change: number } | null>(null);
   const [discount, setDiscount] = useState(0);
   const [discountType, setDiscountType] = useState<DiscountType>('amount');
   const [prescriptionRef, setPrescriptionRef] = useState('');
@@ -43,7 +51,12 @@ export default function PosPage() {
   // but network requests wait for a pause (useDeferredValue + keepPreviousData).
   const deferredSearch = useDeferredValue(search);
 
-  const { data: products } = useQuery({
+  const {
+    data: products,
+    isLoading: productsLoading,
+    isError: productsError,
+    refetch: refetchProducts,
+  } = useQuery({
     queryKey: ['pos-products', deferredSearch],
     queryFn: () => ProductsApi.list({ search: deferredSearch || undefined, limit: 50 }),
     placeholderData: keepPreviousData,
@@ -58,7 +71,7 @@ export default function PosPage() {
   });
   // Total on-hand quantity per product (summed across all stores), fetched in
   // pages because the API caps limit at 100.
-  const { data: stock } = useQuery({
+  const { data: stock, isError: stockError, refetch: refetchStock } = useQuery({
     queryKey: ['pos-stock'],
     queryFn: async () => {
       const all: StockItem[] = [];
@@ -126,7 +139,11 @@ export default function PosPage() {
 
   // How much is collected now vs. left on the customer's account.
   const paidNow =
-    payMode === 'full' ? total : payMode === 'credit' ? 0 : Math.min(amountPaid, total);
+    payMode === 'full'
+      ? total
+      : payMode === 'credit'
+        ? 0
+        : Math.min(Math.max(amountPaid, 0), total);
   const due = Math.max(0, Math.round((total - paidNow) * 100) / 100);
 
   // Ceiling on how many units of a product can be sold. Falls back to
@@ -141,6 +158,7 @@ export default function PosPage() {
     setPaymentMethod('CASH');
     setPayMode('full');
     setAmountPaid(0);
+    setTendered(0);
   };
 
   const printLast = async () => {
@@ -155,6 +173,7 @@ export default function PosPage() {
 
   const hold = () => {
     if (cart.length === 0) return;
+    setLastChange(null);
     setHeldCart(cart);
     setCart([]);
     setCartOpen(false);
@@ -180,6 +199,15 @@ export default function PosPage() {
       } else {
         switch (e.key.toLowerCase()) {
           case '/': e.preventDefault(); focusSearch(); break;
+          case 't': {
+            // Deliberate, cashier-initiated jump to the tendered field --
+            // NOT auto-focused on every item add, since that would steal
+            // focus from the search box mid-barcode-scan (a scanner just
+            // types into whatever has focus and sends Enter).
+            const input = document.querySelector('input[aria-label="Amount tendered"]');
+            if (input) { e.preventDefault(); (input as HTMLInputElement).focus(); }
+            break;
+          }
           case 'enter': if (cart.length > 0) { const last = cart[cart.length - 1]; setQty(last.product.id, last.quantity + 1); } break;
           case 'escape': setSearch(''); break;
           case 'tab':
@@ -218,6 +246,14 @@ export default function PosPage() {
       qc.invalidateQueries({ queryKey: ['credit'] });
       show(`Sale ${sale.receiptNo} completed`);
       setLastSaleId(sale.id);
+      // Cash tendered → change due stays visible in the now-empty cart until
+      // the next item is added, so the cashier can hand back change without
+      // it disappearing the instant the sale completes.
+      setLastChange(
+        payMode === 'full' && paymentMethod === 'CASH' && tendered > 0
+          ? { tendered, change: Math.max(0, Math.round((tendered - total) * 100) / 100) }
+          : null,
+      );
       setCart([]);
       setHeldCart(null);
       resetSaleState();
@@ -236,6 +272,8 @@ export default function PosPage() {
       }
       return;
     }
+    // The next item scanned dismisses the previous sale's change-due display.
+    setLastChange(null);
     setCart((c) =>
       existing
         ? c.map((l) => (l.product.id === product.id ? { ...l, quantity: l.quantity + 1 } : l))
@@ -260,10 +298,12 @@ export default function PosPage() {
 
   // Hold the current sale aside and start a fresh cart; Resume brings it back.
   const resume = () => {
+    setLastChange(null);
     if (heldCart) setCart(heldCart);
     setHeldCart(null);
   };
   const clear = () => {
+    setLastChange(null);
     setCart([]);
     setHeldCart(null);
     setCartOpen(false);
@@ -311,6 +351,7 @@ export default function PosPage() {
             <h2 className="text-lg font-semibold mb-4">Keyboard Shortcuts</h2>
             <ul className="space-y-2 text-left mx-auto max-h-80 overflow-y-auto">
               <li>/ or Cmd+K — Focus search</li>
+              <li>T — Focus amount tendered</li>
               <li>Enter — Add quantity to last cart line</li>
               <li>Tab — Cycle payment methods</li>
               <li>H — Hold sale</li>
@@ -342,6 +383,22 @@ export default function PosPage() {
             <Barcode className="pointer-events-none absolute right-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
           </form>
 
+          {stockError && (
+            <div className="flex items-center justify-between gap-2 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+              <span>
+                Stock levels failed to load — items below may show as out of stock even
+                if they aren&apos;t. Don&apos;t trust the stock badges until this is fixed.
+              </span>
+              <button
+                type="button"
+                onClick={() => refetchStock()}
+                className="shrink-0 font-medium underline underline-offset-2"
+              >
+                Retry
+              </button>
+            </div>
+          )}
+
           {/* Category filter chips */}
           <div className="flex gap-2 overflow-x-auto pb-1">
             <Chip active={categoryId === ''} onClick={() => setCategoryId('')}>
@@ -355,6 +412,16 @@ export default function PosPage() {
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+            {productsError ? (
+              <ErrorState
+                title="Couldn't load products"
+                description="The product catalog failed to load -- this is not the same as being out of stock. Try again."
+                onRetry={() => refetchProducts()}
+              />
+            ) : productsLoading ? (
+              <LoadingBlock label="Loading products…" />
+            ) : (
+              <>
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4">
               {filteredProducts.map((p) => {
                 const available = onHand.get(p.id) ?? 0;
@@ -423,6 +490,8 @@ export default function PosPage() {
             {filteredProducts.length === 0 && (
               <p className="py-8 text-center text-sm text-muted-foreground">No products found.</p>
             )}
+              </>
+            )}
           </div>
         </div>
 
@@ -480,6 +549,9 @@ export default function PosPage() {
               onPaymentMethodChange={setPaymentMethod}
               amountPaid={amountPaid}
               onAmountPaidChange={setAmountPaid}
+              tendered={tendered}
+              onTenderedChange={setTendered}
+              lastChange={lastChange}
               needsRx={needsRx}
               prescriptionRef={prescriptionRef}
               onPrescriptionRefChange={setPrescriptionRef}

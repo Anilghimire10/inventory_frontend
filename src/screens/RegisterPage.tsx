@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import axios from 'axios';
 import { useAuth } from '@/auth/AuthContext';
 import { AuthApi } from '@/api';
 import { Button } from '@/components/ui/button';
@@ -31,6 +32,11 @@ export default function RegisterPage() {
   const [loading, setLoading] = useState(false);
   // Once registered, we switch to the email-verification step.
   const [pendingEmail, setPendingEmail] = useState<string | null>(null);
+  // "Email already in use" can mean a real duplicate, but can also mean this
+  // exact email was already created by a previous attempt (e.g. the request
+  // succeeded server-side but the response never reached the browser) --
+  // give the user a way forward instead of a dead-end error.
+  const [maybeAlreadyRegistered, setMaybeAlreadyRegistered] = useState(false);
 
   useEffect(() => {
     if (user) router.replace('/');
@@ -42,6 +48,7 @@ export default function RegisterPage() {
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setMaybeAlreadyRegistered(false);
     if (form.password !== confirm) {
       setError('Passwords do not match.');
       return;
@@ -52,6 +59,7 @@ export default function RegisterPage() {
       setPendingEmail(res.email);
     } catch (err) {
       setError(apiError(err));
+      setMaybeAlreadyRegistered(axios.isAxiosError(err) && err.response?.status === 409);
     } finally {
       setLoading(false);
     }
@@ -126,7 +134,24 @@ export default function RegisterPage() {
             <p className="mt-1 text-xs text-destructive">Passwords do not match.</p>
           )}
         </Field>
-        {error && <p className="text-sm text-destructive">{error}</p>}
+        {error && (
+          <div className="text-sm text-destructive">
+            <p>{error}</p>
+            {maybeAlreadyRegistered && (
+              <p className="mt-1">
+                Already have a verification code for this email?{' '}
+                <button
+                  type="button"
+                  onClick={() => setPendingEmail(form.email)}
+                  className="font-medium text-primary hover:underline"
+                >
+                  Enter it here
+                </button>
+                .
+              </p>
+            )}
+          </div>
+        )}
         <Button type="submit" className="w-full" loading={loading}>
           Create account
         </Button>
