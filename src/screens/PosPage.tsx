@@ -26,7 +26,6 @@ export default function PosPage() {
   const [search, setSearch] = useState('');
   const [categoryId, setCategoryId] = useState('');
   const [cart, setCart] = useState<CartLine[]>([]);
-  const [heldCart, setHeldCart] = useState<CartLine[] | null>(null);
   const [customerId, setCustomerId] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('CASH');
   // Pay in full now, leave it all on credit, or pay part now (rest to credit).
@@ -69,6 +68,11 @@ export default function PosPage() {
     queryKey: ['categories'],
     queryFn: () => CategoriesApi.list(),
   });
+  const { data: heldSalesData } = useQuery({
+    queryKey: ['held-sales'],
+    queryFn: () => SalesApi.list({ status: 'held', limit: 50 }),
+  });
+  const heldSales = heldSalesData?.data ?? [];
   // Total on-hand quantity per product (summed across all stores), fetched in
   // pages because the API caps limit at 100.
   const { data: stock, isError: stockError, refetch: refetchStock } = useQuery({
@@ -171,13 +175,26 @@ export default function PosPage() {
     }
   };
 
+  const holdMutation = useMutation({
+    mutationFn: () =>
+      SalesApi.hold({
+        customerId: customerId || undefined,
+        discount: discountAmount || undefined,
+        prescriptionRef: prescriptionRef || undefined,
+        items: cart.map((l) => ({ productId: l.product.id, quantity: l.quantity })),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['held-sales'] });
+      setLastChange(null);
+      setCart([]);
+      setCartOpen(false);
+      resetSaleState();
+    },
+    onError: (e) => show(apiError(e), 'error'),
+  });
   const hold = () => {
     if (cart.length === 0) return;
-    setLastChange(null);
-    setHeldCart(cart);
-    setCart([]);
-    setCartOpen(false);
-    resetSaleState();
+    holdMutation.mutate();
   };
 
   useEffect(() => {
@@ -255,7 +272,6 @@ export default function PosPage() {
           : null,
       );
       setCart([]);
-      setHeldCart(null);
       resetSaleState();
       setCartOpen(false);
     },
@@ -296,16 +312,40 @@ export default function PosPage() {
 
   const atMax = (line: CartLine) => maxOf(line.product.id) <= line.quantity;
 
-  // Hold the current sale aside and start a fresh cart; Resume brings it back.
-  const resume = () => {
-    setLastChange(null);
-    if (heldCart) setCart(heldCart);
-    setHeldCart(null);
+  const resumeMutation = useMutation({
+    mutationFn: (id: string) => SalesApi.resume(id),
+    onSuccess: (held) => {
+      qc.invalidateQueries({ queryKey: ['held-sales'] });
+      setLastChange(null);
+      setCart(held.items.map((i) => ({ product: i.product, quantity: i.quantity })));
+      setCustomerId(held.customerId ?? '');
+      setDiscount(held.discount);
+      setDiscountType('amount');
+      setPrescriptionRef(held.prescriptionRef ?? '');
+      setCartOpen(true);
+    },
+    onError: (e) => show(apiError(e), 'error'),
+  });
+  // Bring a parked sale back into the cart. Refuses to clobber a cart the
+  // cashier is already mid-way through -- they must finish, hold, or clear
+  // it first.
+  const resume = (id: string) => {
+    if (cart.length > 0) {
+      show('Finish or hold the current sale before resuming another.', 'error');
+      return;
+    }
+    resumeMutation.mutate(id);
   };
+
+  const discardMutation = useMutation({
+    mutationFn: (id: string) => SalesApi.discardHeld(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['held-sales'] }),
+    onError: (e) => show(apiError(e), 'error'),
+  });
+
   const clear = () => {
     setLastChange(null);
     setCart([]);
-    setHeldCart(null);
     setCartOpen(false);
     resetSaleState();
   };
@@ -522,14 +562,18 @@ export default function PosPage() {
             <CartPanel
               cart={cart}
               cartCount={cartCount}
-              heldCart={heldCart}
+              heldSales={heldSales}
+              resumingId={resumeMutation.isPending ? (resumeMutation.variables ?? null) : null}
+              discardingId={discardMutation.isPending ? (discardMutation.variables ?? null) : null}
               customers={customers?.data ?? []}
               customerId={customerId}
               onCustomerChange={setCustomerId}
               onSetQty={setQty}
               atMax={atMax}
               onHold={hold}
-              onResume={resume}
+              holding={holdMutation.isPending}
+              onResumeHeld={resume}
+              onDiscardHeld={(id) => discardMutation.mutate(id)}
               onClear={clear}
               onCheckout={() => checkout.mutate()}
               checkingOut={checkout.isPending}

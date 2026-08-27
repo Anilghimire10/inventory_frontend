@@ -198,6 +198,16 @@ export interface Sale extends SaleListItem {
   business?: { name: string; currency: string; taxId?: string | null; showTaxIdOnBill?: boolean };
 }
 
+/** POST /sales/:id/resume — a parked cart, ready to repopulate the POS. */
+export interface HeldSaleCart {
+  storeId: string;
+  customerId: string | null;
+  discount: number;
+  prescriptionRef?: string | null;
+  note?: string | null;
+  items: { product: Product; quantity: number }[];
+}
+
 export interface Purchase {
   id: string;
   reference?: string | null;

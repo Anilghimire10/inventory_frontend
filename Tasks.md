@@ -36,7 +36,7 @@ the cashier touching a calculator.
 
 ---
 
-### ⬜ 2. Hold / park a sale
+### ✅ 2. Hold / park a sale
 
 `SaleStatus.HELD` exists in the schema and is filtered out of every report
 (`api/src/reports/reports.service.ts` in 6 places, `platform.service.ts` in 2),
