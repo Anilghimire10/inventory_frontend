@@ -10,6 +10,7 @@ import type {
   CreditSummary,
   Customer,
   Dashboard,
+  HeldSaleCart,
   NotificationList,
   Paginated,
   Payable,
@@ -171,6 +172,9 @@ export const SalesApi = {
   list: (params?: object) => get<Paginated<SaleListItem>>('/sales', params),
   get: (id: string) => get<Sale>(`/sales/${id}`),
   create: (body: object) => post<Sale>('/sales', body),
+  hold: (body: object) => post<Sale>('/sales/hold', body),
+  resume: (id: string) => post<HeldSaleCart>(`/sales/${id}/resume`, {}),
+  discardHeld: (id: string) => del(`/sales/${id}`),
   return: (id: string, body: object) =>
     post<{ sale: Sale; refund: number }>(`/sales/${id}/return`, body),
   emailReceipt: (id: string, email?: string) =>

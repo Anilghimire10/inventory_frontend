@@ -16,7 +16,7 @@ import {
   User,
   X,
 } from 'lucide-react';
-import type { Customer, Product } from '@/types';
+import type { Customer, Product, SaleListItem } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
@@ -53,14 +53,18 @@ const QUICK_NOTES = [100, 500, 1000];
 interface CartPanelProps {
   cart: CartLine[];
   cartCount: number;
-  heldCart: CartLine[] | null;
+  heldSales: SaleListItem[];
+  resumingId: string | null;
+  discardingId: string | null;
   customers: Customer[];
   customerId: string;
   onCustomerChange: (id: string) => void;
   onSetQty: (id: string, qty: number) => void;
   atMax: (line: CartLine) => boolean;
   onHold: () => void;
-  onResume: () => void;
+  holding: boolean;
+  onResumeHeld: (id: string) => void;
+  onDiscardHeld: (id: string) => void;
   onClear: () => void;
   onCheckout: () => void;
   checkingOut: boolean;
@@ -95,14 +99,18 @@ interface CartPanelProps {
 export function CartPanel({
   cart,
   cartCount,
-  heldCart,
+  heldSales,
+  resumingId,
+  discardingId,
   customers,
   customerId,
   onCustomerChange,
   onSetQty,
   atMax,
   onHold,
-  onResume,
+  holding,
+  onResumeHeld,
+  onDiscardHeld,
   onClear,
   onCheckout,
   checkingOut,
@@ -213,18 +221,46 @@ export function CartPanel({
           </Button>
         </div>
 
-        {heldCart && cart.length === 0 && (
-          <div className="flex shrink-0 items-center gap-2 border-b border-warning/40 bg-warning/10 px-3 py-2">
-            <AlertTriangle className="h-4 w-4 shrink-0 text-warning" />
-            <p className="flex-1 text-xs font-medium text-foreground">A sale is on hold</p>
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-7 border-warning/50 text-warning hover:bg-warning/10"
-              onClick={onResume}
-            >
-              <RotateCcw className="h-3.5 w-3.5" /> Resume
-            </Button>
+        {heldSales.length > 0 && (
+          <div className="shrink-0 border-b border-warning/40 bg-warning/10">
+            <div className="flex items-center gap-2 px-3 py-2">
+              <AlertTriangle className="h-4 w-4 shrink-0 text-warning" />
+              <p className="text-xs font-medium text-foreground">
+                {heldSales.length} sale{heldSales.length !== 1 ? 's' : ''} on hold
+              </p>
+            </div>
+            <ul className="max-h-32 divide-y divide-warning/20 overflow-y-auto">
+              {heldSales.map((s) => (
+                <li key={s.id} className="flex items-center gap-2 px-3 py-1.5">
+                  <span className="min-w-0 flex-1 truncate text-xs text-foreground">
+                    {s.customer?.name ?? 'Walk-in'} · {s._count?.items ?? 0} item
+                    {(s._count?.items ?? 0) !== 1 ? 's' : ''}
+                  </span>
+                  <span className="shrink-0 text-xs font-medium text-foreground">
+                    {formatMoney(s.total)}
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-6 shrink-0 border-warning/50 px-2 text-[11px] text-warning hover:bg-warning/10"
+                    loading={resumingId === s.id}
+                    onClick={() => onResumeHeld(s.id)}
+                  >
+                    <RotateCcw className="h-3 w-3" /> Resume
+                  </Button>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-6 w-6 shrink-0 text-muted-foreground hover:text-destructive"
+                    aria-label="Discard held sale"
+                    loading={discardingId === s.id}
+                    onClick={() => onDiscardHeld(s.id)}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </li>
+              ))}
+            </ul>
           </div>
         )}
 
@@ -629,7 +665,7 @@ export function CartPanel({
             {/* Action bar */}
             <div className="shrink-0 space-y-2 border-t border-border bg-muted/40 p-4">
               <div className="flex gap-2">
-                <Button variant="outline" className="flex-1" onClick={onHold}>
+                <Button variant="outline" className="flex-1" loading={holding} onClick={onHold}>
                   <Pause className="h-4 w-4" /> Hold
                 </Button>
                 <Button
