@@ -1,11 +1,12 @@
 'use client';
 import { useEffect, useMemo, useDeferredValue, useState } from 'react';
 import { useMutation, useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
-import { Plus, Package, Barcode, ChevronUp, Printer, ShoppingCart } from 'lucide-react';
+import { Plus, Package, Barcode, ChevronUp, Printer, ShoppingCart, Wallet } from 'lucide-react';
 import { CategoriesApi, CustomersApi, InventoryApi, ProductsApi, SalesApi } from '@/api';
-import type { Product, Paginated, StockItem } from '@/types';
+import type { Product, Paginated, PaymentMethod, StockItem } from '@/types';
 import { useAuth } from '@/auth/AuthContext';
-import { printSale } from '@/lib/print';
+import { useShift } from '@/shift/ShiftContext';
+import { printSale, printZReport } from '@/lib/print';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { RxBadge } from '@/components/ui/RxBadge';
@@ -15,12 +16,16 @@ import { formatMoney } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { CartPanel, TENDERS } from '@/components/pos/CartPanel';
 import type { CartLine, DiscountType, PayMode } from '@/components/pos/CartPanel';
+import { OpenShiftModal } from '@/components/pos/OpenShiftModal';
+import { CloseShiftModal } from '@/components/pos/CloseShiftModal';
 import { ErrorState, LoadingBlock } from '@/components/ui/misc';
 
 export default function PosPage() {
   const qc = useQueryClient();
   const { show } = useToast();
   const { user } = useAuth();
+  const { shift, openShift, closeShift, recordSale } = useShift();
+  const [showCloseShift, setShowCloseShift] = useState(false);
   // Master tax switch (from business settings). When off, nothing is taxed.
   const taxEnabled = user?.business?.taxEnabled ?? true;
   const [search, setSearch] = useState('');
@@ -175,6 +180,21 @@ export default function PosPage() {
     }
   };
 
+  const confirmCloseShift = (countedCash: number, note?: string) => {
+    const closed = closeShift(countedCash, note);
+    setShowCloseShift(false);
+    if (!closed) return;
+    printZReport(closed, {
+      businessName: user?.business?.name ?? 'Shift report',
+      currency: user?.business?.currency ?? 'USD',
+    });
+    show(
+      closed.variance === 0
+        ? 'Shift closed — drawer balances'
+        : `Shift closed — ${closed.variance! > 0 ? 'over' : 'short'} by ${formatMoney(Math.abs(closed.variance!))}`,
+    );
+  };
+
   const holdMutation = useMutation({
     mutationFn: () =>
       SalesApi.hold({
@@ -263,6 +283,11 @@ export default function PosPage() {
       qc.invalidateQueries({ queryKey: ['credit'] });
       show(`Sale ${sale.receiptNo} completed`);
       setLastSaleId(sale.id);
+      recordSale({
+        total: Number(sale.total),
+        amountPaid: Number(sale.amountPaid),
+        tender: (payMode === 'credit' ? 'CREDIT' : paymentMethod) as PaymentMethod,
+      });
       // Cash tendered → change due stays visible in the now-empty cart until
       // the next item is added, so the cashier can hand back change without
       // it disappearing the instant the sale completes.
@@ -373,6 +398,16 @@ export default function PosPage() {
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <h1 className="text-xl font-semibold tracking-tight">Point of Sale</h1>
         <div className="ml-auto flex items-center gap-2">
+          {shift && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowCloseShift(true)}
+              title="Close shift and print a Z report"
+            >
+              <Wallet className="h-4 w-4" /> {formatMoney(shift.grossSales)} · Close shift
+            </Button>
+          )}
           {lastSaleId && (
             <Button variant="outline" size="sm" onClick={printLast} title="Print the last sale's receipt">
               <Printer className="h-4 w-4" /> Last receipt
@@ -383,6 +418,17 @@ export default function PosPage() {
           </Button>
         </div>
       </div>
+
+      {/* Blocks the till until the cashier counts a starting float. */}
+      {!shift && <OpenShiftModal onOpen={openShift} />}
+
+      {showCloseShift && shift && (
+        <CloseShiftModal
+          shift={shift}
+          onClose={() => setShowCloseShift(false)}
+          onConfirm={confirmCloseShift}
+        />
+      )}
 
       {/* Help overlay */}
       {showHelp && (
@@ -562,6 +608,7 @@ export default function PosPage() {
             <CartPanel
               cart={cart}
               cartCount={cartCount}
+              shiftOpen={!!shift}
               heldSales={heldSales}
               resumingId={resumeMutation.isPending ? (resumeMutation.variables ?? null) : null}
               discardingId={discardMutation.isPending ? (discardMutation.variables ?? null) : null}
