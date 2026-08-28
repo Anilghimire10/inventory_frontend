@@ -35,9 +35,10 @@ import { PageHeader, LoadingBlock, ErrorState } from '@/components/ui/misc';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { formatNumber } from '@/lib/format';
+import { formatNumber, formatDateTime } from '@/lib/format';
 import { exportCsv } from '@/lib/csv';
 import { cn } from '@/lib/utils';
+import { useShift } from '@/shift/ShiftContext';
 
 const PRIMARY = 'hsl(var(--primary))';
 const PALETTE = [
@@ -169,7 +170,76 @@ export default function AnalyticsPage() {
       ) : (
         <AnalyticsBody data={data} orderValue={orderValue} />
       )}
+
+      <Card className="mt-6">
+        <ShiftHistory />
+      </Card>
     </div>
+  );
+}
+
+/** Cash-drawer sessions closed on this device (see Tasks.md #3 -- no backend yet). */
+function ShiftHistory() {
+  const { history } = useShift();
+  return (
+    <>
+      <div className="border-b border-border p-5">
+        <h2 className="font-semibold">Shift History</h2>
+        <p className="text-xs text-muted-foreground">
+          Cash-drawer sessions closed on this device.
+        </p>
+      </div>
+      {history.length === 0 ? (
+        <p className="py-8 text-center text-sm text-muted-foreground">No shifts closed yet.</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted-foreground">
+                <th className="px-5 py-3 font-medium">Cashier</th>
+                <th className="px-5 py-3 font-medium">Opened</th>
+                <th className="px-5 py-3 font-medium">Closed</th>
+                <th className="px-5 py-3 text-right font-medium">Sales</th>
+                <th className="px-5 py-3 text-right font-medium">Gross</th>
+                <th className="px-5 py-3 text-right font-medium">Expected</th>
+                <th className="px-5 py-3 text-right font-medium">Counted</th>
+                <th className="px-5 py-3 text-right font-medium">Variance</th>
+              </tr>
+            </thead>
+            <tbody>
+              {history.map((s) => {
+                const variance = s.variance ?? 0;
+                return (
+                  <tr key={s.id} className="border-b border-border/60 last:border-0">
+                    <td className="px-5 py-3 font-medium">{s.openedByName}</td>
+                    <td className="px-5 py-3 text-muted-foreground">{formatDateTime(s.openedAt)}</td>
+                    <td className="px-5 py-3 text-muted-foreground">
+                      {s.closedAt ? formatDateTime(s.closedAt) : '—'}
+                    </td>
+                    <td className="px-5 py-3 text-right">{s.salesCount}</td>
+                    <td className="px-5 py-3 text-right">{money(s.grossSales)}</td>
+                    <td className="px-5 py-3 text-right">{money(s.expectedCash)}</td>
+                    <td className="px-5 py-3 text-right">{money(s.countedCash)}</td>
+                    <td
+                      className={cn(
+                        'px-5 py-3 text-right font-medium',
+                        variance === 0
+                          ? 'text-muted-foreground'
+                          : variance > 0
+                            ? 'text-success'
+                            : 'text-destructive',
+                      )}
+                    >
+                      {variance === 0 ? '—' : `${variance > 0 ? '+' : ''}${money(variance)}`}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </>
   );
 }
 

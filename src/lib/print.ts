@@ -1,4 +1,5 @@
 import type { Sale } from '@/types';
+import type { Shift } from './shift';
 
 export type PrintFormat = 'thermal' | 'a4';
 
@@ -102,6 +103,50 @@ function thermal(
       <div class="c muted">Thank you!</div>
     </div>`;
   return shell(`Receipt ${sale.receiptNo}`, 'size: 80mm auto; margin: 3mm;', body);
+}
+
+/** Printable Z report for a closed shift -- drawer count vs. expected cash. */
+export function printZReport(
+  shift: Shift,
+  opts: { businessName: string; storeName?: string; currency: string },
+) {
+  const m = (v: number) => money(opts.currency, v);
+  const w = window.open('', '_blank', 'width=420,height=640');
+  if (!w) {
+    alert('Please allow pop-ups to print reports.');
+    return;
+  }
+  const variance = shift.variance ?? 0;
+  const varianceLabel = variance === 0 ? 'Balanced' : variance > 0 ? 'Over' : 'Short';
+  const body = `
+    <div style="width:72mm;padding:2mm;font-size:11px">
+      <div class="c" style="font-weight:700;font-size:14px">${esc(opts.businessName)}</div>
+      ${opts.storeName ? `<div class="c muted">${esc(opts.storeName)}</div>` : ''}
+      <div class="c" style="font-weight:700;margin-top:4px">Z REPORT — SHIFT CLOSE</div>
+      <hr/>
+      <div>Cashier: <b>${esc(shift.openedByName)}</b></div>
+      <div class="muted">Opened: ${new Date(shift.openedAt).toLocaleString()}</div>
+      <div class="muted">Closed: ${shift.closedAt ? new Date(shift.closedAt).toLocaleString() : '—'}</div>
+      <hr/>
+      <table>
+        <tr class="muted"><td>Opening float</td><td class="r">${m(shift.openingFloat)}</td></tr>
+        <tr class="muted"><td>Cash sales</td><td class="r">${m(shift.cashSales)}</td></tr>
+        <tr class="muted"><td>Card sales</td><td class="r">${m(shift.cardSales)}</td></tr>
+        <tr class="muted"><td>Mobile sales</td><td class="r">${m(shift.mobileSales)}</td></tr>
+        <tr class="muted"><td>Left on credit</td><td class="r">${m(shift.creditSales)}</td></tr>
+        <tr class="muted"><td>${shift.salesCount} sale${shift.salesCount !== 1 ? 's' : ''} · gross</td><td class="r">${m(shift.grossSales)}</td></tr>
+      </table>
+      <hr/>
+      <table>
+        <tr style="font-weight:700"><td>Expected cash</td><td class="r">${m(shift.expectedCash ?? 0)}</td></tr>
+        <tr style="font-weight:700"><td>Counted cash</td><td class="r">${m(shift.countedCash ?? 0)}</td></tr>
+        <tr style="font-weight:700"><td>${varianceLabel}</td><td class="r">${m(Math.abs(variance))}</td></tr>
+      </table>
+      ${shift.note ? `<hr/><div class="muted">Note: ${esc(shift.note)}</div>` : ''}
+    </div>`;
+  const title = `Z Report ${new Date(shift.closedAt ?? shift.openedAt).toLocaleDateString()}`;
+  w.document.write(shell(title, 'size: 80mm auto; margin: 3mm;', body));
+  w.document.close();
 }
 
 function invoiceA4(
