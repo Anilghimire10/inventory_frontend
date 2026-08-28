@@ -53,6 +53,8 @@ const QUICK_NOTES = [100, 500, 1000];
 interface CartPanelProps {
   cart: CartLine[];
   cartCount: number;
+  /** Whether a shift is currently open -- checkout is blocked without one. */
+  shiftOpen: boolean;
   heldSales: SaleListItem[];
   resumingId: string | null;
   discardingId: string | null;
@@ -99,6 +101,7 @@ interface CartPanelProps {
 export function CartPanel({
   cart,
   cartCount,
+  shiftOpen,
   heldSales,
   resumingId,
   discardingId,
@@ -174,7 +177,7 @@ export function CartPanel({
   const change = Math.round((tendered - total) * 100) / 100;
 
   const checkoutDisabled =
-    (due > 0 && !customerId) || (needsRx && !prescriptionRef.trim());
+    !shiftOpen || (due > 0 && !customerId) || (needsRx && !prescriptionRef.trim());
 
   const tenderLabel = TENDERS.find((t) => t.value === paymentMethod)?.label ?? paymentMethod;
 
@@ -685,6 +688,11 @@ export function CartPanel({
               >
                 <Check className="h-4 w-4" /> Complete Sale · {formatMoney(total)}
               </Button>
+              {!shiftOpen && (
+                <p className="text-center text-xs text-destructive">
+                  Open a shift to start selling.
+                </p>
+              )}
               {due > 0 && !customerId && (
                 <div className="flex items-center justify-center gap-1.5 text-center text-xs text-destructive">
                   <span>Select a customer to leave a balance on credit.</span>

@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useAuth } from '@/auth/AuthContext';
+import { ShiftProvider } from '@/shift/ShiftContext';
 import AppLayout from '@/components/layout/AppLayout';
 import { LoadingBlock } from '@/components/ui/misc';
 import { canAccessPath } from '@/components/layout/nav';
@@ -47,7 +48,9 @@ export default function AppGroupLayout({ children }: { children: React.ReactNode
   }
   return (
     <QueryClientProvider client={client}>
-      <AppLayout>{children}</AppLayout>
+      <ShiftProvider>
+        <AppLayout>{children}</AppLayout>
+      </ShiftProvider>
     </QueryClientProvider>
   );
 }
