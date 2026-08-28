@@ -59,12 +59,18 @@ first resumed with all lines, quantities, customer and discount intact.
 
 ---
 
-### ⬜ 3. Shift / cash drawer session
+### 🚧 3. Shift / cash drawer session
 
 Completely absent — zero references to shift, drawer, or X/Z report anywhere.
 With `CASHIER` as a role, the owner has no way to tell whether the drawer
 balances at end of day. This is the biggest accountability hole in the product
 and the thing shop owners ask about during a demo.
+
+**Status:** Web built frontend-only, deliberately ahead of the API — state
+lives in `localStorage` via `src/shift/ShiftContext.tsx` / `src/lib/shift.ts`,
+shaped so swapping in the real `/shifts` endpoints later only touches that
+one file. Schema + API below are still not started; until they land, shift
+state doesn't sync across devices and doesn't survive clearing site data.
 
 **Schema** — new `Shift` model:
 ```
