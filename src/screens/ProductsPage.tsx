@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, Search, Pencil, Trash2, Package, Download, Upload, X, Check } from 'lucide-react';
+import { Plus, Search, Pencil, Trash2, Package, Download, Upload, X, Check, Barcode as BarcodeIcon } from 'lucide-react';
 import { CategoriesApi, ProductsApi, TaxesApi } from '@/api';
 import type { Category, Product } from '@/types';
 import { PageHeader, LoadingBlock, EmptyState, ErrorState } from '@/components/ui/misc';
@@ -17,6 +17,8 @@ import { Pagination } from '@/components/ui/pagination';
 import { useToast } from '@/components/ui/toast';
 import { apiError } from '@/lib/api';
 import { exportCsv, parseCsv } from '@/lib/csv';
+import { printLabelSheet } from '@/lib/print';
+import { generateBarcodeValue } from '@/lib/barcode';
 import { Select } from '@/components/ui/select';
 import { formatMoney } from '@/lib/format';
 import { useAuth } from '@/auth/AuthContext';
@@ -67,6 +69,7 @@ export default function ProductsPage() {
   const [editing, setEditing] = useState<Product | null>(null);
   const [form, setForm] = useState<Form>(empty);
   const [removeTarget, setRemoveTarget] = useState<Product | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['products', search, page],
@@ -106,6 +109,56 @@ export default function ProductsPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['products'] });
       show('Product removed');
+    },
+    onError: (e) => show(apiError(e), 'error'),
+  });
+
+  const toggleSelected = (id: string) =>
+    setSelected((s) => {
+      const next = new Set(s);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  const toggleSelectAll = (rows: Product[]) =>
+    setSelected((s) =>
+      rows.every((p) => s.has(p.id)) ? new Set() : new Set(rows.map((p) => p.id)),
+    );
+
+  // Assign a barcode to any selected product that doesn't have one yet (so the
+  // printed label is actually scannable), then print the whole selection.
+  const printLabels = useMutation({
+    mutationFn: async (products: Product[]) => {
+      let assignedAny = false;
+      const items = [];
+      for (const p of products) {
+        let barcode = p.barcode;
+        if (!barcode) {
+          // Retry on the rare collision against the business's existing codes.
+          for (let attempt = 0; !barcode && attempt < 3; attempt++) {
+            const candidate = generateBarcodeValue();
+            try {
+              const updated = await ProductsApi.update(p.id, { barcode: candidate });
+              barcode = updated.barcode ?? candidate;
+              assignedAny = true;
+            } catch {
+              if (attempt === 2) throw new Error(`Could not assign a barcode to "${p.name}"`);
+            }
+          }
+        }
+        items.push({
+          name: p.name,
+          barcode: barcode!,
+          price: formatMoney(p.sellingPrice),
+          sku: p.sku,
+        });
+      }
+      return { items, assignedAny };
+    },
+    onSuccess: ({ items, assignedAny }) => {
+      if (assignedAny) qc.invalidateQueries({ queryKey: ['products'] });
+      printLabelSheet(items);
+      setSelected(new Set());
     },
     onError: (e) => show(apiError(e), 'error'),
   });
@@ -210,6 +263,18 @@ export default function ProductsPage() {
         description="Your catalog of items for sale."
         action={
           <div className="flex flex-wrap gap-2">
+            {selected.size > 0 && (
+              <Button
+                variant="outline"
+                loading={printLabels.isPending}
+                onClick={() => {
+                  const rows = (data?.data ?? []).filter((p) => selected.has(p.id));
+                  printLabels.mutate(rows);
+                }}
+              >
+                <BarcodeIcon className="h-4 w-4" /> Print labels ({selected.size})
+              </Button>
+            )}
             <Button variant="outline" onClick={doExport}>
               <Download className="h-4 w-4" /> Export
             </Button>
@@ -233,6 +298,7 @@ export default function ProductsPage() {
           onChange={(e) => {
             setSearch(e.target.value);
             setPage(1);
+            setSelected(new Set());
           }}
         />
       </div>
@@ -253,6 +319,14 @@ export default function ProductsPage() {
           <Table>
             <THead>
               <TR>
+                <TH className="w-8">
+                  <input
+                    type="checkbox"
+                    aria-label="Select all on this page"
+                    checked={data.data.length > 0 && data.data.every((p) => selected.has(p.id))}
+                    onChange={() => toggleSelectAll(data.data)}
+                  />
+                </TH>
                 <TH>Name</TH>
                 <TH>SKU</TH>
                 <TH>Category</TH>
@@ -264,6 +338,14 @@ export default function ProductsPage() {
             <TBody>
               {data.data.map((p) => (
                 <TR key={p.id}>
+                  <TD>
+                    <input
+                      type="checkbox"
+                      aria-label={`Select ${p.name}`}
+                      checked={selected.has(p.id)}
+                      onChange={() => toggleSelected(p.id)}
+                    />
+                  </TD>
                   <TD>
                     <div className="flex items-center gap-3">
                       {p.imageUrl ? (
@@ -327,7 +409,10 @@ export default function ProductsPage() {
           <Pagination
             page={data.meta.page}
             pages={data.meta.pages}
-            onPage={setPage}
+            onPage={(p) => {
+              setPage(p);
+              setSelected(new Set());
+            }}
           />
         </>
       )}
