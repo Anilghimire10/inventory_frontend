@@ -1,12 +1,13 @@
 'use client';
 import { useEffect, useMemo, useDeferredValue, useState } from 'react';
 import { useMutation, useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
-import { Plus, Package, Barcode, ChevronUp, Printer, ShoppingCart, Wallet } from 'lucide-react';
+import { Plus, Package, Barcode, ChevronUp, Printer, ShoppingCart, Wallet, Star } from 'lucide-react';
 import { CategoriesApi, CustomersApi, InventoryApi, ProductsApi, SalesApi } from '@/api';
 import type { Product, Paginated, PaymentMethod, StockItem } from '@/types';
 import { useAuth } from '@/auth/AuthContext';
 import { useShift } from '@/shift/ShiftContext';
 import { printSale, printZReport } from '@/lib/print';
+import { loadFavoriteIds, saveFavoriteIds } from '@/lib/favorites';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { RxBadge } from '@/components/ui/RxBadge';
@@ -14,11 +15,14 @@ import { useToast } from '@/components/ui/toast';
 import { apiError } from '@/lib/api';
 import { formatMoney } from '@/lib/format';
 import { cn } from '@/lib/utils';
-import { CartPanel, TENDERS } from '@/components/pos/CartPanel';
+import { CartPanel, TENDERS, lineNet } from '@/components/pos/CartPanel';
 import type { CartLine, DiscountType, PayMode } from '@/components/pos/CartPanel';
 import { OpenShiftModal } from '@/components/pos/OpenShiftModal';
 import { CloseShiftModal } from '@/components/pos/CloseShiftModal';
 import { ErrorState, LoadingBlock } from '@/components/ui/misc';
+
+/** Sentinel `categoryId` value for the pinned-favorites chip. */
+const FAVORITES = '__favorites__';
 
 export default function PosPage() {
   const qc = useQueryClient();
@@ -29,7 +33,17 @@ export default function PosPage() {
   // Master tax switch (from business settings). When off, nothing is taxed.
   const taxEnabled = user?.business?.taxEnabled ?? true;
   const [search, setSearch] = useState('');
+  // Real category filter (a category id), or the FAVORITES sentinel -- both
+  // pick which chip is active in the same row.
   const [categoryId, setCategoryId] = useState('');
+  const [favorites, setFavorites] = useState<string[]>(() => loadFavoriteIds());
+  // Persisting is a side effect of the in-memory set changing, not tangled
+  // into the click handler -- keeps toggling a pure state update.
+  useEffect(() => saveFavoriteIds(favorites), [favorites]);
+  const toggleFavorite = (productId: string) =>
+    setFavorites((prev) =>
+      prev.includes(productId) ? prev.filter((id) => id !== productId) : [...prev, productId],
+    );
   const [cart, setCart] = useState<CartLine[]>([]);
   const [customerId, setCustomerId] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('CASH');
@@ -61,10 +75,37 @@ export default function PosPage() {
     isError: productsError,
     refetch: refetchProducts,
   } = useQuery({
-    queryKey: ['pos-products', deferredSearch],
-    queryFn: () => ProductsApi.list({ search: deferredSearch || undefined, limit: 50 }),
+    queryKey:
+      categoryId === FAVORITES
+        ? ['pos-products', 'favorites', favorites]
+        : ['pos-products', deferredSearch, categoryId],
+    queryFn: () =>
+      categoryId === FAVORITES
+        ? favorites.length
+          ? ProductsApi.list({ ids: favorites, limit: 100 })
+          : Promise.resolve({ data: [], meta: { total: 0, page: 1, limit: 100, pages: 0 } } as Paginated<Product>)
+        : ProductsApi.list({
+            search: deferredSearch || undefined,
+            categoryId: categoryId || undefined,
+            limit: 50,
+          }),
     placeholderData: keepPreviousData,
   });
+  // Self-heal the pinned set: if a favorited id no longer resolves to a
+  // product (deleted, deactivated, or a leftover from an earlier bug), drop
+  // it so the count badge always matches what's actually shown. Adjusted
+  // during render (React's documented pattern for this) rather than in an
+  // effect, keyed on the result set so it only runs when it actually changes.
+  const [prunedForKey, setPrunedForKey] = useState<string | null>(null);
+  if (categoryId === FAVORITES && products) {
+    const resultKey = products.data.map((p) => p.id).join(',');
+    if (resultKey !== prunedForKey) {
+      setPrunedForKey(resultKey);
+      const found = new Set(products.data.map((p) => p.id));
+      const pruned = favorites.filter((id) => found.has(id));
+      if (pruned.length !== favorites.length) setFavorites(pruned);
+    }
+  }
   const { data: customers } = useQuery({
     queryKey: ['customers'],
     queryFn: () => CustomersApi.list({ limit: 100 }),
@@ -114,18 +155,16 @@ export default function PosPage() {
     return m;
   }, [stock]);
 
-  const filteredProducts = useMemo(() => {
-    const list = products?.data ?? [];
-    if (!categoryId) return list;
-    return list.filter((p) => p.categories?.some((c) => c.id === categoryId));
-  }, [products, categoryId]);
+  // Category/favorites filtering now happens server-side (see the query
+  // above) so this scales past whatever page of results is loaded.
+  const displayProducts = products?.data ?? [];
 
   const needsRx = cart.some((l) => l.product.isRxRequired);
 
   const { subtotal, tax } = useMemo(() => {
     let sub = 0, t = 0;
     for (const l of cart) {
-      const net = Number(l.product.sellingPrice) * l.quantity;
+      const net = lineNet(l);
       sub += net;
       // Tax applies only when the master switch is on AND the product is taxable.
       if (taxEnabled && l.product.isTaxable) t += (net * Number(l.product.taxRate)) / 100;
@@ -201,7 +240,12 @@ export default function PosPage() {
         customerId: customerId || undefined,
         discount: discountAmount || undefined,
         prescriptionRef: prescriptionRef || undefined,
-        items: cart.map((l) => ({ productId: l.product.id, quantity: l.quantity })),
+        items: cart.map((l) => ({
+          productId: l.product.id,
+          quantity: l.quantity,
+          unitPrice: l.unitPrice,
+          discount: l.discount,
+        })),
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['held-sales'] });
@@ -273,7 +317,12 @@ export default function PosPage() {
         amountPaid: payMode === 'full' ? undefined : paidNow,
         discount: discountAmount || undefined,
         prescriptionRef: prescriptionRef || undefined,
-        items: cart.map((l) => ({ productId: l.product.id, quantity: l.quantity })),
+        items: cart.map((l) => ({
+          productId: l.product.id,
+          quantity: l.quantity,
+          unitPrice: l.unitPrice,
+          discount: l.discount,
+        })),
       }),
     onSuccess: (sale) => {
       qc.invalidateQueries({ queryKey: ['stock'] });
@@ -337,12 +386,22 @@ export default function PosPage() {
 
   const atMax = (line: CartLine) => maxOf(line.product.id) <= line.quantity;
 
+  const updateLine = (id: string, updates: { unitPrice?: number; discount?: number }) =>
+    setCart((c) => c.map((l) => (l.product.id === id ? { ...l, ...updates } : l)));
+
   const resumeMutation = useMutation({
     mutationFn: (id: string) => SalesApi.resume(id),
     onSuccess: (held) => {
       qc.invalidateQueries({ queryKey: ['held-sales'] });
       setLastChange(null);
-      setCart(held.items.map((i) => ({ product: i.product, quantity: i.quantity })));
+      setCart(
+        held.items.map((i) => ({
+          product: i.product,
+          quantity: i.quantity,
+          unitPrice: i.unitPrice,
+          discount: i.discount,
+        })),
+      );
       setCustomerId(held.customerId ?? '');
       setDiscount(held.discount);
       setDiscountType('amount');
@@ -490,6 +549,10 @@ export default function PosPage() {
             <Chip active={categoryId === ''} onClick={() => setCategoryId('')}>
               All
             </Chip>
+            <Chip active={categoryId === FAVORITES} onClick={() => setCategoryId(FAVORITES)}>
+              <Star className={cn('h-3.5 w-3.5', categoryId === FAVORITES && 'fill-current')} />
+              Favorites ({favorites.length})
+            </Chip>
             {categories?.map((c) => (
               <Chip key={c.id} active={categoryId === c.id} onClick={() => setCategoryId(c.id)}>
                 {c.name}
@@ -509,9 +572,10 @@ export default function PosPage() {
             ) : (
               <>
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4">
-              {filteredProducts.map((p) => {
+              {displayProducts.map((p) => {
                 const available = onHand.get(p.id) ?? 0;
                 const out = available <= 0;
+                const isFavorite = favorites.includes(p.id);
                 return (
                   <div
                     key={p.id}
@@ -547,6 +611,17 @@ export default function PosPage() {
                           </span>
                         </div>
                       )}
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); toggleFavorite(p.id); }}
+                        aria-label={isFavorite ? `Remove ${p.name} from favorites` : `Add ${p.name} to favorites`}
+                        className={cn(
+                          'absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-background/80 shadow-sm backdrop-blur-sm transition-colors',
+                          isFavorite ? 'text-warning' : 'text-muted-foreground hover:text-foreground',
+                        )}
+                      >
+                        <Star className={cn('h-3.5 w-3.5', isFavorite && 'fill-current')} />
+                      </button>
                     </div>
                     <div className="flex flex-1 flex-col gap-1 p-2.5">
                       <div className="flex items-start gap-1">
@@ -573,8 +648,12 @@ export default function PosPage() {
                 );
               })}
             </div>
-            {filteredProducts.length === 0 && (
-              <p className="py-8 text-center text-sm text-muted-foreground">No products found.</p>
+            {displayProducts.length === 0 && (
+              <p className="py-8 text-center text-sm text-muted-foreground">
+                {categoryId === FAVORITES
+                  ? 'No favorites yet — tap the star on a product to pin it here.'
+                  : 'No products found.'}
+              </p>
             )}
               </>
             )}
@@ -616,6 +695,7 @@ export default function PosPage() {
               customerId={customerId}
               onCustomerChange={setCustomerId}
               onSetQty={setQty}
+              onUpdateLine={updateLine}
               atMax={atMax}
               onHold={hold}
               holding={holdMutation.isPending}
@@ -652,21 +732,39 @@ export default function PosPage() {
         </div>
       </div>
 
-      {/* Floating cart bar (mobile only) */}
-      {cartCount > 0 && (
+      {/* Floating cart bar (mobile only) -- also the only way to reach the
+          held-sales tray on small screens, so it must stay visible even
+          when the active cart is empty but sales are parked. */}
+      {(cartCount > 0 || heldSales.length > 0) && (
         <button
           type="button"
           onClick={() => setCartOpen(true)}
-          className="fixed inset-x-4 bottom-4 z-40 flex h-14 items-center gap-3 rounded-full border border-border bg-card px-4 shadow-lg lg:hidden"
+          className={cn(
+            'fixed inset-x-4 bottom-4 z-40 flex h-14 items-center gap-3 rounded-full border px-4 shadow-lg lg:hidden',
+            cartCount > 0 ? 'border-border bg-card' : 'border-warning/40 bg-warning/10',
+          )}
         >
-          <span className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-primary-foreground">
+          <span
+            className={cn(
+              'flex h-8 w-8 items-center justify-center rounded-full',
+              cartCount > 0 ? 'bg-primary text-primary-foreground' : 'bg-warning/20 text-warning',
+            )}
+          >
             <ShoppingCart className="h-4 w-4" />
           </span>
-          <span className="text-sm font-semibold text-foreground">
-            {cartCount} item{cartCount !== 1 ? 's' : ''}
-          </span>
-          <span className="ml-auto text-base font-bold text-primary">{formatMoney(total)}</span>
-          <ChevronUp className="h-4 w-4 text-muted-foreground" />
+          {cartCount > 0 ? (
+            <>
+              <span className="text-sm font-semibold text-foreground">
+                {cartCount} item{cartCount !== 1 ? 's' : ''}
+              </span>
+              <span className="ml-auto text-base font-bold text-primary">{formatMoney(total)}</span>
+            </>
+          ) : (
+            <span className="text-sm font-semibold text-foreground">
+              {heldSales.length} sale{heldSales.length !== 1 ? 's' : ''} on hold
+            </span>
+          )}
+          <ChevronUp className="ml-auto h-4 w-4 text-muted-foreground" />
         </button>
       )}
     </div>
@@ -686,7 +784,7 @@ function Chip({
     <button
       onClick={onClick}
       className={cn(
-        'shrink-0 rounded-full border px-3 py-1.5 text-sm font-medium transition-colors',
+        'inline-flex shrink-0 items-center gap-1 rounded-full border px-3 py-1.5 text-sm font-medium transition-colors',
         active
           ? 'border-primary bg-primary text-primary-foreground'
           : 'border-input bg-background text-muted-foreground hover:border-primary/50 hover:text-foreground',

@@ -205,7 +205,7 @@ export interface HeldSaleCart {
   discount: number;
   prescriptionRef?: string | null;
   note?: string | null;
-  items: { product: Product; quantity: number }[];
+  items: { product: Product; quantity: number; unitPrice?: number; discount?: number }[];
 }
 
 export interface Purchase {

@@ -191,7 +191,7 @@ activity log shows a single stock-take, not 200 loose adjustments.
 
 ## Phase 4 — POS polish (do together, one sprint)
 
-### ⬜ 8. Line-level and percentage discounts
+### ✅ 8. Line-level and percentage discounts
 The API already accepts per-item `discount` (`CreateSaleDto.items[].discount`)
 and per-item `unitPrice`; the POS UI exposes neither — only one flat bill-level
 amount. Add a per-line discount/price-override control, and a %-or-amount toggle
@@ -206,12 +206,12 @@ the customer dropdown.
 Cashiers use keyboards, not mice. Bind: focus search, change qty of last line,
 tender/pay, hold, discount, print last receipt. Show the hints in a `?` overlay.
 
-### ⬜ 11. POS product picker that scales
+### ✅ 11. POS product picker that scales
 Flat list capped at 50 (`ProductsApi.list({ limit: 50 })`), no category filter,
 no favorites. Fine at 50 SKUs, painful at 2000. Add category tabs and a
 pinned/favorites grid for fast movers.
 
-### ⬜ 12. Barcode label printing
+### ✅ 12. Barcode label printing
 You can scan barcodes (`ProductsApi.byBarcode`) but can't generate them, so
 stock arriving unlabeled can never enter the scan flow. Add barcode generation
 + a printable label sheet from the Products page.
