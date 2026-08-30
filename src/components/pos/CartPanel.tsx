@@ -30,7 +30,18 @@ import { CustomerPicker, type CustomerPickerHandle } from '@/components/pos/Cust
 export interface CartLine {
   product: Product;
   quantity: number;
+  /** Manual price override for this line; undefined = use product.sellingPrice. */
+  unitPrice?: number;
+  /** Absolute discount amount for this line (already resolved from % if that mode was used). */
+  discount?: number;
 }
+
+/** Effective per-unit price for a line, after any manual override. */
+export const lineUnitPrice = (l: CartLine) => l.unitPrice ?? Number(l.product.sellingPrice);
+
+/** Net total for a line: unit price × quantity, less its discount, floored at 0. */
+export const lineNet = (l: CartLine) =>
+  Math.max(0, lineUnitPrice(l) * l.quantity - (l.discount ?? 0));
 
 export type PayMode = 'full' | 'partial' | 'credit';
 export type DiscountType = 'amount' | 'percent';
@@ -62,6 +73,7 @@ interface CartPanelProps {
   customerId: string;
   onCustomerChange: (id: string) => void;
   onSetQty: (id: string, qty: number) => void;
+  onUpdateLine: (id: string, updates: { unitPrice?: number; discount?: number }) => void;
   atMax: (line: CartLine) => boolean;
   onHold: () => void;
   holding: boolean;
@@ -109,6 +121,7 @@ export function CartPanel({
   customerId,
   onCustomerChange,
   onSetQty,
+  onUpdateLine,
   atMax,
   onHold,
   holding,
@@ -144,6 +157,11 @@ export function CartPanel({
   const [menuId, setMenuId] = useState<string | null>(null);
   const [showDiscount, setShowDiscount] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  // Per-line price-override / discount editor -- one at a time.
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editUnitPrice, setEditUnitPrice] = useState('');
+  const [editDiscount, setEditDiscount] = useState('');
+  const [editDiscountType, setEditDiscountType] = useState<DiscountType>('amount');
 
   const cartScrollRef = useRef<HTMLUListElement>(null);
   const lastItemRef = useRef<HTMLLIElement>(null);
@@ -307,8 +325,9 @@ export function CartPanel({
               <li
                 key={l.product.id}
                 ref={i === cart.length - 1 ? lastItemRef : undefined}
-                className="flex items-center gap-2 px-3 py-2"
+                className="flex flex-col gap-2 px-3 py-2"
               >
+              <div className="flex items-center gap-2">
                 {l.product.imageUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
@@ -355,9 +374,20 @@ export function CartPanel({
                   </div>
                 </div>
                 <div className="flex flex-col items-end gap-1.5">
-                  <span className="whitespace-nowrap text-sm font-semibold text-foreground">
-                    {formatMoney(Number(l.product.sellingPrice) * l.quantity)}
-                  </span>
+                  {l.unitPrice != null || l.discount ? (
+                    <>
+                      <span className="whitespace-nowrap text-[11px] text-muted-foreground line-through">
+                        {formatMoney(Number(l.product.sellingPrice) * l.quantity)}
+                      </span>
+                      <span className="whitespace-nowrap text-sm font-semibold text-primary">
+                        {formatMoney(lineNet(l))}
+                      </span>
+                    </>
+                  ) : (
+                    <span className="whitespace-nowrap text-sm font-semibold text-foreground">
+                      {formatMoney(lineNet(l))}
+                    </span>
+                  )}
                   <div className="relative">
                     <Button
                       size="icon"
@@ -371,7 +401,19 @@ export function CartPanel({
                     {menuId === l.product.id && (
                       <>
                         <div className="fixed inset-0 z-20" onClick={() => setMenuId(null)} />
-                        <div className="absolute right-0 top-8 z-30 w-36 overflow-hidden rounded-lg border border-border bg-card py-1 shadow-md">
+                        <div className="absolute right-0 top-8 z-30 w-44 overflow-hidden rounded-lg border border-border bg-card py-1 shadow-md">
+                          <button
+                            onClick={() => {
+                              setMenuId(null);
+                              setEditingId(l.product.id);
+                              setEditUnitPrice(l.unitPrice != null ? String(l.unitPrice) : '');
+                              setEditDiscount(l.discount ? String(l.discount) : '');
+                              setEditDiscountType('amount');
+                            }}
+                            className="flex w-full items-center gap-2 px-3 py-2 text-sm font-medium text-foreground hover:bg-muted"
+                          >
+                            <Tag className="h-4 w-4" /> Price / discount
+                          </button>
                           <button
                             onClick={() => {
                               setMenuId(null);
@@ -386,6 +428,65 @@ export function CartPanel({
                     )}
                   </div>
                 </div>
+              </div>
+
+              {editingId === l.product.id && (
+                <div className="space-y-2 rounded-md border border-dashed border-border bg-muted/30 p-2.5">
+                  <div className="grid grid-cols-2 gap-2">
+                    <Field label="Unit price">
+                      <Input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        placeholder={String(Number(l.product.sellingPrice))}
+                        value={editUnitPrice}
+                        onChange={(e) => setEditUnitPrice(e.target.value)}
+                      />
+                    </Field>
+                    <Field label="Discount">
+                      <div className="flex gap-1">
+                        <Select
+                          className="w-16 shrink-0"
+                          value={editDiscountType}
+                          onChange={(e) => setEditDiscountType(e.target.value as DiscountType)}
+                        >
+                          <option value="amount">Rs.</option>
+                          <option value="percent">%</option>
+                        </Select>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          max={editDiscountType === 'percent' ? 100 : undefined}
+                          value={editDiscount}
+                          onChange={(e) => setEditDiscount(e.target.value)}
+                        />
+                      </div>
+                    </Field>
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <Button size="sm" variant="outline" onClick={() => setEditingId(null)}>
+                      Cancel
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={() => {
+                        const unitPrice = editUnitPrice.trim() ? Math.max(0, Number(editUnitPrice)) : undefined;
+                        const basePrice = unitPrice ?? Number(l.product.sellingPrice);
+                        const rawDiscount = Math.max(0, Number(editDiscount) || 0);
+                        const discount =
+                          editDiscountType === 'percent'
+                            ? Math.round(((basePrice * l.quantity * Math.min(rawDiscount, 100)) / 100) * 100) / 100
+                            : Math.min(rawDiscount, basePrice * l.quantity);
+                        onUpdateLine(l.product.id, { unitPrice, discount: discount || undefined });
+                        setEditingId(null);
+                      }}
+                    >
+                      Apply
+                    </Button>
+                  </div>
+                </div>
+              )}
               </li>
             ))}
           </ul>
