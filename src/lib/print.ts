@@ -1,5 +1,6 @@
 import type { Sale } from '@/types';
 import type { Shift } from './shift';
+import { renderBarcodeSvg } from './barcode';
 
 export type PrintFormat = 'thermal' | 'a4';
 
@@ -146,6 +147,36 @@ export function printZReport(
     </div>`;
   const title = `Z Report ${new Date(shift.closedAt ?? shift.openedAt).toLocaleDateString()}`;
   w.document.write(shell(title, 'size: 80mm auto; margin: 3mm;', body));
+  w.document.close();
+}
+
+export interface LabelItem {
+  name: string;
+  barcode: string;
+  price?: string;
+  sku?: string | null;
+}
+
+/** A sheet of scannable, printable product labels -- one label per unit to stick on stock. */
+export function printLabelSheet(items: LabelItem[]) {
+  const w = window.open('', '_blank', 'width=800,height=600');
+  if (!w) {
+    alert('Please allow pop-ups to print labels.');
+    return;
+  }
+  const labels = items
+    .map(
+      (it) => `
+      <div style="width:50mm;height:30mm;border:1px dashed #ccc;padding:2mm;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;box-sizing:border-box;page-break-inside:avoid">
+        <div style="font-size:10px;font-weight:600;line-height:1.15;max-height:22px;overflow:hidden">${esc(it.name)}</div>
+        <div style="width:100%;height:32px">${renderBarcodeSvg(it.barcode)}</div>
+        <div style="font-size:8px;letter-spacing:1px;color:#333">${esc(it.barcode)}</div>
+        ${it.price ? `<div style="font-size:12px;font-weight:700;margin-top:1mm">${esc(it.price)}</div>` : ''}
+      </div>`,
+    )
+    .join('');
+  const body = `<div style="display:flex;flex-wrap:wrap;gap:2mm">${labels}</div>`;
+  w.document.write(shell('Product Labels', 'size: A4; margin: 8mm;', body));
   w.document.close();
 }
 
