@@ -464,7 +464,7 @@ function HourlySales({ data }: { data: { hour: number; label: string; total: num
               <XAxis dataKey="label" tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} />
               <YAxis tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} width={48} />
               <Tooltip content={<ChartTooltip moneyKeys={['total']} />} cursor={{ fill: 'hsl(var(--accent))' }} />
-              <Bar dataKey="total" fill={PRIMARY} radius={[4, 4, 0, 0]} />
+              <Bar dataKey="total" fill={PRIMARY} radius={[4, 4, 0, 0]} barSize={28} />
             </BarChart>
           </ResponsiveContainer>
         )}
