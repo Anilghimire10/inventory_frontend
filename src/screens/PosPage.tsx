@@ -3,7 +3,7 @@ import { useEffect, useMemo, useDeferredValue, useState } from 'react';
 import { useMutation, useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { Plus, Package, Barcode, ChevronUp, Printer, ShoppingCart, Wallet, Star } from 'lucide-react';
 import { CategoriesApi, CustomersApi, InventoryApi, ProductsApi, SalesApi } from '@/api';
-import type { Product, Paginated, PaymentMethod, StockItem } from '@/types';
+import type { Product, Paginated, StockItem } from '@/types';
 import { useAuth } from '@/auth/AuthContext';
 import { useShift } from '@/shift/ShiftContext';
 import { printSale, printZReport } from '@/lib/print';
@@ -28,7 +28,7 @@ export default function PosPage() {
   const qc = useQueryClient();
   const { show } = useToast();
   const { user } = useAuth();
-  const { shift, openShift, closeShift, recordSale } = useShift();
+  const { shift, isLoading: shiftLoading, isOpening, isClosing, openShift, closeShift } = useShift();
   const [showCloseShift, setShowCloseShift] = useState(false);
   // Master tax switch (from business settings). When off, nothing is taxed.
   const taxEnabled = user?.business?.taxEnabled ?? true;
@@ -219,19 +219,31 @@ export default function PosPage() {
     }
   };
 
-  const confirmCloseShift = (countedCash: number, note?: string) => {
-    const closed = closeShift(countedCash, note);
-    setShowCloseShift(false);
-    if (!closed) return;
-    printZReport(closed, {
-      businessName: user?.business?.name ?? 'Shift report',
-      currency: user?.business?.currency ?? 'USD',
-    });
-    show(
-      closed.variance === 0
-        ? 'Shift closed — drawer balances'
-        : `Shift closed — ${closed.variance! > 0 ? 'over' : 'short'} by ${formatMoney(Math.abs(closed.variance!))}`,
-    );
+  const handleOpenShift = async (openingFloat: number, note?: string) => {
+    try {
+      await openShift(openingFloat, note);
+    } catch (e) {
+      show(apiError(e), 'error');
+    }
+  };
+
+  const confirmCloseShift = async (countedCash: number, note?: string) => {
+    try {
+      const closed = await closeShift(countedCash, note);
+      setShowCloseShift(false);
+      if (!closed) return;
+      printZReport(closed, {
+        businessName: user?.business?.name ?? 'Shift report',
+        currency: user?.business?.currency ?? 'USD',
+      });
+      show(
+        closed.variance === 0
+          ? 'Shift closed — drawer balances'
+          : `Shift closed — ${closed.variance! > 0 ? 'over' : 'short'} by ${formatMoney(Math.abs(closed.variance!))}`,
+      );
+    } catch (e) {
+      show(apiError(e), 'error');
+    }
   };
 
   const holdMutation = useMutation({
@@ -330,13 +342,11 @@ export default function PosPage() {
       qc.invalidateQueries({ queryKey: ['dashboard'] });
       qc.invalidateQueries({ queryKey: ['customers'] });
       qc.invalidateQueries({ queryKey: ['credit'] });
+      // The shift's running totals are computed server-side from its sales,
+      // so refetching (rather than tallying client-side) is the source of truth.
+      qc.invalidateQueries({ queryKey: ['shift-current'] });
       show(`Sale ${sale.receiptNo} completed`);
       setLastSaleId(sale.id);
-      recordSale({
-        total: Number(sale.total),
-        amountPaid: Number(sale.amountPaid),
-        tender: (payMode === 'credit' ? 'CREDIT' : paymentMethod) as PaymentMethod,
-      });
       // Cash tendered → change due stays visible in the now-empty cart until
       // the next item is added, so the cashier can hand back change without
       // it disappearing the instant the sale completes.
@@ -456,7 +466,7 @@ export default function PosPage() {
       {/* Header — register + last-receipt print */}
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <h1 className="text-xl font-semibold tracking-tight">Point of Sale</h1>
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
           {shift && (
             <Button
               variant="outline"
@@ -464,7 +474,7 @@ export default function PosPage() {
               onClick={() => setShowCloseShift(true)}
               title="Close shift and print a Z report"
             >
-              <Wallet className="h-4 w-4" /> {formatMoney(shift.grossSales)} · Close shift
+              <Wallet className="h-4 w-4" /> {formatMoney(shift.gross)} · Close shift
             </Button>
           )}
           {lastSaleId && (
@@ -478,21 +488,24 @@ export default function PosPage() {
         </div>
       </div>
 
-      {/* Blocks the till until the cashier counts a starting float. */}
-      {!shift && <OpenShiftModal onOpen={openShift} />}
+      {/* Blocks the till until the cashier counts a starting float. Held off
+          while the current shift is still loading, so an already-open shift
+          doesn't flash this modal before the fetch resolves. */}
+      {!shiftLoading && !shift && <OpenShiftModal onOpen={handleOpenShift} isPending={isOpening} />}
 
       {showCloseShift && shift && (
         <CloseShiftModal
           shift={shift}
           onClose={() => setShowCloseShift(false)}
           onConfirm={confirmCloseShift}
+          isPending={isClosing}
         />
       )}
 
       {/* Help overlay */}
       {showHelp && (
         <div className="fixed inset-0 bg-black/60 z-40 flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg p-6 max-w-sm w-full text-center">
+          <div className="bg-card text-card-foreground border border-border rounded-lg p-6 max-w-sm w-full text-center">
             <h2 className="text-lg font-semibold mb-4">Keyboard Shortcuts</h2>
             <ul className="space-y-2 text-left mx-auto max-h-80 overflow-y-auto">
               <li>/ or Cmd+K — Focus search</li>

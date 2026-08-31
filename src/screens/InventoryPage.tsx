@@ -1,9 +1,9 @@
 'use client';
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Boxes, SlidersHorizontal, AlertTriangle, CalendarClock, History } from 'lucide-react';
-import { InventoryApi } from '@/api';
-import type { StockItem } from '@/types';
+import { Boxes, SlidersHorizontal, AlertTriangle, CalendarClock, History, ArrowLeftRight, Trash2, ClipboardCheck } from 'lucide-react';
+import { InventoryApi, ProductsApi } from '@/api';
+import type { CountSheetLine, StockItem, StockTakeResult } from '@/types';
 import { useStores } from '@/hooks/useStores';
 import { PageHeader, LoadingBlock, EmptyState, ErrorState } from '@/components/ui/misc';
 import { Button } from '@/components/ui/button';
@@ -19,7 +19,7 @@ import { apiError } from '@/lib/api';
 import { formatDate, formatDateTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
-type Tab = 'stock' | 'low' | 'expiring' | 'movements';
+type Tab = 'stock' | 'low' | 'expiring' | 'movements' | 'stockTake';
 
 export default function InventoryPage() {
   const qc = useQueryClient();
@@ -32,6 +32,20 @@ export default function InventoryPage() {
   const [delta, setDelta] = useState(0);
   const [reason, setReason] = useState('COUNT_CORRECTION');
   const [note, setNote] = useState('');
+
+  const [transferOpen, setTransferOpen] = useState(false);
+  const [fromStoreId, setFromStoreId] = useState('');
+  const [toStoreId, setToStoreId] = useState('');
+  const [transferNote, setTransferNote] = useState('');
+  const [transferLines, setTransferLines] = useState<{ productId: string; quantity: number }[]>([]);
+  const [pickTransferProduct, setPickTransferProduct] = useState('');
+
+  const [countStoreIdOverride, setCountStoreIdOverride] = useState('');
+  const [counts, setCounts] = useState<Record<string, number>>({});
+  const [seededSheet, setSeededSheet] = useState<CountSheetLine[] | undefined>(undefined);
+  const [countNote, setCountNote] = useState('');
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [review, setReview] = useState<StockTakeResult | null>(null);
 
   const stock = useQuery({
     queryKey: ['stock', stockPage],
@@ -80,16 +94,140 @@ export default function InventoryPage() {
     setNote('');
   };
 
+  const { data: products } = useQuery({
+    queryKey: ['products', 'all'],
+    queryFn: () => ProductsApi.list({ limit: 100 }),
+    enabled: transferOpen,
+  });
+
+  const transfer = useMutation({
+    mutationFn: () =>
+      InventoryApi.transfer({
+        fromStoreId,
+        toStoreId,
+        note: transferNote || undefined,
+        items: transferLines,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['stock'] });
+      qc.invalidateQueries({ queryKey: ['movements'] });
+      show('Stock transferred');
+      setTransferOpen(false);
+    },
+    onError: (e) => show(apiError(e), 'error'),
+  });
+
+  const openTransfer = () => {
+    setFromStoreId(stores?.[0]?.id ?? '');
+    setToStoreId(stores?.[1]?.id ?? '');
+    setTransferNote('');
+    setTransferLines([]);
+    setPickTransferProduct('');
+    setTransferOpen(true);
+  };
+
+  const addTransferLine = (productId: string) => {
+    if (!productId || transferLines.some((l) => l.productId === productId)) return;
+    setTransferLines((ls) => [...ls, { productId, quantity: 1 }]);
+    setPickTransferProduct('');
+  };
+  const updateTransferLine = (i: number, quantity: number) =>
+    setTransferLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, quantity } : l)));
+  const removeTransferLine = (i: number) =>
+    setTransferLines((ls) => ls.filter((_, idx) => idx !== i));
+
+  const transferProductName = (id: string) =>
+    products?.data.find((p) => p.id === id)?.name ?? id;
+
+  const sameStore = !!fromStoreId && fromStoreId === toStoreId;
+  const canTransfer =
+    !!fromStoreId &&
+    !!toStoreId &&
+    !sameStore &&
+    transferLines.length > 0 &&
+    transferLines.every((l) => l.quantity > 0);
+
+  // Falls back to the first store until the user picks one explicitly.
+  const countStoreId = countStoreIdOverride || stores?.[0]?.id || '';
+
+  const countSheet = useQuery({
+    queryKey: ['count-sheet', countStoreId],
+    queryFn: () => InventoryApi.countSheet(countStoreId),
+    enabled: tab === 'stockTake' && !!countStoreId,
+  });
+
+  // Re-seed the editable counts to the system quantity whenever a fresh sheet loads
+  // (new store, or after a post refetches it) -- untouched lines then post as zero variance.
+  if (countSheet.data && countSheet.data !== seededSheet) {
+    setSeededSheet(countSheet.data);
+    setCounts(Object.fromEntries(countSheet.data.map((l) => [l.productId, l.system])));
+  }
+
+  const buildCounts = () =>
+    (countSheet.data ?? []).map((l) => ({
+      productId: l.productId,
+      counted: counts[l.productId] ?? l.system,
+    }));
+
+  const previewTake = useMutation({
+    mutationFn: () =>
+      InventoryApi.stockTake({
+        storeId: countStoreId,
+        preview: true,
+        note: countNote || undefined,
+        counts: buildCounts(),
+      }),
+    onSuccess: (data) => {
+      setReview(data);
+      setReviewOpen(true);
+    },
+    onError: (e) => show(apiError(e), 'error'),
+  });
+
+  const postTake = useMutation({
+    mutationFn: () =>
+      InventoryApi.stockTake({
+        storeId: countStoreId,
+        note: countNote || undefined,
+        counts: buildCounts(),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['stock'] });
+      qc.invalidateQueries({ queryKey: ['low-stock'] });
+      qc.invalidateQueries({ queryKey: ['movements'] });
+      qc.invalidateQueries({ queryKey: ['count-sheet'] });
+      show('Stock take posted');
+      setReviewOpen(false);
+      setCountNote('');
+    },
+    onError: (e) => show(apiError(e), 'error'),
+  });
+
+  const changedCount = (countSheet.data ?? []).filter(
+    (l) => (counts[l.productId] ?? l.system) !== l.system,
+  ).length;
+
   const tabs: { key: Tab; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
     { key: 'stock', label: 'Stock levels', icon: Boxes },
     { key: 'low', label: 'Low stock', icon: AlertTriangle },
     { key: 'expiring', label: 'Expiring', icon: CalendarClock },
     { key: 'movements', label: 'History', icon: History },
+    { key: 'stockTake', label: 'Stock take', icon: ClipboardCheck },
   ];
 
   return (
     <div>
-      <PageHeader title="Inventory" description="Stock levels, alerts, and movement history." />
+      <PageHeader
+        title="Inventory"
+        description="Stock levels, alerts, and movement history."
+        action={
+          stores && stores.length > 1 ? (
+            <Button variant="outline" onClick={openTransfer}>
+              <ArrowLeftRight className="h-4 w-4" /> Transfer stock
+            </Button>
+          ) : undefined
+        }
+      />
 
       <div className="mb-5 flex flex-wrap gap-1 border-b border-border">
         {tabs.map((t) => (
@@ -181,6 +319,80 @@ export default function InventoryPage() {
         )
       )}
 
+      {tab === 'stockTake' && (
+        <div className="space-y-4">
+          {stores && stores.length > 1 && (
+            <Field label="Store">
+              <Select value={countStoreId} onChange={(e) => setCountStoreIdOverride(e.target.value)} className="max-w-xs">
+                {stores.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </Select>
+            </Field>
+          )}
+
+          {countSheet.isError ? <ErrorState onRetry={() => countSheet.refetch()} /> :
+            countSheet.isLoading ? <LoadingBlock /> :
+            !countSheet.data || countSheet.data.length === 0 ? (
+              <EmptyState title="No products to count" description="Add active products before running a stock take." icon={ClipboardCheck} />
+            ) : (
+              <>
+                <Table>
+                  <THead>
+                    <TR>
+                      <TH>Product</TH>
+                      <TH>SKU</TH>
+                      <TH className="text-right">System</TH>
+                      <TH className="text-right">Counted</TH>
+                      <TH className="text-right">Variance</TH>
+                    </TR>
+                  </THead>
+                  <TBody>
+                    {countSheet.data.map((l) => {
+                      const counted = counts[l.productId] ?? l.system;
+                      const variance = counted - l.system;
+                      return (
+                        <TR key={l.productId}>
+                          <TD className="font-medium">{l.name}</TD>
+                          <TD className="text-muted-foreground">{l.sku || '—'}</TD>
+                          <TD className="text-right text-muted-foreground">{l.system}</TD>
+                          <TD className="text-right">
+                            <Input type="number" step="0.001" min="0" className="ml-auto h-8 w-24 text-right"
+                              value={counted}
+                              onChange={(e) =>
+                                setCounts((c) => ({ ...c, [l.productId]: Number(e.target.value) || 0 }))
+                              } />
+                          </TD>
+                          <TD className={cn(
+                            'text-right font-medium',
+                            variance > 0 && 'text-success',
+                            variance < 0 && 'text-destructive',
+                          )}>
+                            {variance > 0 ? '+' : ''}{variance || 0}
+                          </TD>
+                        </TR>
+                      );
+                    })}
+                  </TBody>
+                </Table>
+
+                <div className="flex flex-col gap-3 border-t border-border pt-4 sm:flex-row sm:items-end sm:justify-between">
+                  <Field label="Note (optional)" className="max-w-sm">
+                    <Input value={countNote} onChange={(e) => setCountNote(e.target.value)} />
+                  </Field>
+                  <div className="flex items-center gap-3">
+                    <span className="text-sm text-muted-foreground">
+                      {changedCount} of {countSheet.data.length} item{countSheet.data.length !== 1 ? 's' : ''} differ
+                    </span>
+                    <Button onClick={() => previewTake.mutate()} loading={previewTake.isPending}
+                      disabled={changedCount === 0}>
+                      Review stock take
+                    </Button>
+                  </div>
+                </div>
+              </>
+            )}
+        </div>
+      )}
+
       <Dialog open={!!adjusting} onClose={() => setAdjusting(null)} title="Adjust stock"
         description={adjusting?.product.name}>
         <form onSubmit={(e) => { e.preventDefault(); adjust.mutate(); }} className="space-y-4">
@@ -208,6 +420,102 @@ export default function InventoryPage() {
             <Button type="submit" loading={adjust.isPending} disabled={delta === 0}>Apply</Button>
           </DialogFooter>
         </form>
+      </Dialog>
+
+      <Dialog open={transferOpen} onClose={() => setTransferOpen(false)} title="Transfer stock"
+        description="Move stock from one store to another." className="max-w-2xl">
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Field label="From store">
+              <Select value={fromStoreId} onChange={(e) => setFromStoreId(e.target.value)}>
+                {stores?.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </Select>
+            </Field>
+            <Field label="To store">
+              <Select value={toStoreId} onChange={(e) => setToStoreId(e.target.value)}>
+                {stores?.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </Select>
+            </Field>
+          </div>
+          {sameStore && (
+            <p className="text-xs text-destructive">Source and destination stores must differ.</p>
+          )}
+
+          <Field label="Add product">
+            <Select value={pickTransferProduct} onChange={(e) => addTransferLine(e.target.value)}>
+              <option value="">Select a product to add…</option>
+              {products?.data.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </Select>
+          </Field>
+
+          {transferLines.length > 0 && (
+            <div className="space-y-2">
+              {transferLines.map((l, i) => (
+                <div key={l.productId} className="flex items-center gap-3 rounded-md border border-border p-3">
+                  <span className="flex-1 font-medium">{transferProductName(l.productId)}</span>
+                  <Input type="number" step="0.001" min="0.001" className="w-28"
+                    value={l.quantity}
+                    onChange={(e) => updateTransferLine(i, Number(e.target.value))} />
+                  <Button size="icon" variant="ghost" onClick={() => removeTransferLine(i)}
+                    aria-label={`Remove ${transferProductName(l.productId)}`}>
+                    <Trash2 className="h-4 w-4 text-destructive" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <Field label="Note (optional)">
+            <Input value={transferNote} onChange={(e) => setTransferNote(e.target.value)} />
+          </Field>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setTransferOpen(false)}>Cancel</Button>
+          <Button loading={transfer.isPending} disabled={!canTransfer} onClick={() => transfer.mutate()}>
+            Transfer {transferLines.length} item{transferLines.length !== 1 ? 's' : ''}
+          </Button>
+        </DialogFooter>
+      </Dialog>
+
+      <Dialog open={reviewOpen} onClose={() => setReviewOpen(false)} title="Review stock take"
+        description="Only lines with a variance will post an adjustment." className="max-w-2xl">
+        {review && (
+          <div className="space-y-4">
+            {review.adjusted === 0 ? (
+              <p className="text-sm text-muted-foreground">No variances — nothing to post.</p>
+            ) : (
+              <Table>
+                <THead>
+                  <TR>
+                    <TH>Product</TH>
+                    <TH className="text-right">System</TH>
+                    <TH className="text-right">Counted</TH>
+                    <TH className="text-right">Variance</TH>
+                  </TR>
+                </THead>
+                <TBody>
+                  {review.lines.filter((l) => l.variance !== 0).map((l) => (
+                    <TR key={l.productId}>
+                      <TD className="font-medium">{l.name}</TD>
+                      <TD className="text-right text-muted-foreground">{l.system}</TD>
+                      <TD className="text-right">{l.counted}</TD>
+                      <TD className={cn('text-right font-medium', l.variance > 0 ? 'text-success' : 'text-destructive')}>
+                        {l.variance > 0 ? '+' : ''}{l.variance}
+                      </TD>
+                    </TR>
+                  ))}
+                </TBody>
+              </Table>
+            )}
+          </div>
+        )}
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setReviewOpen(false)}>Back</Button>
+          <Button loading={postTake.isPending} disabled={!review || review.adjusted === 0}
+            onClick={() => postTake.mutate()}>
+            Post stock take
+          </Button>
+        </DialogFooter>
       </Dialog>
     </div>
   );

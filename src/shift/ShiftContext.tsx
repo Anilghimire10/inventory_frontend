@@ -1,97 +1,76 @@
 'use client';
-import { createContext, useContext, useState, useCallback } from 'react';
+import { createContext, useContext, useCallback } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/auth/AuthContext';
-import {
-  type Shift,
-  loadCurrentShift,
-  saveCurrentShift,
-  loadShiftHistory,
-  appendShiftHistory,
-  tallySale,
-} from '@/lib/shift';
-import type { PaymentMethod } from '@/types';
+import { ShiftsApi } from '@/api';
+import type { ShiftReport } from '@/types';
 
 interface ShiftState {
-  shift: Shift | null;
-  history: Shift[];
-  openShift: (openingFloat: number, note?: string) => void;
-  closeShift: (countedCash: number, note?: string) => Shift | null;
-  recordSale: (sale: { total: number; amountPaid: number; tender: PaymentMethod }) => void;
+  shift: ShiftReport | null;
+  isLoading: boolean;
+  isOpening: boolean;
+  isClosing: boolean;
+  openShift: (openingFloat: number, note?: string) => Promise<void>;
+  closeShift: (countedCash: number, note?: string) => Promise<ShiftReport | null>;
 }
 
 const Ctx = createContext<ShiftState>(null as never);
 export const useShift = () => useContext(Ctx);
 
+/** Roles the backend's /shifts endpoints accept — a STOCK_KEEPER never touches a till. */
+const TILL_ROLES = ['OWNER', 'MANAGER', 'CASHIER'];
+
 export function ShiftProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
-  const businessId = user?.business?.id ?? 'default';
-  const storeId = user?.storeId ?? 'default';
+  const qc = useQueryClient();
+  const enabled = !!user && TILL_ROLES.includes(user.role);
 
-  // The (app) layout only mounts this provider once `user` has resolved, so
-  // reading localStorage in the lazy initializer (once, on first render) is
-  // safe -- no hydration flash, no effect needed to sync it in afterward.
-  const [shift, setShift] = useState<Shift | null>(() => loadCurrentShift(businessId, storeId));
-  const [history, setHistory] = useState<Shift[]>(() => loadShiftHistory(businessId));
+  const { data, isLoading } = useQuery({
+    queryKey: ['shift-current'],
+    queryFn: ShiftsApi.current,
+    enabled,
+    staleTime: 15_000,
+  });
+  const shift = data ?? null;
 
+  const openMutation = useMutation({
+    mutationFn: (vars: { openingFloat: number; note?: string }) => ShiftsApi.open(vars),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['shift-current'] }),
+  });
   const openShift = useCallback(
-    (openingFloat: number, note?: string) => {
-      if (!user) return;
-      const next: Shift = {
-        id: `shift_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-        storeId,
-        openedByUserId: user.id,
-        openedByName: user.name,
-        openedAt: new Date().toISOString(),
-        openingFloat,
-        note,
-        salesCount: 0,
-        grossSales: 0,
-        cashSales: 0,
-        cardSales: 0,
-        mobileSales: 0,
-        creditSales: 0,
-      };
-      setShift(next);
-      saveCurrentShift(businessId, storeId, next);
+    async (openingFloat: number, note?: string) => {
+      await openMutation.mutateAsync({ openingFloat, note });
     },
-    [user, businessId, storeId],
+    [openMutation],
   );
 
-  const recordSale = useCallback(
-    (sale: { total: number; amountPaid: number; tender: PaymentMethod }) => {
-      setShift((cur) => {
-        if (!cur) return cur;
-        const next = tallySale(cur, sale);
-        saveCurrentShift(businessId, storeId, next);
-        return next;
-      });
+  const closeMutation = useMutation({
+    mutationFn: (vars: { id: string; countedCash: number; note?: string }) =>
+      ShiftsApi.close(vars.id, { countedCash: vars.countedCash, note: vars.note }),
+    onSuccess: () => {
+      qc.setQueryData(['shift-current'], null);
+      qc.invalidateQueries({ queryKey: ['shift-history'] });
     },
-    [businessId, storeId],
-  );
-
+  });
   const closeShift = useCallback(
-    (countedCash: number, note?: string): Shift | null => {
+    async (countedCash: number, note?: string): Promise<ShiftReport | null> => {
       if (!shift) return null;
-      const expectedCash = shift.openingFloat + shift.cashSales;
-      const closed: Shift = {
-        ...shift,
-        closedAt: new Date().toISOString(),
-        countedCash,
-        expectedCash,
-        variance: Math.round((countedCash - expectedCash) * 100) / 100,
-        note: note || shift.note,
-      };
-      appendShiftHistory(businessId, closed);
-      saveCurrentShift(businessId, storeId, null);
-      setShift(null);
-      setHistory((h) => [closed, ...h]);
-      return closed;
+      return closeMutation.mutateAsync({ id: shift.id, countedCash, note });
     },
-    [shift, businessId, storeId],
+    [shift, closeMutation],
   );
 
   return (
-    <Ctx.Provider value={{ shift, history, openShift, closeShift, recordSale }}>
+    <Ctx.Provider
+      value={{
+        shift,
+        isLoading: enabled && isLoading,
+        isOpening: openMutation.isPending,
+        isClosing: closeMutation.isPending,
+        openShift,
+        closeShift,
+      }}
+    >
       {children}
     </Ctx.Provider>
   );

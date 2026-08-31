@@ -155,9 +155,9 @@ export const CustomerPicker = forwardRef<CustomerPickerHandle, CustomerPickerPro
             custRect &&
             createPortal(
               <>
-                <div className="fixed inset-0 z-20" onClick={() => setCustOpen(false)} />
+                <div className="fixed inset-0 z-[60]" onClick={() => setCustOpen(false)} />
                 <div
-                  className="fixed z-30 mt-1 overflow-hidden rounded-lg border border-border bg-card shadow-lg"
+                  className="fixed z-[61] mt-1 overflow-hidden rounded-lg border border-border bg-card shadow-lg"
                   style={{ top: custRect.top, left: custRect.left, width: custRect.width }}
                 >
                   <div className="relative border-b border-border">
