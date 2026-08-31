@@ -1,8 +1,9 @@
 'use client';
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, ClipboardList, Trash2, Pencil } from 'lucide-react';
+import { Plus, ClipboardList, Trash2, Pencil, RotateCcw } from 'lucide-react';
 import { ProductsApi, PurchasesApi, SuppliersApi } from '@/api';
+import type { Purchase } from '@/types';
 import { useStores } from '@/hooks/useStores';
 import { PageHeader, LoadingBlock, EmptyState, ErrorState } from '@/components/ui/misc';
 import { Button } from '@/components/ui/button';
@@ -44,6 +45,11 @@ export default function PurchasesPage() {
   const newProductEmpty = { name: '', sku: '', unit: 'pcs', costPrice: 0, sellingPrice: 0 };
   const [newProdOpen, setNewProdOpen] = useState(false);
   const [newProd, setNewProd] = useState(newProductEmpty);
+
+  // Return-to-supplier flow: loads the full purchase (with per-line returnedQty) on open.
+  const [returningPurchase, setReturningPurchase] = useState<Purchase | null>(null);
+  const [returnQtys, setReturnQtys] = useState<Record<string, number>>({});
+  const [returnNote, setReturnNote] = useState('');
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['purchases'],
@@ -139,6 +145,39 @@ export default function PurchasesPage() {
     }
   };
 
+  const openReturn = async (id: string) => {
+    try {
+      const p = await PurchasesApi.get(id);
+      setReturningPurchase(p);
+      setReturnQtys({});
+      setReturnNote('');
+    } catch (e) {
+      show(apiError(e), 'error');
+    }
+  };
+
+  const returnMutation = useMutation({
+    mutationFn: () =>
+      PurchasesApi.return(returningPurchase!.id, {
+        note: returnNote || undefined,
+        items: Object.entries(returnQtys)
+          .filter(([, qty]) => qty > 0)
+          .map(([purchaseItemId, quantity]) => ({ purchaseItemId, quantity })),
+      }),
+    onSuccess: ({ returnedValue }) => {
+      qc.invalidateQueries({ queryKey: ['purchases'] });
+      qc.invalidateQueries({ queryKey: ['stock'] });
+      qc.invalidateQueries({ queryKey: ['movements'] });
+      show(`Returned ${formatMoney(returnedValue)} to supplier`);
+      setReturningPurchase(null);
+    },
+    onError: (e) => show(apiError(e), 'error'),
+  });
+
+  const returnableOf = (l: { quantity: number; returnedQty: number }) =>
+    Math.max(0, Math.round((l.quantity - l.returnedQty) * 1000) / 1000);
+  const canReturn = Object.values(returnQtys).some((q) => q > 0);
+
   const addLine = (productId: string) => {
     if (!productId) return;
     if (productId === '__new__') {
@@ -220,12 +259,20 @@ export default function PurchasesPage() {
                     <TD className="text-right">{p._count?.items ?? 0}</TD>
                     <TD className="text-right font-medium">{formatMoney(p.total)}</TD>
                     <TD className="text-right">
-                      {p.status !== 'CANCELLED' && (
-                        <Button size="icon" variant="ghost" title="Edit purchase" aria-label="Edit purchase"
-                          onClick={() => openEdit(p.id)}>
-                          <Pencil className="h-4 w-4" />
-                        </Button>
-                      )}
+                      <div className="flex justify-end">
+                        {p.status !== 'CANCELLED' && (
+                          <Button size="icon" variant="ghost" title="Edit purchase" aria-label="Edit purchase"
+                            onClick={() => openEdit(p.id)}>
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                        )}
+                        {p.status === 'RECEIVED' && (
+                          <Button size="icon" variant="ghost" title="Return to supplier" aria-label="Return to supplier"
+                            onClick={() => openReturn(p.id)}>
+                            <RotateCcw className="h-4 w-4" />
+                          </Button>
+                        )}
+                      </div>
                     </TD>
                   </TR>
                 );
@@ -375,6 +422,51 @@ export default function PurchasesPage() {
             <Button type="submit" loading={createProduct.isPending}>Create & add</Button>
           </DialogFooter>
         </form>
+      </Dialog>
+
+      {/* Send received goods back to the supplier: a debit note that shrinks stock and payable. */}
+      <Dialog open={!!returningPurchase} onClose={() => setReturningPurchase(null)} title="Return to supplier"
+        description={returningPurchase?.reference || returningPurchase?.id.slice(-6)} className="max-w-2xl">
+        {returningPurchase && (
+          <div className="space-y-4">
+            {(returningPurchase.items ?? []).every((l) => returnableOf(l) === 0) ? (
+              <p className="text-sm text-muted-foreground">Every line on this purchase has already been fully returned.</p>
+            ) : (
+              <div className="space-y-2">
+                {(returningPurchase.items ?? []).map((l) => {
+                  const returnable = returnableOf(l);
+                  if (returnable === 0) return null;
+                  const qty = returnQtys[l.id] ?? 0;
+                  return (
+                    <div key={l.id} className="flex items-center gap-3 rounded-md border border-border p-3">
+                      <div className="flex-1">
+                        <span className="font-medium">{l.product?.name ?? l.productId}</span>
+                        <p className="text-xs text-muted-foreground">
+                          Purchased {l.quantity} · returned {l.returnedQty} · {returnable} left
+                        </p>
+                      </div>
+                      <Input type="number" step="0.001" min="0" max={returnable} className="w-28"
+                        value={qty}
+                        onChange={(e) => {
+                          const v = Math.min(Math.max(Number(e.target.value) || 0, 0), returnable);
+                          setReturnQtys((q) => ({ ...q, [l.id]: v }));
+                        }} />
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            <Field label="Reason (optional)">
+              <Input value={returnNote} onChange={(e) => setReturnNote(e.target.value)} placeholder="Damaged, wrong item, etc." />
+            </Field>
+          </div>
+        )}
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setReturningPurchase(null)}>Cancel</Button>
+          <Button loading={returnMutation.isPending} disabled={!canReturn} onClick={() => returnMutation.mutate()}>
+            Return to supplier
+          </Button>
+        </DialogFooter>
       </Dialog>
     </div>
   );

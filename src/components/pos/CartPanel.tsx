@@ -210,7 +210,7 @@ export function CartPanel({
     <div className="flex min-h-0 flex-1 flex-col lg:w-full">
       <Card
         className={cn(
-          'flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-sm transition-colors',
+          'flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden rounded-2xl border border-border bg-card shadow-sm transition-colors',
           cartCount > 0 ? 'border-primary/40' : 'border-border hover:border-primary/40',
         )}
       >
@@ -521,7 +521,7 @@ export function CartPanel({
             </button>
 
             {detailsOpen && (
-              <div className="min-h-0 max-h-[42vh] overflow-y-auto border-t border-border">
+              <div className="shrink-0 max-h-[42vh] overflow-y-auto border-t border-border">
                 {/* Customer */}
                 <div className="px-4 py-3">
                   <p className="mb-1.5 text-sm font-medium text-foreground">

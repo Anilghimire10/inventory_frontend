@@ -18,6 +18,8 @@ import type {
   Purchase,
   Receivable,
   SessionUser,
+  Shift,
+  ShiftReport,
   Tax,
   Sale,
   SaleListItem,
@@ -26,6 +28,10 @@ import type {
   Store,
   Supplier,
   TaxReport,
+  TransferResult,
+  CountSheetLine,
+  StockTakeResult,
+  ReturnPurchaseResult,
 } from '@/types';
 
 const get = async <T>(url: string, params?: object) =>
@@ -134,6 +140,20 @@ export const InventoryApi = {
     get<Paginated<StockMovement>>('/inventory/movements', params),
   adjust: (body: object) => post('/inventory/adjust', body),
   setReorderLevel: (body: object) => post('/inventory/reorder-level', body),
+  transfer: (body: {
+    fromStoreId: string;
+    toStoreId: string;
+    note?: string;
+    items: { productId: string; quantity: number }[];
+  }) => post<TransferResult>('/inventory/transfer', body),
+  countSheet: (storeId: string) =>
+    get<CountSheetLine[]>('/inventory/count-sheet', { storeId }),
+  stockTake: (body: {
+    storeId: string;
+    preview?: boolean;
+    note?: string;
+    counts: { productId: string; counted: number }[];
+  }) => post<StockTakeResult>('/inventory/stock-take', body),
 };
 
 export const SuppliersApi = {
@@ -149,8 +169,22 @@ export const PurchasesApi = {
   create: (body: object) => post<Purchase>('/purchases', body),
   update: (id: string, body: object) => patch<Purchase>(`/purchases/${id}`, body),
   receive: (id: string) => post<Purchase>(`/purchases/${id}/receive`),
+  return: (
+    id: string,
+    body: { note?: string; items: { purchaseItemId: string; quantity: number }[] },
+  ) => post<ReturnPurchaseResult>(`/purchases/${id}/return`, body),
   pay: (id: string, amount: number) =>
     post<Purchase>(`/purchases/${id}/pay`, { amount }),
+};
+
+export const ShiftsApi = {
+  open: (body: { storeId?: string; openingFloat: number; note?: string }) =>
+    post<Shift>('/shifts/open', body),
+  current: () => get<ShiftReport | null>('/shifts/current'),
+  report: (id: string) => get<ShiftReport>(`/shifts/${id}/report`),
+  close: (id: string, body: { countedCash: number; note?: string }) =>
+    post<ShiftReport>(`/shifts/${id}/close`, body),
+  list: (params?: object) => get<Paginated<Shift>>('/shifts', params),
 };
 
 export const CreditApi = {
