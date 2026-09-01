@@ -442,7 +442,7 @@ function ReturnSection({
             <div key={it.id} className="flex items-center gap-2 text-sm">
               <span className="flex-1 truncate">{it.name}</span>
               <span className="text-xs text-muted-foreground">max {max}</span>
-              <Input type="number" min="0" max={max} className="h-8 w-20"
+              <Input type="number" step="0.001" min="0" max={max} className="h-8 w-20"
                 value={returnQty[it.id] ?? 0}
                 onChange={(e) =>
                   setReturnQty({ ...returnQty, [it.id]: Math.min(max, Math.max(0, Number(e.target.value))) })

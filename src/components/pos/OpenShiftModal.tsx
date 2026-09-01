@@ -9,8 +9,10 @@ import { formatMoney } from '@/lib/format';
 /** Blocks POS checkout until the cashier counts a starting float. */
 export function OpenShiftModal({
   onOpen,
+  isPending,
 }: {
   onOpen: (openingFloat: number, note?: string) => void;
+  isPending?: boolean;
 }) {
   const [float, setFloat] = useState('');
   const [note, setNote] = useState('');
@@ -35,6 +37,7 @@ export function OpenShiftModal({
             step="0.01"
             min="0"
             autoFocus
+            disabled={isPending}
             value={float}
             onChange={(e) => setFloat(e.target.value)}
             onKeyDown={(e) => {
@@ -45,13 +48,18 @@ export function OpenShiftModal({
         </Field>
         <Field label="Note (optional)" className="mt-3">
           <Input
+            disabled={isPending}
             value={note}
             onChange={(e) => setNote(e.target.value)}
             placeholder="e.g. till 2"
           />
         </Field>
 
-        <Button className="mt-5 h-11 w-full" onClick={() => onOpen(value, note.trim() || undefined)}>
+        <Button
+          className="mt-5 h-11 w-full"
+          loading={isPending}
+          onClick={() => onOpen(value, note.trim() || undefined)}
+        >
           Open shift with {formatMoney(value)}
         </Button>
       </div>

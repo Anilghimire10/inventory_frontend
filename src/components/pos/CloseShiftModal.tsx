@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Field } from '@/components/ui/label';
 import { formatMoney } from '@/lib/format';
-import type { Shift } from '@/lib/shift';
+import type { ShiftReport } from '@/types';
 import { cn } from '@/lib/utils';
 
 /** Cash-count screen shown when the cashier ends their shift. */
@@ -13,17 +13,18 @@ export function CloseShiftModal({
   shift,
   onClose,
   onConfirm,
+  isPending,
 }: {
-  shift: Shift;
+  shift: ShiftReport;
   onClose: () => void;
   onConfirm: (countedCash: number, note?: string) => void;
+  isPending?: boolean;
 }) {
   const [counted, setCounted] = useState('');
   const [note, setNote] = useState('');
   const hasCounted = counted.trim() !== '';
   const countedValue = Number(counted) || 0;
-  const expected = shift.openingFloat + shift.cashSales;
-  const variance = Math.round((countedValue - expected) * 100) / 100;
+  const variance = Math.round((countedValue - shift.expectedCash) * 100) / 100;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
@@ -42,17 +43,22 @@ export function CloseShiftModal({
 
         <div className="space-y-1.5 rounded-lg border border-border bg-muted/30 p-3 text-sm">
           <Row label="Opening float" value={formatMoney(shift.openingFloat)} />
-          <Row label="Cash sales" value={formatMoney(shift.cashSales)} />
-          <Row label="Card sales" value={formatMoney(shift.cardSales)} />
-          <Row label="Mobile sales" value={formatMoney(shift.mobileSales)} />
-          <Row label="Left on credit" value={formatMoney(shift.creditSales)} />
+          {shift.byTender.map((t) => (
+            <Row
+              key={t.method}
+              label={`${t.method} (${t.count})`}
+              value={formatMoney(t.amount)}
+            />
+          ))}
+          {shift.discounts > 0 && <Row label="Discounts" value={`-${formatMoney(shift.discounts)}`} />}
+          {shift.refunds > 0 && <Row label="Refunds" value={`-${formatMoney(shift.refunds)}`} />}
           <Row
             label={`${shift.salesCount} sale${shift.salesCount !== 1 ? 's' : ''} · gross`}
-            value={formatMoney(shift.grossSales)}
+            value={formatMoney(shift.gross)}
           />
           <div className="!mt-2 flex justify-between border-t border-border pt-1.5 font-medium text-foreground">
             <span>Expected cash</span>
-            <span>{formatMoney(expected)}</span>
+            <span>{formatMoney(shift.expectedCash)}</span>
           </div>
         </div>
 
@@ -62,6 +68,7 @@ export function CloseShiftModal({
             step="0.01"
             min="0"
             autoFocus
+            disabled={isPending}
             value={counted}
             onChange={(e) => setCounted(e.target.value)}
             placeholder="0.00"
@@ -86,6 +93,7 @@ export function CloseShiftModal({
 
         <Field label="Note (optional)" className="mt-3">
           <Input
+            disabled={isPending}
             value={note}
             onChange={(e) => setNote(e.target.value)}
             placeholder="e.g. recounted twice"
@@ -93,12 +101,13 @@ export function CloseShiftModal({
         </Field>
 
         <div className="mt-5 flex gap-2">
-          <Button variant="outline" className="flex-1" onClick={onClose}>
+          <Button variant="outline" className="flex-1" disabled={isPending} onClick={onClose}>
             Cancel
           </Button>
           <Button
             className="flex-1"
             disabled={!hasCounted}
+            loading={isPending}
             onClick={() => onConfirm(countedValue, note.trim() || undefined)}
           >
             Close &amp; print Z report

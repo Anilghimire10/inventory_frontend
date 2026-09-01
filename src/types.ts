@@ -131,6 +131,42 @@ export interface StockMovement {
   user?: { id: string; name: string } | null;
 }
 
+export interface TransferResult {
+  reference: string;
+  fromStore: { id: string; name: string };
+  toStore: { id: string; name: string };
+  items: { productId: string; quantity: number }[];
+  transferredAt: string;
+}
+
+export interface CountSheetLine {
+  productId: string;
+  sku: string;
+  name: string;
+  unit: string;
+  system: number;
+  counted: string;
+}
+
+export interface StockTakeVarianceLine {
+  productId: string;
+  name: string;
+  sku: string | null;
+  unit: string;
+  system: number;
+  counted: number;
+  variance: number;
+}
+
+export interface StockTakeResult {
+  storeId: string;
+  reference?: string;
+  preview?: boolean;
+  counted: number;
+  adjusted: number;
+  lines: StockTakeVarianceLine[];
+}
+
 export interface Batch {
   id: string;
   batchNumber?: string | null;
@@ -276,10 +312,16 @@ export interface PurchaseLine {
   id: string;
   productId: string;
   quantity: number;
+  returnedQty: number;
   costPrice: string;
   batchNumber?: string | null;
   expiryDate?: string | null;
   product?: { id: string; name: string; sku?: string | null };
+}
+
+export interface ReturnPurchaseResult {
+  purchase: Purchase;
+  returnedValue: number;
 }
 
 export interface AppUser {
@@ -367,4 +409,49 @@ export interface Analytics {
     closing: number;
   }[];
   needsAttention: { lowStock: number; unsold: number; expiring: number };
+}
+
+/** Raw Shift row (e.g. GET /shifts history) — amounts as Prisma passes them through: strings. */
+export interface Shift {
+  id: string;
+  storeId: string;
+  userId: string;
+  openedAt: string;
+  closedAt?: string | null;
+  openingFloat: string;
+  countedCash?: string | null;
+  expectedCash?: string | null;
+  variance?: string | null;
+  note?: string | null;
+  user?: { id: string; name: string };
+  store?: { id: string; name: string };
+  _count?: { sales: number };
+}
+
+export interface ShiftTenderTotal {
+  method: PaymentMethod;
+  count: number;
+  amount: number;
+}
+
+/**
+ * GET /shifts/current, GET /shifts/:id/report, POST /shifts/:id/close — a
+ * shift plus its totals, computed live while open or snapshotted at close.
+ * Unlike `Shift`, these amounts are plain numbers: the API runs them through
+ * Number()/round2() before responding.
+ */
+export interface ShiftReport extends Omit<Shift, 'countedCash' | 'expectedCash' | 'variance'> {
+  isOpen: boolean;
+  expectedCash: number;
+  countedCash: number | null;
+  variance: number | null;
+  salesCount: number;
+  gross: number;
+  discounts: number;
+  tax: number;
+  refunds: number;
+  net: number;
+  cashIn: number;
+  cashRefunds: number;
+  byTender: ShiftTenderTotal[];
 }
