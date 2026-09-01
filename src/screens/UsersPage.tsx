@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Plus, Pencil, UserX, UserCog } from 'lucide-react';
-import { UsersApi } from '@/api';
+import { UsersApi, StoresApi } from '@/api';
 import type { AppUser, UserRole } from '@/types';
 import { useAuth } from '@/auth/AuthContext';
 import { useCrudResource } from '@/hooks/useCrudResource';
@@ -21,9 +21,10 @@ const ROLES: UserRole[] = ['OWNER', 'MANAGER', 'CASHIER', 'STOCK_KEEPER'];
 
 export default function UsersPage() {
   const { user: me } = useAuth();
-  const [form, setForm] = useState({ name: '', email: '', password: '', role: 'CASHIER' as UserRole });
+  const [form, setForm] = useState({ name: '', email: '', password: '', role: 'CASHIER' as UserRole, storeId: '' });
 
   const { data, isLoading, isError, refetch } = useQuery({ queryKey: ['users'], queryFn: () => UsersApi.list() });
+  const { data: stores } = useQuery({ queryKey: ['stores'], queryFn: () => StoresApi.list() });
 
   const crud = useCrudResource<AppUser>({
     queryKey: ['users'],
@@ -31,16 +32,16 @@ export default function UsersPage() {
     messages: { created: 'Staff added', updated: 'Staff updated', removed: 'Staff deactivated' },
   });
 
-  const openCreate = () => { setForm({ name: '', email: '', password: '', role: 'CASHIER' }); crud.openCreate(); };
-  const openEdit = (u: AppUser) => { setForm({ name: u.name, email: u.email, password: '', role: u.role }); crud.openEdit(u); };
+  const openCreate = () => { setForm({ name: '', email: '', password: '', role: 'CASHIER', storeId: me?.storeId ?? stores?.[0]?.id ?? '' }); crud.openCreate(); };
+  const openEdit = (u: AppUser) => { setForm({ name: u.name, email: u.email, password: '', role: u.role, storeId: u.storeId ?? '' }); crud.openEdit(u); };
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     if (crud.editing) {
-      const body: Record<string, unknown> = { name: form.name, role: form.role };
+      const body: Record<string, unknown> = { name: form.name, role: form.role, storeId: form.storeId || null };
       if (form.password) body.password = form.password;
       crud.save.mutate(body);
     } else {
-      crud.save.mutate(form);
+      crud.save.mutate({ ...form, storeId: form.storeId || undefined });
     }
   };
 
@@ -92,6 +93,12 @@ export default function UsersPage() {
           <Field label="Role">
             <Select value={form.role} onChange={(e) => setForm((f) => ({ ...f, role: e.target.value as UserRole }))}>
               {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
+            </Select>
+          </Field>
+          <Field label="Store">
+            <Select value={form.storeId} onChange={(e) => setForm((f) => ({ ...f, storeId: e.target.value }))}>
+              <option value="">No store assigned</option>
+              {stores?.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
             </Select>
           </Field>
           <DialogFooter>

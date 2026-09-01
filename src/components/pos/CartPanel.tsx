@@ -857,19 +857,25 @@ function QtyInput({ value, onCommit }: { value: number; onCommit: (q: number) =>
   return (
     <input
       type="text"
-      inputMode="numeric"
+      inputMode="decimal"
       aria-label="Quantity"
-      className="h-7 w-10 rounded border border-input bg-background text-center text-sm"
+      className="h-7 w-14 rounded border border-input bg-background text-center text-sm"
       value={focused ? draft : String(value)}
       onFocus={(e) => {
         setDraft(String(value));
         setFocused(true);
         e.target.select();
       }}
-      onChange={(e) => setDraft(e.target.value.replace(/[^\d]/g, ''))}
+      onChange={(e) => {
+        // Digits with at most one decimal point, matching the backend's
+        // numeric(12,3) quantity columns (weighed goods can be fractional).
+        const next = e.target.value.replace(/[^\d.]/g, '');
+        setDraft(next.replace(/(\..*)\./g, '$1'));
+      }}
       onBlur={() => {
         setFocused(false);
-        onCommit(parseInt(draft || '0', 10) || 0);
+        const parsed = Math.round((parseFloat(draft) || 0) * 1000) / 1000;
+        onCommit(Math.max(0, parsed));
       }}
       onKeyDown={(e) => {
         if (e.key === 'Enter') {
