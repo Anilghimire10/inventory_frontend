@@ -327,7 +327,7 @@ export default function PurchasesPage() {
                   </div>
                   <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                     <Field label="Qty">
-                      <Input type="number" min="1" value={l.quantity}
+                      <Input type="number" step="0.001" min="0.001" value={l.quantity}
                         onChange={(e) => updateLine(i, { quantity: Number(e.target.value) })} />
                     </Field>
                     <Field label="Unit cost">
