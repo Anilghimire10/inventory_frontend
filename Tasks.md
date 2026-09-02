@@ -59,18 +59,19 @@ first resumed with all lines, quantities, customer and discount intact.
 
 ---
 
-### 🚧 3. Shift / cash drawer session
+### ✅ 3. Shift / cash drawer session
 
 Completely absent — zero references to shift, drawer, or X/Z report anywhere.
 With `CASHIER` as a role, the owner has no way to tell whether the drawer
 balances at end of day. This is the biggest accountability hole in the product
 and the thing shop owners ask about during a demo.
 
-**Status:** Web built frontend-only, deliberately ahead of the API — state
-lives in `localStorage` via `src/shift/ShiftContext.tsx` / `src/lib/shift.ts`,
-shaped so swapping in the real `/shifts` endpoints later only touches that
-one file. Schema + API below are still not started; until they land, shift
-state doesn't sync across devices and doesn't survive clearing site data.
+**Status:** Done end to end. Schema + `shifts` module below are live; the web
+frontend's `ShiftContext.tsx` calls the real endpoints (`ShiftsApi`) instead of
+`localStorage`, `OpenShiftModal`/`CloseShiftModal` gate checkout, and shift
+history now shows under Analytics (owner/manager only). A single-store
+business also gets a fallback: if a cashier's account has no `storeId` set,
+`open()` uses the business's sole store automatically.
 
 **Schema** — new `Shift` model:
 ```
@@ -104,88 +105,67 @@ drawer, and the Z report shows expected vs counted with the difference called ou
 
 ## Phase 2 — Decide before you have real data
 
-### ⬜ 4. Decimal quantities (weighed goods)
+### ✅ 4. Decimal quantities (weighed goods)
 
-`SaleItem.quantity`, `StockItem.quantity`, `Batch.quantity`,
-`StockMovement.quantity` and `PurchaseItem.quantity` are all `Int`
-(`api/prisma/schema.prisma`). You cannot sell 1.5 kg or 0.5 L today.
+**Decision: grocery / weighed goods are in scope.** `SaleItem.quantity`,
+`StockItem.quantity`, `Batch.quantity`, `StockMovement.quantity`,
+`PurchaseItem.quantity` and transfer/stock-take/return line quantities are all
+`Decimal(12, 3)` now — 1.5 kg or 0.5 L sells correctly.
 
-`GROCERY` is one of four `BusinessType` values and `unit` already defaults to
-`"pcs"` — so the product is aimed at a market this blocks.
+**Status:** Done end to end. Backend DTOs (sale, sale-return, purchase,
+transfer, stock-take) validate `maxDecimalPlaces: 3` instead of integer-only.
+On the web, the POS cart qty input, purchase-line qty, and sale-return qty all
+accept decimals (`step="0.001"`); transfer and stock-take inputs already did.
+Receipts, stock displays, and reports render the raw value with no
+`toFixed(0)`/`Math.floor`/`parseInt` truncation anywhere left in the quantity
+path.
 
-**This gets harder every day there is customer data.** Decide now:
-
-- **If grocery / weighed goods are in scope:** migrate the columns above to
-  `Decimal(12, 3)`, audit every place quantity is summed or compared
-  (`inventory.service.ts:applyMovement`, `consumeBatchesFEFO`, reports
-  aggregates), and switch the POS qty input to accept decimals for products
-  whose `unit` is a weight/volume.
-- **If not:** write the decision down here, and remove `GROCERY` from
-  `BusinessType` so the marketing doesn't promise it.
-
-**Done when:** either 1.5 kg sells correctly end to end (stock, receipt, reports,
-profit), or the exclusion is documented and the enum reflects it.
+Note: decimals are accepted for **every** product, not gated by `unit` being a
+weight/volume as originally scoped — matches the backend, which doesn't gate
+by unit either. Simpler than the original plan, not a bug.
 
 ---
 
 ## Phase 3 — Close the inventory gaps
 
-### ⬜ 5. Stock transfer between stores
+### ✅ 5. Stock transfer between stores
 
-Multi-store is fully modeled (`Store`, `StockItem` keyed per store) but there is
-**no transfer feature anywhere**. `StockMovementType.TRANSFER` is declared at
-`api/prisma/schema.prisma:45` and **never used** — the enum value is waiting.
+Multi-store is fully modeled (`Store`, `StockItem` keyed per store) but there was
+**no transfer feature anywhere**. `StockMovementType.TRANSFER` was declared at
+`api/prisma/schema.prisma:45` and **never used** — the enum value was waiting.
 
-Today, moving stock between branches means an adjust-down in one store and an
-adjust-up in the other, with nothing linking the two.
-
-- `POST /inventory/transfer` — `{ fromStoreId, toStoreId, items[], note }`.
-- One `$transaction`: two `applyMovement` calls per item (negative at source,
-  positive at destination), both `type: TRANSFER`, sharing a `reference` id so
-  the pair is traceable.
-- Move batch quantities too when `product.trackBatches` — a transfer must not
-  silently drop expiry data.
-- Web: a Transfer action on the Inventory page + transfer history.
-
-`applyMovement` is the single choke point for all stock changes, so this is
-mostly wiring, not new mechanics.
-
-**Done when:** 10 units move from Store A to Store B, both balances are correct,
-and the movement history on each side references the same transfer.
+**Status:** Done. `POST /inventory/transfer` moves stock in one `$transaction`
+(two `applyMovement` calls per item, both `type: TRANSFER`, sharing a
+`reference` so the pair is traceable), including batch quantities when
+`product.trackBatches`. Web has a Transfer action on the Inventory page.
 
 ---
 
-### ⬜ 6. Purchase return / debit note
+### ✅ 6. Purchase return / debit note
 
-Sales returns exist (`POST /sales/:id/return`), supplier returns do not.
-`StockMovementType.RETURN_OUT` is declared at `schema.prisma:44` and, like
-TRANSFER, is **never used**.
+Sales returns exist (`POST /sales/:id/return`), supplier returns did not.
+`StockMovementType.RETURN_OUT` was declared at `schema.prisma:44` and, like
+TRANSFER, was **never used**.
 
-- `POST /purchases/:id/return` — pick lines + quantities, stock out via
-  `RETURN_OUT`, reduce the supplier payable.
-- Mirror the sales-return shape in `sales.service.ts` (returnedQty per line,
-  partial returns) — same problem, same solution.
-- Web: a Return action on the purchase detail view.
-
-**Done when:** damaged goods can go back to a supplier, stock drops, and the
-payable on the Credit page drops by the same amount.
+**Status:** Done. `POST /purchases/:id/return` picks lines + quantities, stocks
+out via `RETURN_OUT`, and reduces the supplier payable — mirrors the
+sales-return shape (`returnedQty` per line, partial returns supported). Web has
+a Return action on the purchase view (`PurchasesPage.tsx`).
 
 ---
 
-### ⬜ 7. Physical stock take
+### ✅ 7. Physical stock take
 
-Only single-item adjust exists (`inventory.service.ts:90`). Counting a 500-SKU
-shop one product at a time at month end is not viable.
+Only single-item adjust existed (`inventory.service.ts:90`). Counting a 500-SKU
+shop one product at a time at month end was not viable.
 
-- `POST /inventory/stock-take` — accept `{ storeId, counts: [{productId, counted}] }`,
-  post one `ADJUSTMENT` movement per variance with reason `COUNT_CORRECTION`
-  (already in `AdjustmentReason`), all in one transaction.
-- Downloadable count sheet (CSV of current stock, blank counted column) and an
-  upload of the filled sheet — reuses the existing bulk product CSV plumbing.
-- Variance report before posting: show what will change, require confirmation.
-
-**Done when:** a filled count sheet for 200 products posts in one action and the
-activity log shows a single stock-take, not 200 loose adjustments.
+**Status:** Done, but via an in-app screen rather than the originally-planned
+CSV flow. `GET /inventory/count-sheet` + `POST /inventory/stock-take` post one
+`ADJUSTMENT` per variance (reason `COUNT_CORRECTION`) in one transaction. Web
+(`InventoryPage.tsx`) shows a live count sheet with variance preview and
+requires confirmation before posting — meets the "done when" bar (one action,
+one stock-take, not N loose adjustments), just skips the CSV
+download/upload round-trip the original spec described.
 
 ---
 
