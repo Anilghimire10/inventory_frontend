@@ -109,6 +109,29 @@ export interface Product {
   isActive: boolean;
 }
 
+export interface VariantAttribute {
+  name: string;
+  value: string;
+}
+
+/**
+ * Mocked on the frontend for now (see `@/api/variantsMock`) — no backend
+ * model exists yet. Shape is deliberately close to what a real API would
+ * return so swapping the mock for a real `VariantsApi` later is a small diff.
+ */
+export interface ProductVariant {
+  id: string;
+  productId: string;
+  attributes: VariantAttribute[];
+  sku?: string;
+  barcode?: string;
+  price: number;
+  costPrice: number;
+  stock: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface StockItem {
   id: string;
   storeId: string;
