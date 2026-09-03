@@ -213,7 +213,7 @@ Low-stock alerts exist (`GET /inventory/low-stock`); acting on them is manual.
 Generate a draft purchase per supplier from items below reorder level, using
 last purchase price.
 
-### ⬜ 15. Product variants
+### ✅ 15. Product variants
 Size/colour variants each need their own product row today. Only worth building
 if apparel/footwear becomes a target vertical.
 

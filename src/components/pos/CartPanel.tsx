@@ -23,7 +23,7 @@ import { Select } from '@/components/ui/select';
 import { Field } from '@/components/ui/label';
 import { RxBadge } from '@/components/ui/RxBadge';
 import { Card } from '@/components/ui/card';
-import { formatMoney } from '@/lib/format';
+import { formatMoney, currencySymbol } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { CustomerPicker, type CustomerPickerHandle } from '@/components/pos/CustomerPicker';
 
@@ -450,7 +450,7 @@ export function CartPanel({
                           value={editDiscountType}
                           onChange={(e) => setEditDiscountType(e.target.value as DiscountType)}
                         >
-                          <option value="amount">Rs.</option>
+                          <option value="amount">{currencySymbol()}</option>
                           <option value="percent">%</option>
                         </Select>
                         <Input

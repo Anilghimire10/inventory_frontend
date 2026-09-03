@@ -12,6 +12,7 @@ import { Field } from '@/components/ui/label';
 import { Dialog, DialogFooter } from '@/components/ui/dialog';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
+import { Pagination } from '@/components/ui/pagination';
 import { useAuth } from '@/auth/AuthContext';
 import { can } from '@/lib/permissions';
 
@@ -22,10 +23,11 @@ export default function SuppliersPage() {
   const { user } = useAuth();
   const canDelete = !!user && can.deleteCatalog(user.role);
   const [form, setForm] = useState<Form>(empty);
+  const [page, setPage] = useState(1);
 
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['suppliers'],
-    queryFn: () => SuppliersApi.list({ limit: 100 }),
+    queryKey: ['suppliers', page],
+    queryFn: () => SuppliersApi.list({ page, limit: 20 }),
   });
 
   const crud = useCrudResource<Supplier>({
@@ -66,6 +68,7 @@ export default function SuppliersPage() {
         !data || data.data.length === 0 ? (
           <EmptyState title="No suppliers" description="Add suppliers to record purchases against them." icon={Truck} />
         ) : (
+          <>
           <Table>
             <THead><TR><TH>Name</TH><TH>Contact</TH><TH>Phone</TH><TH>Email</TH><TH></TH></TR></THead>
             <TBody>
@@ -88,6 +91,8 @@ export default function SuppliersPage() {
               ))}
             </TBody>
           </Table>
+          <Pagination page={data.meta.page} pages={data.meta.pages} onPage={setPage} />
+          </>
         )}
 
       <Dialog open={crud.open} onClose={crud.close} title={crud.editing ? 'Edit supplier' : 'New supplier'}>

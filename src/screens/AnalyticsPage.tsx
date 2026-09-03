@@ -35,7 +35,7 @@ import { PageHeader, LoadingBlock, ErrorState } from '@/components/ui/misc';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { formatNumber, formatDateTime } from '@/lib/format';
+import { formatMoney, formatNumber, formatDateTime } from '@/lib/format';
 import { exportCsv } from '@/lib/csv';
 import { cn } from '@/lib/utils';
 
@@ -48,12 +48,6 @@ const PALETTE = [
   'hsl(var(--chart-4, 262 80% 60%))',
   'hsl(var(--muted-foreground))',
 ];
-
-/** Money sign used on this page's figures (NPR -> "Rs.", else currency code). */
-function money(value: number | string | null | undefined): string {
-  const n = typeof value === 'string' ? Number(value) : (value ?? 0);
-  return `Rs. ${n.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
-}
 
 type RangeKey = 'today' | '7d' | '30d' | 'month' | 'all' | 'custom';
 
@@ -229,8 +223,8 @@ function ShiftHistory() {
                       {s.closedAt ? formatDateTime(s.closedAt) : '—'}
                     </td>
                     <td className="px-5 py-3 text-right">{s._count?.sales ?? 0}</td>
-                    <td className="px-5 py-3 text-right">{money(s.expectedCash)}</td>
-                    <td className="px-5 py-3 text-right">{money(s.countedCash)}</td>
+                    <td className="px-5 py-3 text-right">{formatMoney(s.expectedCash)}</td>
+                    <td className="px-5 py-3 text-right">{formatMoney(s.countedCash)}</td>
                     <td
                       className={cn(
                         'px-5 py-3 text-right font-medium',
@@ -241,7 +235,7 @@ function ShiftHistory() {
                             : 'text-destructive',
                       )}
                     >
-                      {variance == null ? '—' : variance === 0 ? '—' : `${variance > 0 ? '+' : ''}${money(variance)}`}
+                      {variance == null ? '—' : variance === 0 ? '—' : `${variance > 0 ? '+' : ''}${formatMoney(variance)}`}
                     </td>
                   </tr>
                 );
@@ -281,13 +275,13 @@ function AnalyticsBody({ data, orderValue }: { data: Analytics; orderValue: numb
       {/* KPI cards */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <KpiCard icon={Banknote} tone="primary" label="Revenue"
-          value={money(data.totals.grossSales)} delta={revDelta} money />
+          value={formatMoney(data.totals.grossSales)} delta={revDelta} money />
         <KpiCard icon={TrendingUp} tone="primary" label="Gross Profit"
-          value={money(data.totals.profit)} delta={profitDelta} money />
+          value={formatMoney(data.totals.profit)} delta={profitDelta} money />
         <KpiCard icon={Receipt} tone="primary" label="Orders"
           value={formatNumber(data.totals.transactions)} delta={ordersDelta} />
         <KpiCard icon={ShoppingBag} tone="primary" label="Avg. Order Value"
-          value={money(orderValue)} delta={aovDelta} money />
+          value={formatMoney(orderValue)} delta={aovDelta} money />
       </div>
 
       {/* Sales performance + category donut */}
@@ -447,7 +441,7 @@ function CategoryDonut({ data }: { data: Analytics['byCategory'] }) {
                   <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: PALETTE[i % PALETTE.length] }} />
                   <span className="flex-1 truncate">{c.category}</span>
                   <span className="font-medium">{c.share}%</span>
-                  <span className="text-xs text-muted-foreground">{money(c.revenue)}</span>
+                  <span className="text-xs text-muted-foreground">{formatMoney(c.revenue)}</span>
                 </div>
               ))}
             </div>
@@ -503,7 +497,7 @@ function PaymentMethods({ data, orders }: { data: Analytics['byPaymentMethod']; 
                   <div className="h-full rounded-full bg-primary" style={{ width: `${m.share}%` }} />
                 </div>
                 <p className="mt-0.5 text-xs text-muted-foreground">
-                  {money(m.total)} · {m.count} sales
+                  {formatMoney(m.total)} · {m.count} sales
                 </p>
               </div>
             ))}
@@ -552,7 +546,7 @@ function TopProducts({ data }: { data: Analytics['byProduct'] }) {
                   <span className="font-medium">{p.name}</span>
                 </td>
                 <td className="px-5 py-3 text-right">{p.quantitySold}</td>
-                <td className="px-5 py-3 text-right font-medium">{money(p.revenue)}</td>
+                <td className="px-5 py-3 text-right font-medium">{formatMoney(p.revenue)}</td>
               </tr>
             ))}
           </tbody>
@@ -566,8 +560,8 @@ function InventoryPerformance({ data }: { data: Analytics['inventory'] }) {
   const rows: { label: string; value: string; sub: string }[] = [
     { label: 'Stock Turnover', value: `${data.stockTurnover}x`, sub: 'COGS ÷ inventory value' },
     { label: 'Sell-through', value: `${data.sellThrough}%`, sub: 'units sold vs. on hand' },
-    { label: 'Dead Stock', value: `${data.deadStockPct}%`, sub: money(data.deadStockValue) },
-    { label: 'Inventory Value', value: money(data.value), sub: 'at cost' },
+    { label: 'Dead Stock', value: `${data.deadStockPct}%`, sub: formatMoney(data.deadStockValue) },
+    { label: 'Inventory Value', value: formatMoney(data.value), sub: 'at cost' },
   ];
   return (
     <>
@@ -671,7 +665,7 @@ function ChartTooltip({
         <div key={p.dataKey} className="flex items-center gap-2">
           <span className="capitalize text-muted-foreground">{p.name}:</span>
           <span className="font-medium">
-            {moneyKeys.includes(p.dataKey) ? money(p.value) : formatNumber(p.value)}
+            {moneyKeys.includes(p.dataKey) ? formatMoney(p.value) : formatNumber(p.value)}
           </span>
         </div>
       ))}
