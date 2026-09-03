@@ -13,6 +13,7 @@ import { Field } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogFooter } from '@/components/ui/dialog';
 import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
+import { Pagination } from '@/components/ui/pagination';
 import { useToast } from '@/components/ui/toast';
 import { apiError } from '@/lib/api';
 import { formatMoney, formatDate } from '@/lib/format';
@@ -50,10 +51,11 @@ export default function PurchasesPage() {
   const [returningPurchase, setReturningPurchase] = useState<Purchase | null>(null);
   const [returnQtys, setReturnQtys] = useState<Record<string, number>>({});
   const [returnNote, setReturnNote] = useState('');
+  const [page, setPage] = useState(1);
 
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['purchases'],
-    queryFn: () => PurchasesApi.list({ limit: 50 }),
+    queryKey: ['purchases', page],
+    queryFn: () => PurchasesApi.list({ page, limit: 20 }),
   });
   const { data: suppliers } = useQuery({
     queryKey: ['suppliers'],
@@ -236,6 +238,7 @@ export default function PurchasesPage() {
           <EmptyState title="No purchases yet" description="Record a purchase to add stock to your inventory." icon={ClipboardList}
             action={<Button onClick={openNew}><Plus className="h-4 w-4" /> Receive stock</Button>} />
         ) : (
+          <>
           <Table>
             <THead><TR><TH>Date</TH><TH>Reference</TH><TH>Supplier</TH><TH>Status</TH><TH>Payment</TH><TH className="text-right">Items</TH><TH className="text-right">Total</TH><TH></TH></TR></THead>
             <TBody>
@@ -279,6 +282,8 @@ export default function PurchasesPage() {
               })}
             </TBody>
           </Table>
+          <Pagination page={data.meta.page} pages={data.meta.pages} onPage={setPage} />
+          </>
         )}
 
       <Dialog open={open} onClose={() => setOpen(false)} title={editingId ? 'Edit purchase' : 'Receive stock'} className="max-w-3xl">
