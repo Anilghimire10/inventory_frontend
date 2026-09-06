@@ -77,7 +77,7 @@ export default function RegisterPage() {
       </p>
       <form onSubmit={submit} className="space-y-4">
         <Field label="Business name">
-          <Input value={form.businessName} onChange={set('businessName')} required autoFocus />
+          <Input value={form.businessName} onChange={set('businessName')} autoComplete="organization" required autoFocus />
         </Field>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Field label="Business type">
@@ -105,16 +105,17 @@ export default function RegisterPage() {
           </Select>
         </Field>
         <Field label="Your name">
-          <Input value={form.name} onChange={set('name')} required />
+          <Input value={form.name} onChange={set('name')} autoComplete="name" required />
         </Field>
         <Field label="Email">
-          <Input type="email" value={form.email} onChange={set('email')} required />
+          <Input type="email" value={form.email} onChange={set('email')} autoComplete="email" required />
         </Field>
         <Field label="Password">
           <PasswordInput
             value={form.password}
             onChange={set('password')}
             placeholder="At least 8 characters"
+            autoComplete="new-password"
             minLength={8}
             required
           />
@@ -124,6 +125,7 @@ export default function RegisterPage() {
             value={confirm}
             onChange={(e) => setConfirm(e.target.value)}
             placeholder="Re-enter your password"
+            autoComplete="new-password"
             minLength={8}
             required
             className={cn(
@@ -220,6 +222,7 @@ function VerifyStep({
             placeholder="123456"
             inputMode="numeric"
             maxLength={6}
+            autoComplete="one-time-code"
             required
             autoFocus
           />

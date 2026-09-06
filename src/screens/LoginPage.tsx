@@ -49,6 +49,7 @@ export default function LoginPage() {
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             placeholder="you@business.com"
+            autoComplete="email"
             required
             autoFocus
           />
@@ -58,6 +59,7 @@ export default function LoginPage() {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             placeholder="••••••••"
+            autoComplete="current-password"
             required
           />
         </Field>

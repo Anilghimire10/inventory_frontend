@@ -33,19 +33,26 @@ export function Field({
 }) {
   const autoId = useId();
   const id = htmlFor ?? autoId;
-  const child =
-    label && isValidElement(children)
-      ? cloneElement(
-          children as React.ReactElement<{ id?: string }>,
-          { id },
-        )
-      : children;
+  const errorId = `${id}-error`;
+  const child = isValidElement(children)
+    ? cloneElement(
+        children as React.ReactElement<{
+          id?: string;
+          'aria-describedby'?: string;
+          'aria-invalid'?: boolean;
+        }>,
+        {
+          ...(label ? { id } : null),
+          ...(error ? { 'aria-describedby': errorId, 'aria-invalid': true } : null),
+        },
+      )
+    : children;
   return (
     <div className={className}>
       {label && <Label htmlFor={id}>{label}</Label>}
       {child}
       {error && (
-        <p className="mt-1 text-xs text-destructive" id={`${id}-error`}>
+        <p className="mt-1 text-xs text-destructive" id={errorId}>
           {error}
         </p>
       )}
