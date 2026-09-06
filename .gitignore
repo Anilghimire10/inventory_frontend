@@ -10,3 +10,6 @@ dist
 
 # Capacitor static export output
 out
+
+# Personal build-order/checklist doc — not meant to be tracked
+Tasks.md
