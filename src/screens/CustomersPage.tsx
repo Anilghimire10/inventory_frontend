@@ -13,6 +13,7 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogFooter } from '@/components/ui/dialog';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
+import { Pagination } from '@/components/ui/pagination';
 import { useToast } from '@/components/ui/toast';
 import { apiError } from '@/lib/api';
 import { formatMoney } from '@/lib/format';
@@ -25,10 +26,11 @@ type CustomerForm = typeof emptyForm;
 export default function CustomersPage() {
   const { user } = useAuth();
   const canDelete = !!user && can.deleteCustomers(user.role);
+  const [page, setPage] = useState(1);
 
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['customers'],
-    queryFn: () => CustomersApi.list({ limit: 100 }),
+    queryKey: ['customers', page],
+    queryFn: () => CustomersApi.list({ page, limit: 20 }),
   });
 
   const crud = useCrudResource<Customer>({
@@ -95,6 +97,7 @@ export default function CustomersPage() {
           icon={Users}
         />
       ) : (
+        <>
         <Table>
           <THead>
             <TR>
@@ -158,6 +161,8 @@ export default function CustomersPage() {
             })}
           </TBody>
         </Table>
+        {data && <Pagination page={data.meta.page} pages={data.meta.pages} onPage={setPage} />}
+        </>
       )}
 
       <Dialog

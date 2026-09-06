@@ -72,6 +72,7 @@ export default function ForgotPasswordPage() {
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
+              autoComplete="email"
               required
               autoFocus
             />
@@ -90,6 +91,7 @@ export default function ForgotPasswordPage() {
               placeholder="123456"
               inputMode="numeric"
               maxLength={6}
+              autoComplete="one-time-code"
               required
               autoFocus
             />
@@ -99,6 +101,7 @@ export default function ForgotPasswordPage() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="At least 8 characters"
+              autoComplete="new-password"
               minLength={8}
               required
             />
@@ -108,6 +111,7 @@ export default function ForgotPasswordPage() {
               value={confirm}
               onChange={(e) => setConfirm(e.target.value)}
               placeholder="Re-enter your new password"
+              autoComplete="new-password"
               minLength={8}
               required
               className={cn(

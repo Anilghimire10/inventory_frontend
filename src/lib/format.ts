@@ -18,6 +18,19 @@ export function formatMoney(value: number | string | null | undefined): string {
   }
 }
 
+export function currencySymbol(): string {
+  try {
+    const parts = new Intl.NumberFormat(undefined, {
+      style: 'currency',
+      currency: currentCurrency,
+      currencyDisplay: 'narrowSymbol',
+    }).formatToParts(0);
+    return parts.find((p) => p.type === 'currency')?.value ?? currentCurrency;
+  } catch {
+    return currentCurrency;
+  }
+}
+
 export function formatNumber(value: number | null | undefined): string {
   const n = typeof value === 'string' ? Number(value) : (value ?? 0);
   return new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 }).format(n);
