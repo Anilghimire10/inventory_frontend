@@ -23,6 +23,7 @@ import { Select } from '@/components/ui/select';
 import { Field } from '@/components/ui/label';
 import { RxBadge } from '@/components/ui/RxBadge';
 import { Card } from '@/components/ui/card';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { formatMoney, currencySymbol } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { CustomerPicker, type CustomerPickerHandle } from '@/components/pos/CustomerPicker';
@@ -162,6 +163,10 @@ export function CartPanel({
   const [editUnitPrice, setEditUnitPrice] = useState('');
   const [editDiscount, setEditDiscount] = useState('');
   const [editDiscountType, setEditDiscountType] = useState<DiscountType>('amount');
+  // A cash sale still posts as fully paid even if less was physically
+  // tendered (see isCashFull below) -- gate that specific case behind an
+  // explicit confirmation instead of letting it complete silently.
+  const [confirmShortTender, setConfirmShortTender] = useState(false);
 
   const cartScrollRef = useRef<HTMLUListElement>(null);
   const lastItemRef = useRef<HTMLLIElement>(null);
@@ -196,6 +201,15 @@ export function CartPanel({
 
   const checkoutDisabled =
     !shiftOpen || (due > 0 && !customerId) || (needsRx && !prescriptionRef.trim());
+
+  // Same condition that already drives the "Short by" warning below --
+  // amountPaid always posts as the full total regardless of tendered, so
+  // this is the one case checkout would otherwise complete silently short.
+  const isShortTender = isCashFull && tendered > 0 && change < 0;
+  const attemptCheckout = () => {
+    if (isShortTender) setConfirmShortTender(true);
+    else onCheckout();
+  };
 
   const tenderLabel = TENDERS.find((t) => t.value === paymentMethod)?.label ?? paymentMethod;
 
@@ -708,7 +722,7 @@ export function CartPanel({
                       onKeyDown={(e) => {
                         if (e.key === 'Enter' && !checkoutDisabled) {
                           e.preventDefault();
-                          onCheckout();
+                          attemptCheckout();
                         }
                       }}
                     />
@@ -785,7 +799,7 @@ export function CartPanel({
                 className="h-12 w-full text-base"
                 loading={checkingOut}
                 disabled={checkoutDisabled}
-                onClick={onCheckout}
+                onClick={attemptCheckout}
               >
                 <Check className="h-4 w-4" /> Complete Sale · {formatMoney(total)}
               </Button>
@@ -815,6 +829,20 @@ export function CartPanel({
           </>
         )}
       </Card>
+
+      <ConfirmDialog
+        open={confirmShortTender}
+        title="Tendered amount is short"
+        description={`Only ${formatMoney(tendered)} tendered against a total of ${formatMoney(total)} — short by ${formatMoney(-change)}. Completing anyway records this sale as paid in full.`}
+        confirmLabel="Complete anyway"
+        destructive={false}
+        loading={checkingOut}
+        onConfirm={() => {
+          setConfirmShortTender(false);
+          onCheckout();
+        }}
+        onCancel={() => setConfirmShortTender(false)}
+      />
     </div>
   );
 }
