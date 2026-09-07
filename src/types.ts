@@ -99,6 +99,10 @@ export interface Product {
   imageUrl?: string | null;
   expiryDate?: string | null;
   unit: string;
+  parentId?: string | null;
+  variantName?: string | null;
+  attributes?: Record<string, string> | null;
+  _count?: { variants: number };
   costPrice: string;
   sellingPrice: string;
   taxRate: string;
@@ -109,27 +113,15 @@ export interface Product {
   isActive: boolean;
 }
 
-export interface VariantAttribute {
-  name: string;
-  value: string;
-}
-
 /**
- * Mocked on the frontend for now (see `@/api/variantsMock`) — no backend
- * model exists yet. Shape is deliberately close to what a real API would
- * return so swapping the mock for a real `VariantsApi` later is a small diff.
+ * A variant is a real Product row (own SKU/barcode/price/stock) that points
+ * back at its parent style via `parentId`. `GET /products/:id/variants`
+ * returns full rows shaped like this.
  */
-export interface ProductVariant {
-  id: string;
-  productId: string;
-  attributes: VariantAttribute[];
-  sku?: string;
-  barcode?: string;
-  price: number;
-  costPrice: number;
-  stock: number;
-  createdAt: string;
-  updatedAt: string;
+export interface ProductVariant extends Product {
+  variantName?: string | null;
+  attributes?: Record<string, string> | null;
+  stockItems: { storeId: string; quantity: number }[];
 }
 
 export interface StockItem {

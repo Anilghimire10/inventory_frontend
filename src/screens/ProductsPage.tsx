@@ -3,7 +3,6 @@ import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, Search, Pencil, Trash2, Package, Download, Upload, X, Check, Barcode as BarcodeIcon } from 'lucide-react';
 import { CategoriesApi, ProductsApi, TaxesApi } from '@/api';
-import { VariantsMockApi } from '@/api/variantsMock';
 import { VariantsSection } from '@/components/products/VariantsSection';
 import type { Category, Product } from '@/types';
 import { PageHeader, LoadingBlock, EmptyState, ErrorState } from '@/components/ui/misc';
@@ -75,22 +74,14 @@ export default function ProductsPage() {
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['products', search, page],
-    queryFn: () => ProductsApi.list({ search: search || undefined, page, limit: 20 }),
+    queryFn: () =>
+      ProductsApi.list({ search: search || undefined, page, limit: 20, excludeVariants: true }),
   });
   const { data: categories } = useQuery({
     queryKey: ['categories'],
     queryFn: () => CategoriesApi.list(),
   });
   const { data: taxes } = useQuery({ queryKey: ['taxes'], queryFn: () => TaxesApi.list() });
-  // All mock variants, just to compute a per-product count badge in the list.
-  const { data: allVariants } = useQuery({
-    queryKey: ['variants-all'],
-    queryFn: () => VariantsMockApi.listAll(),
-  });
-  const variantCounts = new Map<string, number>();
-  for (const v of allVariants ?? []) {
-    variantCounts.set(v.productId, (variantCounts.get(v.productId) ?? 0) + 1);
-  }
 
   const save = useMutation({
     mutationFn: (body: Form) => {
@@ -117,10 +108,8 @@ export default function ProductsPage() {
 
   const remove = useMutation({
     mutationFn: (id: string) => ProductsApi.remove(id),
-    onSuccess: (_data, id) => {
-      VariantsMockApi.removeAllForProduct(id);
+    onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['products'] });
-      qc.invalidateQueries({ queryKey: ['variants-all'] });
       show('Product removed');
     },
     onError: (e) => show(apiError(e), 'error'),
@@ -380,8 +369,8 @@ export default function ProductsPage() {
                         </div>
                         <div className="flex gap-1 pt-1">
                           {p.trackBatches && <Badge tone="warning">Batch</Badge>}
-                          {!!variantCounts.get(p.id) && (
-                            <Badge tone="primary">{variantCounts.get(p.id)} variants</Badge>
+                          {!!p._count?.variants && (
+                            <Badge tone="primary">{p._count.variants} variants</Badge>
                           )}
                         </div>
                       </div>
@@ -560,11 +549,7 @@ export default function ProductsPage() {
             </label>
           </div>
 
-          <VariantsSection
-            productId={editing?.id ?? null}
-            defaultPrice={form.sellingPrice}
-            defaultCostPrice={form.costPrice}
-          />
+          <VariantsSection productId={editing?.id ?? null} canDelete={canDelete} />
 
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setOpen(false)}>

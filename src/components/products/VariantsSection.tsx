@@ -2,8 +2,8 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, X, Pencil, Trash2 } from 'lucide-react';
-import { VariantsMockApi, type VariantInput } from '@/api/variantsMock';
-import type { ProductVariant, VariantAttribute } from '@/types';
+import { ProductsApi } from '@/api';
+import type { ProductVariant } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Field } from '@/components/ui/label';
@@ -11,120 +11,136 @@ import { Badge } from '@/components/ui/badge';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { formatMoney } from '@/lib/format';
 import { useToast } from '@/components/ui/toast';
+import { apiError } from '@/lib/api';
 
-const emptyForm = (defaults: { price: number; costPrice: number }): VariantInput => ({
-  attributes: [{ name: '', value: '' }],
-  sku: '',
-  barcode: '',
-  price: defaults.price,
-  costPrice: defaults.costPrice,
-  stock: 0,
+type Axis = { name: string; values: string };
+const emptyAxes = (): Axis[] => [{ name: '', values: '' }];
+
+type EditForm = { sku: string; barcode: string; sellingPrice: number; costPrice: number };
+const toEditForm = (v: ProductVariant): EditForm => ({
+  sku: v.sku ?? '',
+  barcode: v.barcode ?? '',
+  sellingPrice: Number(v.sellingPrice),
+  costPrice: Number(v.costPrice),
 });
 
 /**
  * Size/colour-style variants for a product. Sits inside the product
- * create/edit dialog. Backed by a localStorage mock (`variantsMock.ts`) until
- * a real API exists — see Tasks.md #15.
+ * create/edit dialog. A variant is a real product row (own SKU, price,
+ * barcode, stock) under `parentId` — see `POST/GET /products/:id/variants`.
  */
 export function VariantsSection({
   productId,
-  defaultPrice,
-  defaultCostPrice,
+  canDelete,
 }: {
   productId: string | null;
-  defaultPrice: number;
-  defaultCostPrice: number;
+  canDelete: boolean;
 }) {
   const qc = useQueryClient();
   const { show } = useToast();
+  const [generating, setGenerating] = useState(false);
+  const [axes, setAxes] = useState<Axis[]>(emptyAxes());
+  const [priceOverride, setPriceOverride] = useState('');
+  const [costOverride, setCostOverride] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [adding, setAdding] = useState(false);
-  const [form, setForm] = useState<VariantInput>(emptyForm({ price: defaultPrice, costPrice: defaultCostPrice }));
+  const [editForm, setEditForm] = useState<EditForm | null>(null);
   const [removeTarget, setRemoveTarget] = useState<ProductVariant | null>(null);
 
   const { data: variants = [], isLoading } = useQuery({
     queryKey: ['variants', productId],
-    queryFn: () => VariantsMockApi.listByProduct(productId!),
+    queryFn: () => ProductsApi.listVariants(productId!),
     enabled: !!productId,
   });
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ['variants', productId] });
-    qc.invalidateQueries({ queryKey: ['variants-all'] });
+    qc.invalidateQueries({ queryKey: ['products'] });
   };
 
-  const create = useMutation({
-    mutationFn: (body: VariantInput) => VariantsMockApi.create(productId!, body),
-    onSuccess: () => {
+  const generate = useMutation({
+    mutationFn: (options: { name: string; values: string[] }[]) =>
+      ProductsApi.generateVariants(productId!, {
+        options,
+        sellingPrice: priceOverride ? Number(priceOverride) : undefined,
+        costPrice: costOverride ? Number(costOverride) : undefined,
+      }),
+    onSuccess: (res) => {
       invalidate();
-      show('Variant added');
-      closeForm();
+      show(
+        res.skipped
+          ? `Added ${res.created} variant(s), skipped ${res.skipped} that already existed`
+          : `Added ${res.created} variant(s)`,
+      );
+      closeGenerate();
     },
+    onError: (e) => show(apiError(e), 'error'),
   });
+
   const update = useMutation({
-    mutationFn: (vars: { id: string; body: VariantInput }) => VariantsMockApi.update(vars.id, vars.body),
+    mutationFn: (vars: { id: string; body: EditForm }) =>
+      // An empty string would collide with every other blank sku/barcode under
+      // the business's unique index; null is exempt from it, so that's what a
+      // cleared field must send.
+      ProductsApi.update(vars.id, {
+        ...vars.body,
+        sku: vars.body.sku.trim() || null,
+        barcode: vars.body.barcode.trim() || null,
+      }),
     onSuccess: () => {
       invalidate();
       show('Variant updated');
-      closeForm();
+      closeEdit();
     },
+    onError: (e) => show(apiError(e), 'error'),
   });
+
   const remove = useMutation({
-    mutationFn: (id: string) => VariantsMockApi.remove(id),
+    mutationFn: (id: string) => ProductsApi.remove(id),
     onSuccess: () => {
       invalidate();
       show('Variant removed');
       setRemoveTarget(null);
     },
+    onError: (e) => show(apiError(e), 'error'),
   });
 
-  const closeForm = () => {
-    setAdding(false);
-    setEditingId(null);
-    setForm(emptyForm({ price: defaultPrice, costPrice: defaultCostPrice }));
+  const closeGenerate = () => {
+    setGenerating(false);
+    setAxes(emptyAxes());
+    setPriceOverride('');
+    setCostOverride('');
   };
-
-  const openAdd = () => {
-    setForm(emptyForm({ price: defaultPrice, costPrice: defaultCostPrice }));
+  const closeEdit = () => {
     setEditingId(null);
-    setAdding(true);
+    setEditForm(null);
   };
-
   const openEdit = (v: ProductVariant) => {
-    setForm({
-      attributes: v.attributes.length ? v.attributes : [{ name: '', value: '' }],
-      sku: v.sku ?? '',
-      barcode: v.barcode ?? '',
-      price: v.price,
-      costPrice: v.costPrice,
-      stock: v.stock,
-    });
     setEditingId(v.id);
-    setAdding(true);
+    setEditForm(toEditForm(v));
   };
 
-  const setAttr = (i: number, key: keyof VariantAttribute, value: string) =>
-    setForm((f) => ({
-      ...f,
-      attributes: f.attributes.map((a, idx) => (idx === i ? { ...a, [key]: value } : a)),
-    }));
-  const addAttr = () =>
-    setForm((f) => ({ ...f, attributes: [...f.attributes, { name: '', value: '' }] }));
-  const removeAttr = (i: number) =>
-    setForm((f) => ({ ...f, attributes: f.attributes.filter((_, idx) => idx !== i) }));
-
-  const submit = () => {
-    const cleanAttrs = form.attributes
-      .map((a) => ({ name: a.name.trim(), value: a.value.trim() }))
-      .filter((a) => a.name && a.value);
-    if (cleanAttrs.length === 0) {
-      show('Add at least one attribute (e.g. Size: M)', 'error');
+  const submitGenerate = () => {
+    const options = axes
+      .map((a) => ({
+        name: a.name.trim(),
+        values: Array.from(new Set(a.values.split(',').map((v) => v.trim()).filter(Boolean))),
+      }))
+      .filter((a) => a.name && a.values.length > 0);
+    if (options.length === 0) {
+      show('Add at least one attribute with a name and one or more values', 'error');
       return;
     }
-    const body: VariantInput = { ...form, attributes: cleanAttrs };
-    if (editingId) update.mutate({ id: editingId, body });
-    else create.mutate(body);
+    generate.mutate(options);
   };
+
+  const setAxis = (i: number, key: keyof Axis, value: string) =>
+    setAxes((a) => a.map((row, idx) => (idx === i ? { ...row, [key]: value } : row)));
+  const addAxis = () =>
+    setAxes((a) => (a.length >= 3 ? a : [...a, { name: '', values: '' }]));
+  const removeAxis = (i: number) => setAxes((a) => a.filter((_, idx) => idx !== i));
+
+  const stockOf = (v: ProductVariant) =>
+    v.stockItems.reduce((sum, s) => sum + Number(s.quantity), 0);
 
   if (!productId) {
     return (
@@ -140,155 +156,206 @@ export function VariantsSection({
         <span className="text-sm font-medium text-foreground">
           Variants {variants.length > 0 && <span className="text-muted-foreground">({variants.length})</span>}
         </span>
-        {!adding && (
-          <Button type="button" size="sm" variant="outline" onClick={openAdd}>
-            <Plus className="h-3.5 w-3.5" /> Add variant
+        {!generating && (
+          <Button type="button" size="sm" variant="outline" onClick={() => setGenerating(true)}>
+            <Plus className="h-3.5 w-3.5" /> Generate variants
           </Button>
         )}
       </div>
 
       {isLoading ? (
         <p className="text-sm text-muted-foreground">Loading variants…</p>
-      ) : variants.length === 0 && !adding ? (
+      ) : variants.length === 0 && !generating ? (
         <p className="text-sm text-muted-foreground">
           No variants yet — this product sells as a single item.
         </p>
       ) : (
         <ul className="space-y-2">
-          {variants.map((v) => (
-            <li
-              key={v.id}
-              className="flex items-center justify-between gap-2 rounded-md border border-border p-2.5 text-sm"
-            >
-              <div className="min-w-0">
-                <div className="flex flex-wrap gap-1">
-                  {v.attributes.map((a, i) => (
-                    <Badge key={i}>{a.name}: {a.value}</Badge>
-                  ))}
+          {variants.map((v) =>
+            editingId === v.id && editForm ? (
+              <li key={v.id} className="space-y-3 rounded-md border border-border bg-muted/20 p-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium">{v.variantName}</span>
+                  <Button type="button" size="icon" variant="ghost" aria-label="Cancel" onClick={closeEdit}>
+                    <X className="h-3.5 w-3.5" />
+                  </Button>
                 </div>
-                <div className="mt-1 flex flex-wrap gap-x-3 text-xs text-muted-foreground">
-                  {v.sku && <span>SKU {v.sku}</span>}
-                  {v.barcode && <span>Barcode {v.barcode}</span>}
-                  <span>{formatMoney(v.price)}</span>
-                  <span>Stock {v.stock}</span>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <Field label="SKU">
+                    <Input
+                      value={editForm.sku}
+                      onChange={(e) => setEditForm((f) => f && { ...f, sku: e.target.value })}
+                    />
+                  </Field>
+                  <Field label="Barcode">
+                    <Input
+                      value={editForm.barcode}
+                      onChange={(e) => setEditForm((f) => f && { ...f, barcode: e.target.value })}
+                    />
+                  </Field>
                 </div>
-              </div>
-              <div className="flex shrink-0 gap-1">
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="ghost"
-                  aria-label="Edit variant"
-                  onClick={() => openEdit(v)}
-                >
-                  <Pencil className="h-3.5 w-3.5" />
-                </Button>
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="ghost"
-                  aria-label="Remove variant"
-                  onClick={() => setRemoveTarget(v)}
-                >
-                  <Trash2 className="h-3.5 w-3.5 text-destructive" />
-                </Button>
-              </div>
-            </li>
-          ))}
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <Field label="Price">
+                    <Input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={editForm.sellingPrice}
+                      onChange={(e) =>
+                        setEditForm((f) => f && { ...f, sellingPrice: Number(e.target.value) })
+                      }
+                    />
+                  </Field>
+                  <Field label="Cost">
+                    <Input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={editForm.costPrice}
+                      onChange={(e) =>
+                        setEditForm((f) => f && { ...f, costPrice: Number(e.target.value) })
+                      }
+                    />
+                  </Field>
+                </div>
+                <div className="flex justify-end gap-2">
+                  <Button type="button" variant="outline" size="sm" onClick={closeEdit}>
+                    Cancel
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    loading={update.isPending}
+                    onClick={() => editForm && update.mutate({ id: v.id, body: editForm })}
+                  >
+                    Save variant
+                  </Button>
+                </div>
+              </li>
+            ) : (
+              <li
+                key={v.id}
+                className="flex items-center justify-between gap-2 rounded-md border border-border p-2.5 text-sm"
+              >
+                <div className="min-w-0">
+                  <div className="flex flex-wrap gap-1">
+                    {Object.entries(v.attributes ?? {}).map(([name, value]) => (
+                      <Badge key={name}>{name}: {value}</Badge>
+                    ))}
+                  </div>
+                  <div className="mt-1 flex flex-wrap gap-x-3 text-xs text-muted-foreground">
+                    {v.sku && <span>SKU {v.sku}</span>}
+                    {v.barcode && <span>Barcode {v.barcode}</span>}
+                    <span>{formatMoney(v.sellingPrice)}</span>
+                    <span>Stock {stockOf(v)}</span>
+                  </div>
+                </div>
+                <div className="flex shrink-0 gap-1">
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    aria-label="Edit variant"
+                    onClick={() => openEdit(v)}
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </Button>
+                  {canDelete && (
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      aria-label="Remove variant"
+                      onClick={() => setRemoveTarget(v)}
+                    >
+                      <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                    </Button>
+                  )}
+                </div>
+              </li>
+            ),
+          )}
         </ul>
       )}
 
-      {adding && (
+      {generating && (
         <div className="space-y-3 rounded-md border border-border bg-muted/20 p-3">
           <div className="flex items-center justify-between">
-            <span className="text-sm font-medium">{editingId ? 'Edit variant' : 'New variant'}</span>
-            <Button type="button" size="icon" variant="ghost" aria-label="Cancel" onClick={closeForm}>
+            <span className="text-sm font-medium">Generate variants</span>
+            <Button type="button" size="icon" variant="ghost" aria-label="Cancel" onClick={closeGenerate}>
               <X className="h-3.5 w-3.5" />
             </Button>
           </div>
+          <p className="text-xs text-muted-foreground">
+            One row per attribute, comma-separated values — e.g. Colour: Red, Blue and Size: S, M, L
+            creates every combination. Re-running this later with a new value only adds what&apos;s missing.
+          </p>
 
           <div className="space-y-2">
-            {form.attributes.map((a, i) => (
+            {axes.map((a, i) => (
               <div key={i} className="flex items-center gap-2">
                 <Input
                   placeholder="Attribute (e.g. Size)"
                   value={a.name}
-                  onChange={(e) => setAttr(i, 'name', e.target.value)}
+                  onChange={(e) => setAxis(i, 'name', e.target.value)}
                 />
                 <Input
-                  placeholder="Value (e.g. M)"
-                  value={a.value}
-                  onChange={(e) => setAttr(i, 'value', e.target.value)}
+                  placeholder="Values (e.g. S, M, L)"
+                  value={a.values}
+                  onChange={(e) => setAxis(i, 'values', e.target.value)}
                 />
                 <Button
                   type="button"
                   size="icon"
                   variant="ghost"
                   aria-label="Remove attribute"
-                  disabled={form.attributes.length === 1}
-                  onClick={() => removeAttr(i)}
+                  disabled={axes.length === 1}
+                  onClick={() => removeAxis(i)}
                 >
                   <X className="h-3.5 w-3.5" />
                 </Button>
               </div>
             ))}
-            <button
-              type="button"
-              onClick={addAttr}
-              className="text-xs font-medium text-primary hover:underline"
-            >
-              + Add attribute
-            </button>
+            {axes.length < 3 && (
+              <button
+                type="button"
+                onClick={addAxis}
+                className="text-xs font-medium text-primary hover:underline"
+              >
+                + Add attribute
+              </button>
+            )}
           </div>
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <Field label="SKU">
-              <Input value={form.sku} onChange={(e) => setForm((f) => ({ ...f, sku: e.target.value }))} />
-            </Field>
-            <Field label="Barcode">
-              <Input value={form.barcode} onChange={(e) => setForm((f) => ({ ...f, barcode: e.target.value }))} />
-            </Field>
-          </div>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <Field label="Price">
+            <Field label="Price override (optional)">
               <Input
                 type="number"
                 step="0.01"
                 min="0"
-                value={form.price}
-                onChange={(e) => setForm((f) => ({ ...f, price: Number(e.target.value) }))}
+                placeholder="Uses the product's price"
+                value={priceOverride}
+                onChange={(e) => setPriceOverride(e.target.value)}
               />
             </Field>
-            <Field label="Cost">
+            <Field label="Cost override (optional)">
               <Input
                 type="number"
                 step="0.01"
                 min="0"
-                value={form.costPrice}
-                onChange={(e) => setForm((f) => ({ ...f, costPrice: Number(e.target.value) }))}
-              />
-            </Field>
-            <Field label="Stock">
-              <Input
-                type="number"
-                min="0"
-                value={form.stock}
-                onChange={(e) => setForm((f) => ({ ...f, stock: Number(e.target.value) }))}
+                placeholder="Uses the product's cost"
+                value={costOverride}
+                onChange={(e) => setCostOverride(e.target.value)}
               />
             </Field>
           </div>
 
           <div className="flex justify-end gap-2">
-            <Button type="button" variant="outline" size="sm" onClick={closeForm}>
+            <Button type="button" variant="outline" size="sm" onClick={closeGenerate}>
               Cancel
             </Button>
-            <Button
-              type="button"
-              size="sm"
-              loading={create.isPending || update.isPending}
-              onClick={submit}
-            >
-              {editingId ? 'Save variant' : 'Add variant'}
+            <Button type="button" size="sm" loading={generate.isPending} onClick={submitGenerate}>
+              Generate
             </Button>
           </div>
         </div>
@@ -297,11 +364,7 @@ export function VariantsSection({
       <ConfirmDialog
         open={!!removeTarget}
         title="Remove variant"
-        description={
-          removeTarget
-            ? `Remove "${removeTarget.attributes.map((a) => `${a.name}: ${a.value}`).join(', ')}"?`
-            : undefined
-        }
+        description={removeTarget ? `Remove "${removeTarget.variantName}"?` : undefined}
         confirmLabel="Remove"
         loading={remove.isPending}
         onConfirm={() => removeTarget && remove.mutate(removeTarget.id)}

@@ -15,6 +15,7 @@ import type {
   Paginated,
   Payable,
   Product,
+  ProductVariant,
   Purchase,
   Receivable,
   SessionUser,
@@ -121,6 +122,19 @@ export const ProductsApi = {
     post<{ created: number; updated: number; errors: { row: number; error: string }[] }>(
       '/products/import',
       { items },
+    ),
+  listVariants: (id: string) => get<ProductVariant[]>(`/products/${id}/variants`),
+  generateVariants: (
+    id: string,
+    body: {
+      options: { name: string; values: string[] }[];
+      sellingPrice?: number;
+      costPrice?: number;
+    },
+  ) =>
+    post<{ created: number; skipped: number; variants: ProductVariant[] }>(
+      `/products/${id}/variants`,
+      body,
     ),
 };
 
