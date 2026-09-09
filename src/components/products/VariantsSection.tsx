@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Field } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { ErrorState } from '@/components/ui/misc';
 import { formatMoney } from '@/lib/format';
 import { useToast } from '@/components/ui/toast';
 import { apiError } from '@/lib/api';
@@ -46,7 +47,12 @@ export function VariantsSection({
   const [editForm, setEditForm] = useState<EditForm | null>(null);
   const [removeTarget, setRemoveTarget] = useState<ProductVariant | null>(null);
 
-  const { data: variants = [], isLoading } = useQuery({
+  const {
+    data: variants = [],
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery({
     queryKey: ['variants', productId],
     queryFn: () => ProductsApi.listVariants(productId!),
     enabled: !!productId,
@@ -163,7 +169,9 @@ export function VariantsSection({
         )}
       </div>
 
-      {isLoading ? (
+      {isError ? (
+        <ErrorState onRetry={() => refetch()} description="Couldn't load variants. Check your connection and try again." />
+      ) : isLoading ? (
         <p className="text-sm text-muted-foreground">Loading variants…</p>
       ) : variants.length === 0 && !generating ? (
         <p className="text-sm text-muted-foreground">
