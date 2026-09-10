@@ -9,6 +9,7 @@ import { PageHeader, LoadingBlock, EmptyState, ErrorState } from '@/components/u
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
+import { UNITS, qtyStep as stepForUnit } from '@/lib/units';
 import { Field } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogFooter } from '@/components/ui/dialog';
@@ -356,6 +357,7 @@ export default function PurchasesPage() {
             <div className="space-y-2">
               {lines.map((l, i) => {
                 const product = productOf(l.productId);
+                const qtyStep = product?.trackSerials ? '1' : stepForUnit(product?.unit);
                 const serials = parseSerials(l.serialsText);
                 const mismatch = serialsInvalidFor(l);
                 const duplicateSerials = hasDuplicateSerials(serials);
@@ -368,11 +370,11 @@ export default function PurchasesPage() {
                     </Button>
                   </div>
                   <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                    <Field label="Qty">
-                      <Input type="number" step={product?.trackSerials ? '1' : '0.001'} min={product?.trackSerials ? '1' : '0.001'} value={l.quantity}
+                    <Field label={`Qty (${product?.unit ?? 'pcs'})`}>
+                      <Input type="number" step={qtyStep} min={qtyStep} value={l.quantity}
                         onChange={(e) => {
                           const raw = Number(e.target.value);
-                          updateLine(i, { quantity: product?.trackSerials ? Math.round(raw) : raw });
+                          updateLine(i, { quantity: qtyStep === '1' ? Math.round(raw) : raw });
                         }} />
                     </Field>
                     <Field label="Unit cost">
@@ -468,7 +470,13 @@ export default function PurchasesPage() {
               <Input value={newProd.sku} onChange={(e) => setNewProd((p) => ({ ...p, sku: e.target.value }))} />
             </Field>
             <Field label="Unit">
-              <Input value={newProd.unit} onChange={(e) => setNewProd((p) => ({ ...p, unit: e.target.value }))} />
+              <Select value={newProd.unit} onChange={(e) => setNewProd((p) => ({ ...p, unit: e.target.value }))}>
+                {UNITS.map((u) => (
+                  <option key={u} value={u}>
+                    {u}
+                  </option>
+                ))}
+              </Select>
             </Field>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

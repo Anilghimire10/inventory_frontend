@@ -27,6 +27,7 @@ import { Card } from '@/components/ui/card';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { formatMoney, currencySymbol } from '@/lib/format';
 import { hasDuplicateSerials, parseSerials, serialsInvalid } from '@/lib/serials';
+import { allowsFraction } from '@/lib/units';
 import { cn } from '@/lib/utils';
 import { CustomerPicker, type CustomerPickerHandle } from '@/components/pos/CustomerPicker';
 
@@ -387,7 +388,7 @@ export function CartPanel({
                     >
                       <Minus className="h-3.5 w-3.5" />
                     </Button>
-                    <QtyInput value={l.quantity} onCommit={(q) => onSetQty(l.product.id, q)} />
+                    <QtyInput value={l.quantity} unit={l.product.unit} onCommit={(q) => onSetQty(l.product.id, q)} />
                     <Button
                       size="icon"
                       variant="outline"
@@ -940,14 +941,25 @@ function Segment<T extends string>({
 }
 
 /** Live-editable quantity: safe to clear while typing, commits on blur/Enter. */
-function QtyInput({ value, onCommit }: { value: number; onCommit: (q: number) => void }) {
+function QtyInput({
+  value,
+  unit,
+  onCommit,
+}: {
+  value: number;
+  unit?: string;
+  onCommit: (q: number) => void;
+}) {
   const [focused, setFocused] = useState(false);
   const [draft, setDraft] = useState(String(value));
+  // Measured goods (kg, l, m) sell in fractions; discrete ones don't, so don't
+  // let the cashier type a decimal point the API is only going to reject.
+  const fractional = allowsFraction(unit);
   return (
     <input
       type="text"
-      inputMode="decimal"
-      aria-label="Quantity"
+      inputMode={fractional ? 'decimal' : 'numeric'}
+      aria-label={unit ? `Quantity in ${unit}` : 'Quantity'}
       className="h-7 w-14 rounded border border-input bg-background text-center text-sm"
       value={focused ? draft : String(value)}
       onFocus={(e) => {
@@ -958,12 +970,13 @@ function QtyInput({ value, onCommit }: { value: number; onCommit: (q: number) =>
       onChange={(e) => {
         // Digits with at most one decimal point, matching the backend's
         // numeric(12,3) quantity columns (weighed goods can be fractional).
-        const next = e.target.value.replace(/[^\d.]/g, '');
+        const next = e.target.value.replace(fractional ? /[^\d.]/g : /[^\d]/g, '');
         setDraft(next.replace(/(\..*)\./g, '$1'));
       }}
       onBlur={() => {
         setFocused(false);
-        const parsed = Math.round((parseFloat(draft) || 0) * 1000) / 1000;
+        const raw = parseFloat(draft) || 0;
+        const parsed = fractional ? Math.round(raw * 1000) / 1000 : Math.round(raw);
         onCommit(Math.max(0, parsed));
       }}
       onKeyDown={(e) => {
