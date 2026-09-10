@@ -43,6 +43,7 @@ const empty = {
   reorderLevel: 0,
   isRxRequired: false,
   trackBatches: false,
+  trackSerials: false,
 };
 type Form = typeof empty;
 
@@ -190,6 +191,7 @@ export default function ProductsPage() {
       reorderLevel: p.reorderLevel,
       isRxRequired: p.isRxRequired,
       trackBatches: p.trackBatches,
+      trackSerials: p.trackSerials,
     });
     setOpen(true);
   };
@@ -369,6 +371,7 @@ export default function ProductsPage() {
                         </div>
                         <div className="flex gap-1 pt-1">
                           {p.trackBatches && <Badge tone="warning">Batch</Badge>}
+                          {p.trackSerials && <Badge tone="warning">Serial</Badge>}
                           {!!p._count?.variants && (
                             <Badge tone="primary">{p._count.variants} variants</Badge>
                           )}
@@ -546,6 +549,11 @@ export default function ProductsPage() {
               <input type="checkbox" checked={form.trackBatches}
                 onChange={(e) => set('trackBatches', e.target.checked)} />
               Track batches / expiry
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={form.trackSerials}
+                onChange={(e) => set('trackSerials', e.target.checked)} />
+              Track serial / IMEI numbers
             </label>
           </div>
 

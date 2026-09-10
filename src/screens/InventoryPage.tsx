@@ -1,9 +1,9 @@
 'use client';
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Boxes, SlidersHorizontal, AlertTriangle, CalendarClock, History, ArrowLeftRight, Trash2, ClipboardCheck } from 'lucide-react';
+import { Boxes, SlidersHorizontal, AlertTriangle, CalendarClock, History, ArrowLeftRight, Trash2, ClipboardCheck, Fingerprint } from 'lucide-react';
 import { InventoryApi, ProductsApi } from '@/api';
-import type { CountSheetLine, StockItem, StockTakeResult } from '@/types';
+import type { CountSheetLine, SerialStatus, StockItem, StockTakeResult } from '@/types';
 import { useStores } from '@/hooks/useStores';
 import { PageHeader, LoadingBlock, EmptyState, ErrorState } from '@/components/ui/misc';
 import { Button } from '@/components/ui/button';
@@ -19,7 +19,7 @@ import { apiError } from '@/lib/api';
 import { formatDate, formatDateTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
-type Tab = 'stock' | 'low' | 'expiring' | 'movements' | 'stockTake';
+type Tab = 'stock' | 'low' | 'expiring' | 'movements' | 'stockTake' | 'serials';
 
 export default function InventoryPage() {
   const qc = useQueryClient();
@@ -47,6 +47,11 @@ export default function InventoryPage() {
   const [reviewOpen, setReviewOpen] = useState(false);
   const [review, setReview] = useState<StockTakeResult | null>(null);
 
+  const [serialsPage, setSerialsPage] = useState(1);
+  const [serialSearch, setSerialSearch] = useState('');
+  const [serialStatus, setSerialStatus] = useState<SerialStatus | ''>('');
+  const [serialProductId, setSerialProductId] = useState('');
+
   const stock = useQuery({
     queryKey: ['stock', stockPage],
     queryFn: () => InventoryApi.stock({ page: stockPage, limit: 20 }),
@@ -66,6 +71,18 @@ export default function InventoryPage() {
     queryKey: ['movements', movementPage],
     queryFn: () => InventoryApi.movements({ page: movementPage, limit: 20 }),
     enabled: tab === 'movements',
+  });
+  const serials = useQuery({
+    queryKey: ['serials', serialsPage, serialSearch, serialStatus, serialProductId],
+    queryFn: () =>
+      InventoryApi.serials({
+        page: serialsPage,
+        limit: 20,
+        search: serialSearch || undefined,
+        status: serialStatus || undefined,
+        productId: serialProductId || undefined,
+      }),
+    enabled: tab === 'serials',
   });
 
   const adjust = useMutation({
@@ -97,7 +114,7 @@ export default function InventoryPage() {
   const { data: products } = useQuery({
     queryKey: ['products', 'all'],
     queryFn: () => ProductsApi.list({ limit: 100 }),
-    enabled: transferOpen,
+    enabled: transferOpen || tab === 'serials',
   });
 
   const transfer = useMutation({
@@ -213,6 +230,7 @@ export default function InventoryPage() {
     { key: 'expiring', label: 'Expiring', icon: CalendarClock },
     { key: 'movements', label: 'History', icon: History },
     { key: 'stockTake', label: 'Stock take', icon: ClipboardCheck },
+    { key: 'serials', label: 'Serials', icon: Fingerprint },
   ];
 
   return (
@@ -390,6 +408,70 @@ export default function InventoryPage() {
                 </div>
               </>
             )}
+        </div>
+      )}
+
+      {tab === 'serials' && (
+        <div className="space-y-3">
+          <div className="flex flex-wrap gap-2">
+            <Input
+              className="max-w-xs"
+              placeholder="Search by serial number…"
+              value={serialSearch}
+              onChange={(e) => { setSerialSearch(e.target.value); setSerialsPage(1); }}
+            />
+            <Select
+              className="max-w-xs"
+              value={serialProductId}
+              onChange={(e) => { setSerialProductId(e.target.value); setSerialsPage(1); }}
+            >
+              <option value="">All products</option>
+              {(products?.data ?? []).filter((p) => p.trackSerials).map((p) => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </Select>
+            <Select
+              className="max-w-xs"
+              value={serialStatus}
+              onChange={(e) => { setSerialStatus(e.target.value as SerialStatus | ''); setSerialsPage(1); }}
+            >
+              <option value="">All statuses</option>
+              <option value="IN_STOCK">In stock</option>
+              <option value="SOLD">Sold</option>
+              <option value="RETURNED_TO_SUPPLIER">Returned to supplier</option>
+            </Select>
+          </div>
+
+          {serials.isError ? <ErrorState onRetry={() => serials.refetch()} /> :
+          serials.isLoading ? <LoadingBlock /> :
+          !serials.data || serials.data.data.length === 0 ? (
+            <EmptyState title="No serials found" description="Units tracked by serial/IMEI will show up here once received." icon={Fingerprint} />
+          ) : (
+            <>
+              <Table>
+                <THead><TR><TH>Serial #</TH><TH>Product</TH><TH>Status</TH><TH>Store</TH><TH>Sold to</TH><TH>Updated</TH></TR></THead>
+                <TBody>
+                  {serials.data.data.map((s) => (
+                    <TR key={s.id}>
+                      <TD className="font-medium">{s.serialNumber}</TD>
+                      <TD>{s.product.name}</TD>
+                      <TD>
+                        <Badge tone={s.status === 'IN_STOCK' ? 'success' : s.status === 'SOLD' ? 'muted' : 'destructive'}>
+                          {s.status === 'IN_STOCK' ? 'In stock' : s.status === 'SOLD' ? 'Sold' : 'Returned'}
+                        </Badge>
+                      </TD>
+                      <TD className="text-muted-foreground">{s.store?.name ?? '—'}</TD>
+                      <TD className="text-muted-foreground">
+                        {s.sale ? `${s.sale.customer?.name ?? 'Walk-in'} · ${s.sale.receiptNo}` : '—'}
+                      </TD>
+                      <TD className="whitespace-nowrap text-muted-foreground">{formatDateTime(s.updatedAt)}</TD>
+                    </TR>
+                  ))}
+                </TBody>
+              </Table>
+              <Pagination page={serials.data.meta.page} pages={serials.data.meta.pages} onPage={setSerialsPage} />
+            </>
+          )}
         </div>
       )}
 

@@ -17,6 +17,7 @@ import { Pagination } from '@/components/ui/pagination';
 import { useToast } from '@/components/ui/toast';
 import { apiError } from '@/lib/api';
 import { formatMoney, formatDate } from '@/lib/format';
+import { hasDuplicateSerials, parseSerials, serialsInvalid } from '@/lib/serials';
 
 interface Line {
   productId: string;
@@ -24,6 +25,8 @@ interface Line {
   costPrice: number;
   batchNumber: string;
   expiryDate: string;
+  /** Raw serial-entry text, kept as typed; parsed into a list only for validation/submit. */
+  serialsText: string;
 }
 
 export default function PurchasesPage() {
@@ -71,6 +74,26 @@ export default function PurchasesPage() {
     [lines],
   );
 
+  const productOf = (id: string) => products?.data.find((p) => p.id === id);
+
+  // A serialised line needs exactly one distinct serial per unit before it
+  // can be saved. Skipped while editing -- the backend unconditionally
+  // refuses to edit a purchase that already has any serial numbers recorded
+  // against it (see hasSerializedLineInEdit below), so per-line count
+  // validation would only produce a misleading "0 of N entered" message.
+  const serialsInvalidFor = (l: Line) => {
+    if (editingId) return false;
+    const product = productOf(l.productId);
+    if (!product?.trackSerials) return false;
+    return serialsInvalid(parseSerials(l.serialsText), l.quantity);
+  };
+  const serialMismatch = lines.some(serialsInvalidFor);
+  // Once received, a serialised purchase can never be edited (the backend
+  // rejects it outright) -- surface that up front instead of letting the
+  // user fill in the form only to hit a confusing error on save.
+  const hasSerializedLineInEdit =
+    !!editingId && lines.some((l) => productOf(l.productId)?.trackSerials);
+
   const save = useMutation({
     mutationFn: () => {
       const body = {
@@ -90,6 +113,7 @@ export default function PurchasesPage() {
           costPrice: l.costPrice,
           batchNumber: l.batchNumber || undefined,
           expiryDate: l.expiryDate || undefined,
+          serials: productOf(l.productId)?.trackSerials ? parseSerials(l.serialsText) : undefined,
         })),
       };
       return editingId
@@ -131,6 +155,7 @@ export default function PurchasesPage() {
           costPrice: Number(it.costPrice),
           batchNumber: it.batchNumber ?? '',
           expiryDate: it.expiryDate ? it.expiryDate.slice(0, 10) : '',
+          serialsText: '',
         })),
       );
       const paid = Number(p.amountPaid);
@@ -192,7 +217,7 @@ export default function PurchasesPage() {
     if (!product || lines.some((l) => l.productId === productId)) return;
     setLines((ls) => [
       ...ls,
-      { productId, quantity: 1, costPrice: Number(product.costPrice), batchNumber: '', expiryDate: '' },
+      { productId, quantity: 1, costPrice: Number(product.costPrice), batchNumber: '', expiryDate: '', serialsText: '' },
     ]);
     setPickProduct('');
   };
@@ -211,7 +236,7 @@ export default function PurchasesPage() {
       qc.invalidateQueries({ queryKey: ['products'] });
       setLines((ls) => [
         ...ls,
-        { productId: product.id, quantity: 1, costPrice: Number(product.costPrice), batchNumber: '', expiryDate: '' },
+        { productId: product.id, quantity: 1, costPrice: Number(product.costPrice), batchNumber: '', expiryDate: '', serialsText: '' },
       ]);
       // keep the name handy for the line label until products refetch
       setNameCache((c) => ({ ...c, [product.id]: product.name }));
@@ -320,9 +345,21 @@ export default function PurchasesPage() {
             )}
           </Field>
 
+          {hasSerializedLineInEdit && (
+            <p className="rounded-md border border-destructive/30 bg-destructive/5 p-2.5 text-xs text-destructive">
+              This purchase has serial numbers already recorded and can&apos;t be edited —
+              return items to the supplier instead.
+            </p>
+          )}
+
           {lines.length > 0 && (
             <div className="space-y-2">
-              {lines.map((l, i) => (
+              {lines.map((l, i) => {
+                const product = productOf(l.productId);
+                const serials = parseSerials(l.serialsText);
+                const mismatch = serialsInvalidFor(l);
+                const duplicateSerials = hasDuplicateSerials(serials);
+                return (
                 <div key={l.productId} className="rounded-md border border-border p-3">
                   <div className="mb-2 flex items-center justify-between">
                     <span className="font-medium">{productName(l.productId)}</span>
@@ -332,8 +369,11 @@ export default function PurchasesPage() {
                   </div>
                   <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                     <Field label="Qty">
-                      <Input type="number" step="0.001" min="0.001" value={l.quantity}
-                        onChange={(e) => updateLine(i, { quantity: Number(e.target.value) })} />
+                      <Input type="number" step={product?.trackSerials ? '1' : '0.001'} min={product?.trackSerials ? '1' : '0.001'} value={l.quantity}
+                        onChange={(e) => {
+                          const raw = Number(e.target.value);
+                          updateLine(i, { quantity: product?.trackSerials ? Math.round(raw) : raw });
+                        }} />
                     </Field>
                     <Field label="Unit cost">
                       <Input type="number" step="0.01" min="0" value={l.costPrice}
@@ -346,8 +386,30 @@ export default function PurchasesPage() {
                       <Input type="date" value={l.expiryDate} onChange={(e) => updateLine(i, { expiryDate: e.target.value })} />
                     </Field>
                   </div>
+                  {product?.trackSerials && !editingId && (
+                    <div className="mt-2">
+                      <Field label={`Serial / IMEI numbers (one per line, ${l.quantity} needed)`}>
+                        <textarea
+                          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                          rows={3}
+                          value={l.serialsText}
+                          onChange={(e) => updateLine(i, { serialsText: e.target.value })}
+                        />
+                      </Field>
+                      {mismatch && (
+                        <p className="mt-1 text-xs text-destructive">
+                          {!Number.isInteger(l.quantity) || l.quantity < 1
+                            ? 'Quantity must be a whole number of at least 1 for serialised products.'
+                            : duplicateSerials
+                              ? 'Duplicate serial numbers entered.'
+                              : `${serials.length} of ${l.quantity} serials entered.`}
+                        </p>
+                      )}
+                    </div>
+                  )}
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
 
@@ -386,7 +448,7 @@ export default function PurchasesPage() {
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
-          <Button loading={save.isPending} disabled={lines.length === 0} onClick={() => save.mutate()}>
+          <Button loading={save.isPending} disabled={lines.length === 0 || serialMismatch || hasSerializedLineInEdit} onClick={() => save.mutate()}>
             {editingId
               ? 'Save changes'
               : `Receive ${lines.length} item${lines.length !== 1 ? 's' : ''}`}

@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   Check,
   ChevronDown,
+  Hash,
   Minus,
   MoreVertical,
   Package,
@@ -25,6 +26,7 @@ import { RxBadge } from '@/components/ui/RxBadge';
 import { Card } from '@/components/ui/card';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { formatMoney, currencySymbol } from '@/lib/format';
+import { hasDuplicateSerials, parseSerials, serialsInvalid } from '@/lib/serials';
 import { cn } from '@/lib/utils';
 import { CustomerPicker, type CustomerPickerHandle } from '@/components/pos/CustomerPicker';
 
@@ -35,6 +37,8 @@ export interface CartLine {
   unitPrice?: number;
   /** Absolute discount amount for this line (already resolved from % if that mode was used). */
   discount?: number;
+  /** Serial/IMEI of each unit being sold; required at checkout when product.trackSerials. */
+  serials?: string[];
 }
 
 /** Effective per-unit price for a line, after any manual override. */
@@ -74,7 +78,7 @@ interface CartPanelProps {
   customerId: string;
   onCustomerChange: (id: string) => void;
   onSetQty: (id: string, qty: number) => void;
-  onUpdateLine: (id: string, updates: { unitPrice?: number; discount?: number }) => void;
+  onUpdateLine: (id: string, updates: { unitPrice?: number; discount?: number; serials?: string[] }) => void;
   atMax: (line: CartLine) => boolean;
   onHold: () => void;
   holding: boolean;
@@ -163,6 +167,9 @@ export function CartPanel({
   const [editUnitPrice, setEditUnitPrice] = useState('');
   const [editDiscount, setEditDiscount] = useState('');
   const [editDiscountType, setEditDiscountType] = useState<DiscountType>('amount');
+  // Per-line serial/IMEI entry -- one at a time, same pattern as price/discount.
+  const [serialsEditingId, setSerialsEditingId] = useState<string | null>(null);
+  const [editSerialsText, setEditSerialsText] = useState('');
   // A cash sale still posts as fully paid even if less was physically
   // tendered (see isCashFull below) -- gate that specific case behind an
   // explicit confirmation instead of letting it complete silently.
@@ -199,8 +206,14 @@ export function CartPanel({
   const isCashFull = payMode === 'full' && paymentMethod === 'CASH';
   const change = Math.round((tendered - total) * 100) / 100;
 
+  const missingSerials = (l: CartLine) =>
+    l.product.trackSerials && serialsInvalid(l.serials ?? [], l.quantity);
+
   const checkoutDisabled =
-    !shiftOpen || (due > 0 && !customerId) || (needsRx && !prescriptionRef.trim());
+    !shiftOpen ||
+    (due > 0 && !customerId) ||
+    (needsRx && !prescriptionRef.trim()) ||
+    cart.some(missingSerials);
 
   // Same condition that already drives the "Short by" warning below --
   // amountPaid always posts as the full total regardless of tendered, so
@@ -428,6 +441,18 @@ export function CartPanel({
                           >
                             <Tag className="h-4 w-4" /> Price / discount
                           </button>
+                          {l.product.trackSerials && (
+                            <button
+                              onClick={() => {
+                                setMenuId(null);
+                                setSerialsEditingId(l.product.id);
+                                setEditSerialsText((l.serials ?? []).join('\n'));
+                              }}
+                              className="flex w-full items-center gap-2 px-3 py-2 text-sm font-medium text-foreground hover:bg-muted"
+                            >
+                              <Hash className="h-4 w-4" /> Serials
+                            </button>
+                          )}
                           <button
                             onClick={() => {
                               setMenuId(null);
@@ -443,6 +468,42 @@ export function CartPanel({
                   </div>
                 </div>
               </div>
+
+              {missingSerials(l) && serialsEditingId !== l.product.id && (
+                <p className="flex items-center gap-1 text-xs text-warning">
+                  <AlertTriangle className="h-3.5 w-3.5" />
+                  {hasDuplicateSerials(l.serials ?? [])
+                    ? 'Duplicate serial numbers entered'
+                    : `${l.serials?.length ?? 0} of ${l.quantity} serials entered`}
+                </p>
+              )}
+
+              {serialsEditingId === l.product.id && (
+                <div className="space-y-2 rounded-md border border-dashed border-border bg-muted/30 p-2.5">
+                  <Field label={`Serial / IMEI numbers (one per line, ${l.quantity} needed)`}>
+                    <textarea
+                      className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                      rows={3}
+                      value={editSerialsText}
+                      onChange={(e) => setEditSerialsText(e.target.value)}
+                    />
+                  </Field>
+                  <div className="flex justify-end gap-2">
+                    <Button size="sm" variant="outline" onClick={() => setSerialsEditingId(null)}>
+                      Cancel
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={() => {
+                        onUpdateLine(l.product.id, { serials: parseSerials(editSerialsText) });
+                        setSerialsEditingId(null);
+                      }}
+                    >
+                      Apply
+                    </Button>
+                  </div>
+                </div>
+              )}
 
               {editingId === l.product.id && (
                 <div className="space-y-2 rounded-md border border-dashed border-border bg-muted/30 p-2.5">
