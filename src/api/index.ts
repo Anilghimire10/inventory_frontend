@@ -24,6 +24,7 @@ import type {
   Tax,
   Sale,
   SaleListItem,
+  SerialRecord,
   StockItem,
   StockMovement,
   Store,
@@ -152,6 +153,8 @@ export const InventoryApi = {
   expiring: (params?: object) => get<Batch[]>('/inventory/expiring', params),
   movements: (params?: object) =>
     get<Paginated<StockMovement>>('/inventory/movements', params),
+  serials: (params?: object) =>
+    get<Paginated<SerialRecord>>('/inventory/serials', params),
   adjust: (body: object) => post('/inventory/adjust', body),
   setReorderLevel: (body: object) => post('/inventory/reorder-level', body),
   transfer: (body: {

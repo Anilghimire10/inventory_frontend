@@ -109,8 +109,30 @@ export interface Product {
   isTaxable: boolean;
   isRxRequired: boolean;
   trackBatches: boolean;
+  trackSerials: boolean;
   reorderLevel: number;
   isActive: boolean;
+}
+
+export type SerialStatus = 'IN_STOCK' | 'SOLD' | 'RETURNED_TO_SUPPLIER';
+
+/** One physical unit of a serialised product (phone IMEI, appliance serial). */
+export interface SerialRecord {
+  id: string;
+  serialNumber: string;
+  status: SerialStatus;
+  product: { id: string; name: string; sku?: string | null };
+  store: { id: string; name: string } | null;
+  sale: {
+    id: string;
+    receiptNo: string;
+    createdAt: string;
+    customer: { id: string; name: string; phone?: string | null } | null;
+  } | null;
+  purchaseId: string | null;
+  soldAt: string | null;
+  note: string | null;
+  updatedAt: string;
 }
 
 /**

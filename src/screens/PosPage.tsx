@@ -252,6 +252,9 @@ export default function PosPage() {
         customerId: customerId || undefined,
         discount: discountAmount || undefined,
         prescriptionRef: prescriptionRef || undefined,
+        // Serials aren't sent here: a held sale doesn't touch stock or the
+        // Serial table (same as it doesn't consume a receipt number), so the
+        // backend never persists them. Resuming always needs a fresh scan.
         items: cart.map((l) => ({
           productId: l.product.id,
           quantity: l.quantity,
@@ -334,6 +337,7 @@ export default function PosPage() {
           quantity: l.quantity,
           unitPrice: l.unitPrice,
           discount: l.discount,
+          serials: l.serials,
         })),
       }),
     onSuccess: (sale) => {
@@ -383,7 +387,10 @@ export default function PosPage() {
   const setQty = (id: string, qty: number) => {
     const line = cart.find((l) => l.product.id === id);
     if (!line) return;
-    let next = qty;
+    // Serialised goods are whole units -- one scanned serial each -- but the
+    // quantity box accepts decimals for weighed items, and a fractional qty
+    // would block checkout with an unsatisfiable "N of 1.5 serials" warning.
+    let next = line.product.trackSerials ? Math.round(qty) : qty;
     const max = maxOf(id);
     if (next > max) {
       if (Number.isFinite(max)) show(`Only ${max} ${line.product.unit} in stock`, 'error');
@@ -396,7 +403,7 @@ export default function PosPage() {
 
   const atMax = (line: CartLine) => maxOf(line.product.id) <= line.quantity;
 
-  const updateLine = (id: string, updates: { unitPrice?: number; discount?: number }) =>
+  const updateLine = (id: string, updates: { unitPrice?: number; discount?: number; serials?: string[] }) =>
     setCart((c) => c.map((l) => (l.product.id === id ? { ...l, ...updates } : l)));
 
   const resumeMutation = useMutation({
