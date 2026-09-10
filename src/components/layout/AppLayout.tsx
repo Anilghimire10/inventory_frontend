@@ -161,10 +161,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 className="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-accent"
               >
                 <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary">
-                  {user.name.charAt(0).toUpperCase()}
+                  {(user.name ?? 'U').charAt(0).toUpperCase()}
                 </div>
                 <div className="hidden text-left sm:block">
-                  <div className="text-sm font-medium leading-tight">{user.name}</div>
+                  <div className="text-sm font-medium leading-tight">{user.name ?? user.email}</div>
                   <div className="text-xs text-muted-foreground">{user.role}</div>
                 </div>
                 <ChevronDown className="h-4 w-4 text-muted-foreground" />
