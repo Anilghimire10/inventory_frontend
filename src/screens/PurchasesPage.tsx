@@ -9,6 +9,7 @@ import { PageHeader, LoadingBlock, EmptyState, ErrorState } from '@/components/u
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
+import { UNITS, qtyStep } from '@/lib/units';
 import { Field } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogFooter } from '@/components/ui/dialog';
@@ -226,6 +227,8 @@ export default function PurchasesPage() {
 
   const productName = (id: string) =>
     products?.data.find((p) => p.id === id)?.name ?? nameCache[id] ?? id;
+  const productUnit = (id: string) =>
+    products?.data.find((p) => p.id === id)?.unit ?? 'pcs';
 
   return (
     <div>
@@ -331,8 +334,9 @@ export default function PurchasesPage() {
                     </Button>
                   </div>
                   <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                    <Field label="Qty">
-                      <Input type="number" step="0.001" min="0.001" value={l.quantity}
+                    <Field label={`Qty (${productUnit(l.productId)})`}>
+                      <Input type="number" step={qtyStep(productUnit(l.productId))}
+                        min={qtyStep(productUnit(l.productId))} value={l.quantity}
                         onChange={(e) => updateLine(i, { quantity: Number(e.target.value) })} />
                     </Field>
                     <Field label="Unit cost">
@@ -406,7 +410,13 @@ export default function PurchasesPage() {
               <Input value={newProd.sku} onChange={(e) => setNewProd((p) => ({ ...p, sku: e.target.value }))} />
             </Field>
             <Field label="Unit">
-              <Input value={newProd.unit} onChange={(e) => setNewProd((p) => ({ ...p, unit: e.target.value }))} />
+              <Select value={newProd.unit} onChange={(e) => setNewProd((p) => ({ ...p, unit: e.target.value }))}>
+                {UNITS.map((u) => (
+                  <option key={u} value={u}>
+                    {u}
+                  </option>
+                ))}
+              </Select>
             </Field>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
