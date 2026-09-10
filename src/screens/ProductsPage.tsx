@@ -22,6 +22,7 @@ import { exportCsv, parseCsv } from '@/lib/csv';
 import { printLabelSheet } from '@/lib/print';
 import { generateBarcodeValue } from '@/lib/barcode';
 import { Select } from '@/components/ui/select';
+import { UNITS } from '@/lib/units';
 import { formatMoney } from '@/lib/format';
 import { useAuth } from '@/auth/AuthContext';
 import { can } from '@/lib/permissions';
@@ -510,7 +511,13 @@ export default function ProductsPage() {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Field label="Unit">
-              <Input value={form.unit} onChange={(e) => set('unit', e.target.value)} />
+              <Select value={form.unit} onChange={(e) => set('unit', e.target.value)}>
+                {UNITS.map((u) => (
+                  <option key={u} value={u}>
+                    {u}
+                  </option>
+                ))}
+              </Select>
             </Field>
             <Field label="Expiry date">
               <Input
