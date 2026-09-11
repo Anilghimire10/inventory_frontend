@@ -19,7 +19,7 @@ import {
 } from 'lucide-react';
 import type { Customer, Product, SaleListItem } from '@/types';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { Input, Textarea } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Field } from '@/components/ui/label';
 import { RxBadge } from '@/components/ui/RxBadge';
@@ -482,8 +482,7 @@ export function CartPanel({
               {serialsEditingId === l.product.id && (
                 <div className="space-y-2 rounded-md border border-dashed border-border bg-muted/30 p-2.5">
                   <Field label={`Serial / IMEI numbers (one per line, ${l.quantity} needed)`}>
-                    <textarea
-                      className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    <Textarea
                       rows={3}
                       value={editSerialsText}
                       onChange={(e) => setEditSerialsText(e.target.value)}

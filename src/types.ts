@@ -150,7 +150,8 @@ export interface StockItem {
   id: string;
   storeId: string;
   productId: string;
-  quantity: number;
+  /** Decimal(12,3) — arrives as a string, so `Number()` it before any arithmetic. */
+  quantity: string;
   reorderLevel: number;
   product: { id: string; name: string; sku?: string | null; unit?: string; reorderLevel?: number };
   store?: { id: string; name: string };

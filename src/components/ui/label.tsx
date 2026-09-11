@@ -1,5 +1,5 @@
 'use client';
-import { cloneElement, isValidElement, useId } from 'react';
+import { Children, cloneElement, isValidElement, useId } from 'react';
 import { cn } from '@/lib/utils';
 
 export function Label({
@@ -34,19 +34,27 @@ export function Field({
   const autoId = useId();
   const id = htmlFor ?? autoId;
   const errorId = `${id}-error`;
-  const child = isValidElement(children)
-    ? cloneElement(
-        children as React.ReactElement<{
-          id?: string;
-          'aria-describedby'?: string;
-          'aria-invalid'?: boolean;
-        }>,
-        {
-          ...(label ? { id } : null),
-          ...(error ? { 'aria-describedby': errorId, 'aria-invalid': true } : null),
-        },
-      )
-    : children;
+  // The control is the first element child; a Field may also carry a hint or
+  // inline message after it, which is left untouched. Cloning only when
+  // `children` was a lone element silently dropped the label association on
+  // every Field holding more than one child.
+  const items = Children.toArray(children);
+  const controlIdx = items.findIndex(isValidElement);
+  const child = items.map((c, i) =>
+    i === controlIdx && isValidElement(c)
+      ? cloneElement(
+          c as React.ReactElement<{
+            id?: string;
+            'aria-describedby'?: string;
+            'aria-invalid'?: boolean;
+          }>,
+          {
+            ...(label ? { id } : null),
+            ...(error ? { 'aria-describedby': errorId, 'aria-invalid': true } : null),
+          },
+        )
+      : c,
+  );
   return (
     <div className={className}>
       {label && <Label htmlFor={id}>{label}</Label>}
