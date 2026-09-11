@@ -122,7 +122,10 @@ export default function PosPage() {
   // Total on-hand quantity per product (summed across all stores), fetched in
   // pages because the API caps limit at 100.
   const { data: stock, isError: stockError, refetch: refetchStock } = useQuery({
-    queryKey: ['pos-stock'],
+    // Keyed under 'stock' so every invalidateQueries(['stock']) elsewhere
+    // (receive, adjust, transfer, stock take, returns) refreshes POS too --
+    // React Query matches by key prefix.
+    queryKey: ['stock', 'pos'],
     queryFn: async () => {
       const all: StockItem[] = [];
       let page = 1;
@@ -137,11 +140,13 @@ export default function PosPage() {
     },
   });
 
+  const stockLoaded = stock !== undefined;
+
   // Total on-hand quantity per product (summed across all stores).
   const onHand = useMemo(() => {
     const m = new Map<string, number>();
     for (const s of stock?.data ?? []) {
-      m.set(s.productId, (m.get(s.productId) ?? 0) + s.quantity);
+      m.set(s.productId, (m.get(s.productId) ?? 0) + Number(s.quantity));
     }
     return m;
   }, [stock]);
@@ -342,7 +347,6 @@ export default function PosPage() {
       }),
     onSuccess: (sale) => {
       qc.invalidateQueries({ queryKey: ['stock'] });
-      qc.invalidateQueries({ queryKey: ['pos-stock'] });
       qc.invalidateQueries({ queryKey: ['dashboard'] });
       qc.invalidateQueries({ queryKey: ['customers'] });
       qc.invalidateQueries({ queryKey: ['credit'] });
@@ -594,7 +598,10 @@ export default function PosPage() {
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4">
               {displayProducts.map((p) => {
                 const available = onHand.get(p.id) ?? 0;
-                const out = available <= 0;
+                // Until the stock feed lands, "not loaded" is indistinguishable
+                // from "zero" -- don't claim out of stock on a guess. Matches
+                // maxOf, which treats an unknown product as unrestricted.
+                const out = stockLoaded && available <= 0;
                 const isFavorite = favorites.includes(p.id);
                 return (
                   <div
@@ -661,7 +668,9 @@ export default function PosPage() {
                       </div>
                       <div className="flex items-center justify-between gap-1">
                         <span className="truncate text-xs text-muted-foreground">{p.sku || p.unit}</span>
-                        <StockBadge count={available} reorder={reorderLevels.get(p.id) ?? 0} />
+                        {stockLoaded && (
+                          <StockBadge count={available} reorder={reorderLevels.get(p.id) ?? 0} />
+                        )}
                       </div>
                     </div>
                   </div>

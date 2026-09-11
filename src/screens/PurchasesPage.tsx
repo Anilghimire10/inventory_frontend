@@ -7,7 +7,7 @@ import type { Purchase } from '@/types';
 import { useStores } from '@/hooks/useStores';
 import { PageHeader, LoadingBlock, EmptyState, ErrorState } from '@/components/ui/misc';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { Input, Textarea } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { UNITS, qtyStep as stepForUnit } from '@/lib/units';
 import { Field } from '@/components/ui/label';
@@ -391,8 +391,7 @@ export default function PurchasesPage() {
                   {product?.trackSerials && !editingId && (
                     <div className="mt-2">
                       <Field label={`Serial / IMEI numbers (one per line, ${l.quantity} needed)`}>
-                        <textarea
-                          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                        <Textarea
                           rows={3}
                           value={l.serialsText}
                           onChange={(e) => updateLine(i, { serialsText: e.target.value })}

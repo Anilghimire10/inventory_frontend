@@ -600,10 +600,13 @@ function CategoryMultiSelect({
   categories,
   selected,
   onToggle,
+  id,
 }: {
   categories: Category[];
   selected: string[];
   onToggle: (id: string) => void;
+  /** Injected by the enclosing Field so its <label for> points at the search box. */
+  id?: string;
 }) {
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
@@ -646,6 +649,7 @@ function CategoryMultiSelect({
       <div className="relative">
         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <Input
+          id={id}
           className="pl-9"
           placeholder="Search categories…"
           value={query}

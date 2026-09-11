@@ -627,7 +627,7 @@ function StockTable({
         {items.map((it) => {
           const reorder =
             it.effectiveReorderLevel ?? (it.reorderLevel || it.product.reorderLevel || 0);
-          const lowFlag = reorder > 0 && it.quantity <= reorder;
+          const lowFlag = reorder > 0 && Number(it.quantity) <= reorder;
           return (
             <TR key={it.id}>
               <TD className="font-medium">{it.product.name}</TD>
