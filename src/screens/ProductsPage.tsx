@@ -91,6 +91,10 @@ export default function ProductsPage() {
         ...body,
         taxId: body.taxId || undefined,
         imageUrl: body.imageUrl || undefined,
+        // The unique indexes treat two empty strings as a collision, so a
+        // blank SKU/barcode has to go up as absent, not as ''.
+        sku: body.sku || undefined,
+        barcode: body.barcode || undefined,
         expiryDate: body.expiryDate
           ? new Date(body.expiryDate).toISOString()
           : undefined,
