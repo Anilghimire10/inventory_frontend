@@ -349,12 +349,42 @@ export interface AuditEntry {
 export interface PurchaseLine {
   id: string;
   productId: string;
-  quantity: number;
-  returnedQty: number;
+  /** Decimal(12,3) — arrives as a string, so `Number()` it before any arithmetic. */
+  quantity: string;
+  /** Decimal(12,3) — arrives as a string, so `Number()` it before any arithmetic. */
+  returnedQty: string;
   costPrice: string;
   batchNumber?: string | null;
   expiryDate?: string | null;
   product?: { id: string; name: string; sku?: string | null };
+}
+
+/** One low-stock line in a suggested reorder, priced at the last cost paid. */
+export interface ReorderSuggestionItem {
+  productId: string;
+  name: string;
+  sku: string | null;
+  unit: string;
+  onHand: number;
+  reorderLevel: number;
+  /** Suggested order qty: twice the reorder level, less what is on hand. */
+  quantity: number;
+  costPrice: number;
+  lastPurchasedAt: string | null;
+}
+
+/**
+ * Low-stock items grouped into one suggested order per (store, supplier).
+ * `supplierId` is null for products that have never been purchased, so the
+ * server has no supplier to attribute them to.
+ */
+export interface ReorderSuggestionGroup {
+  storeId: string;
+  storeName: string;
+  supplierId: string | null;
+  supplierName: string | null;
+  items: ReorderSuggestionItem[];
+  total: number;
 }
 
 export interface ReturnPurchaseResult {

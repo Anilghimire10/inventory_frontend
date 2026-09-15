@@ -1,9 +1,9 @@
 'use client';
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, ClipboardList, Trash2, Pencil, RotateCcw } from 'lucide-react';
+import { Plus, ClipboardList, Trash2, Pencil, RotateCcw, PackageCheck } from 'lucide-react';
 import { ProductsApi, PurchasesApi, SuppliersApi } from '@/api';
-import type { Purchase } from '@/types';
+import type { Product, Purchase } from '@/types';
 import { useStores } from '@/hooks/useStores';
 import { PageHeader, LoadingBlock, EmptyState, ErrorState } from '@/components/ui/misc';
 import { Button } from '@/components/ui/button';
@@ -50,6 +50,14 @@ export default function PurchasesPage() {
   const newProductEmpty = { name: '', sku: '', unit: 'pcs', costPrice: 0, sellingPrice: 0 };
   const [newProdOpen, setNewProdOpen] = useState(false);
   const [newProd, setNewProd] = useState(newProductEmpty);
+
+  // Receive flow: a draft raised earlier (e.g. from Inventory > Reorder) arriving
+  // in the shop. Serials are scanned here rather than when the order was placed,
+  // so the dialog needs each line's product to know which ones are serialised.
+  const [receivingPurchase, setReceivingPurchase] = useState<Purchase | null>(null);
+  const [receiveProducts, setReceiveProducts] = useState<Record<string, Product>>({});
+  const [receiveSerials, setReceiveSerials] = useState<Record<string, string>>({});
+  const [receiveLoading, setReceiveLoading] = useState(false);
 
   // Return-to-supplier flow: loads the full purchase (with per-line returnedQty) on open.
   const [returningPurchase, setReturningPurchase] = useState<Purchase | null>(null);
@@ -152,7 +160,7 @@ export default function PurchasesPage() {
       setLines(
         (p.items ?? []).map((it) => ({
           productId: it.productId,
-          quantity: it.quantity,
+          quantity: Number(it.quantity),
           costPrice: Number(it.costPrice),
           batchNumber: it.batchNumber ?? '',
           expiryDate: it.expiryDate ? it.expiryDate.slice(0, 10) : '',
@@ -172,6 +180,62 @@ export default function PurchasesPage() {
       show(apiError(e), 'error');
     }
   };
+
+  const openReceive = async (id: string) => {
+    setReceiveLoading(true);
+    try {
+      const p = await PurchasesApi.get(id);
+      const ids = (p.items ?? []).map((l) => l.productId);
+      // The list endpoint caps limit at 100, and an unresolved product would
+      // read as non-serialised -- which would let Receive enable and then fail
+      // server-side -- so fetch long orders in pages. activeOnly:false keeps a
+      // line whose product was since deactivated resolvable.
+      const chunks = [];
+      for (let i = 0; i < ids.length; i += 100) chunks.push(ids.slice(i, i + 100));
+      const pages = await Promise.all(
+        chunks.map((c) => ProductsApi.list({ ids: c, limit: 100, activeOnly: false })),
+      );
+      setReceiveProducts(
+        Object.fromEntries(pages.flatMap((r) => r.data).map((x) => [x.id, x])),
+      );
+      setReceiveSerials({});
+      setReceivingPurchase(p);
+    } catch (e) {
+      show(apiError(e), 'error');
+    } finally {
+      setReceiveLoading(false);
+    }
+  };
+
+  const receiveMutation = useMutation({
+    mutationFn: () =>
+      PurchasesApi.receive(receivingPurchase!.id, {
+        items: (receivingPurchase!.items ?? [])
+          .filter((l) => receiveProducts[l.productId]?.trackSerials)
+          .map((l) => ({
+            purchaseItemId: l.id,
+            serials: parseSerials(receiveSerials[l.id] ?? ''),
+          })),
+      }),
+    onSuccess: () => {
+      // Receiving moves stock, batches and the serial register all at once.
+      qc.invalidateQueries({ queryKey: ['purchases'] });
+      qc.invalidateQueries({ queryKey: ['stock'] });
+      qc.invalidateQueries({ queryKey: ['low-stock'] });
+      qc.invalidateQueries({ queryKey: ['movements'] });
+      qc.invalidateQueries({ queryKey: ['serials'] });
+      qc.invalidateQueries({ queryKey: ['reorder-suggestions'] });
+      show('Stock received');
+      setReceivingPurchase(null);
+    },
+    onError: (e) => show(apiError(e), 'error'),
+  });
+
+  const receiveLineInvalid = (l: { id: string; quantity: string; productId: string }) =>
+    receiveProducts[l.productId]?.trackSerials
+      ? serialsInvalid(parseSerials(receiveSerials[l.id] ?? ''), Number(l.quantity))
+      : false;
+  const canReceive = (receivingPurchase?.items ?? []).every((l) => !receiveLineInvalid(l));
 
   const openReturn = async (id: string) => {
     try {
@@ -202,8 +266,8 @@ export default function PurchasesPage() {
     onError: (e) => show(apiError(e), 'error'),
   });
 
-  const returnableOf = (l: { quantity: number; returnedQty: number }) =>
-    Math.max(0, Math.round((l.quantity - l.returnedQty) * 1000) / 1000);
+  const returnableOf = (l: { quantity: string; returnedQty: string }) =>
+    Math.max(0, Math.round((Number(l.quantity) - Number(l.returnedQty)) * 1000) / 1000);
   const canReturn = Object.values(returnQtys).some((q) => q > 0);
 
   const addLine = (productId: string) => {
@@ -293,6 +357,13 @@ export default function PurchasesPage() {
                           <Button size="icon" variant="ghost" title="Edit purchase" aria-label="Edit purchase"
                             onClick={() => openEdit(p.id)}>
                             <Pencil className="h-4 w-4" />
+                          </Button>
+                        )}
+                        {(p.status === 'DRAFT' || p.status === 'ORDERED') && (
+                          <Button size="icon" variant="ghost" title="Receive stock" aria-label="Receive stock"
+                            disabled={receiveLoading}
+                            onClick={() => openReceive(p.id)}>
+                            <PackageCheck className="h-4 w-4" />
                           </Button>
                         )}
                         {p.status === 'RECEIVED' && (
@@ -496,6 +567,73 @@ export default function PurchasesPage() {
             <Button type="submit" loading={createProduct.isPending}>Create & add</Button>
           </DialogFooter>
         </form>
+      </Dialog>
+
+      {/* Goods from a draft order arriving: adds stock, and scans serials per line. */}
+      <Dialog open={!!receivingPurchase} onClose={() => setReceivingPurchase(null)} title="Receive stock"
+        description={
+          receivingPurchase
+            ? `${receivingPurchase.supplier?.name ?? 'No supplier'} · ${formatDate(receivingPurchase.createdAt)}`
+            : undefined
+        }
+        className="max-w-2xl">
+        {receivingPurchase && (
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              This adds every line below to stock at{' '}
+              {receivingPurchase.store?.name ?? 'the store'} and marks the order received.
+              It can only be done once.
+            </p>
+            <div className="space-y-2">
+              {(receivingPurchase.items ?? []).map((l) => {
+                const product = receiveProducts[l.productId];
+                const serialised = !!product?.trackSerials;
+                const serials = parseSerials(receiveSerials[l.id] ?? '');
+                const duplicate = hasDuplicateSerials(serials);
+                const invalid = receiveLineInvalid(l);
+                return (
+                  <div key={l.id} className="rounded-md border border-border p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="font-medium">
+                        {l.product?.name ?? product?.name ?? l.productId}
+                      </span>
+                      <span className="shrink-0 text-sm text-muted-foreground">
+                        {l.quantity} × {formatMoney(l.costPrice)}
+                      </span>
+                    </div>
+                    {serialised && (
+                      <div className="mt-3">
+                        <Field label={`Serial / IMEI numbers (one per line, ${l.quantity} needed)`}>
+                          <Textarea
+                            rows={Math.min(Number(l.quantity) || 1, 6)}
+                            value={receiveSerials[l.id] ?? ''}
+                            onChange={(e) =>
+                              setReceiveSerials((m) => ({ ...m, [l.id]: e.target.value }))
+                            }
+                          />
+                          <p className={invalid ? 'mt-1 text-xs text-destructive' : 'mt-1 text-xs text-muted-foreground'}>
+                            {!Number.isInteger(Number(l.quantity))
+                              ? 'Quantity must be a whole number for serialised products.'
+                              : duplicate
+                                ? 'Duplicate serial numbers entered.'
+                                : `${serials.length} of ${l.quantity} serials entered.`}
+                          </p>
+                        </Field>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setReceivingPurchase(null)}>Cancel</Button>
+          <Button loading={receiveMutation.isPending} disabled={!canReceive}
+            onClick={() => receiveMutation.mutate()}>
+            Receive stock
+          </Button>
+        </DialogFooter>
       </Dialog>
 
       {/* Send received goods back to the supplier: a debit note that shrinks stock and payable. */}
