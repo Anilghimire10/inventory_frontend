@@ -34,6 +34,7 @@ import type {
   CountSheetLine,
   StockTakeResult,
   ReturnPurchaseResult,
+  ReorderSuggestionGroup,
 } from '@/types';
 
 const get = async <T>(url: string, params?: object) =>
@@ -185,13 +186,33 @@ export const PurchasesApi = {
   get: (id: string) => get<Purchase>(`/purchases/${id}`),
   create: (body: object) => post<Purchase>('/purchases', body),
   update: (id: string, body: object) => patch<Purchase>(`/purchases/${id}`, body),
-  receive: (id: string) => post<Purchase>(`/purchases/${id}/receive`),
+  /**
+   * Turn a DRAFT into RECEIVED: adds stock, creates batches, updates cost.
+   * Serialised lines must carry exactly one distinct serial per unit.
+   */
+  receive: (
+    id: string,
+    body?: { items?: { purchaseItemId: string; serials: string[] }[] },
+  ) => post<Purchase>(`/purchases/${id}/receive`, body),
   return: (
     id: string,
     body: { note?: string; items: { purchaseItemId: string; quantity: number }[] },
   ) => post<ReturnPurchaseResult>(`/purchases/${id}/return`, body),
   pay: (id: string, amount: number) =>
     post<Purchase>(`/purchases/${id}/pay`, { amount }),
+  /** Low-stock items grouped into one suggested order per store + supplier. */
+  reorderSuggestions: (storeId?: string) =>
+    get<ReorderSuggestionGroup[]>(
+      '/purchases/reorder-suggestions',
+      storeId ? { storeId } : undefined,
+    ),
+  /**
+   * Raise the suggestions above as DRAFT purchases. The server recomputes them
+   * at call time, so what lands can differ from what was last displayed.
+   * Omitting `supplierId` drafts every group, including the no-supplier one.
+   */
+  reorderDrafts: (body: { storeId?: string; supplierId?: string }) =>
+    post<Purchase[]>('/purchases/reorder-drafts', body),
 };
 
 export const ShiftsApi = {
