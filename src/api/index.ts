@@ -71,6 +71,8 @@ export const AuthApi = {
     post<{ message: string }>('/auth/forgot-password', { email }),
   resetPassword: (email: string, code: string, password: string) =>
     post<{ message: string }>('/auth/reset-password', { email, code, password }),
+  /** Server-side record of the sign-out — writes the `auth.logout` audit row. */
+  logout: () => post<{ message: string }>('/auth/logout'),
   changePassword: (currentPassword: string, newPassword: string) =>
     post<{ message: string }>('/auth/change-password', {
       currentPassword,
