@@ -438,17 +438,22 @@ export default function InventoryPage() {
             <Table>
               <THead><TR><TH>When</TH><TH>Product</TH><TH>Type</TH><TH className="text-right">Change</TH><TH>By</TH></TR></THead>
               <TBody>
-                {movements.data.data.map((m) => (
-                  <TR key={m.id}>
-                    <TD className="whitespace-nowrap text-muted-foreground">{formatDateTime(m.createdAt)}</TD>
-                    <TD className="font-medium">{m.product.name}</TD>
-                    <TD><Badge tone="muted">{m.type}</Badge></TD>
-                    <TD className={cn('text-right font-medium', m.quantity >= 0 ? 'text-success' : 'text-destructive')}>
-                      {m.quantity >= 0 ? '+' : ''}{m.quantity}
-                    </TD>
-                    <TD className="text-muted-foreground">{m.user?.name ?? '—'}</TD>
-                  </TR>
-                ))}
+                {movements.data.data.map((m) => {
+                  // Decimal(12,3) string: coerce for the sign test, but print
+                  // the value as the server wrote it.
+                  const change = Number(m.quantity);
+                  return (
+                    <TR key={m.id}>
+                      <TD className="whitespace-nowrap text-muted-foreground">{formatDateTime(m.createdAt)}</TD>
+                      <TD className="font-medium">{m.product.name}</TD>
+                      <TD><Badge tone="muted">{m.type}</Badge></TD>
+                      <TD className={cn('text-right font-medium', change >= 0 ? 'text-success' : 'text-destructive')}>
+                        {change >= 0 ? '+' : ''}{m.quantity}
+                      </TD>
+                      <TD className="text-muted-foreground">{m.user?.name ?? '—'}</TD>
+                    </TR>
+                  );
+                })}
               </TBody>
             </Table>
             <Pagination page={movements.data.meta.page} pages={movements.data.meta.pages} onPage={setMovementPage} />
