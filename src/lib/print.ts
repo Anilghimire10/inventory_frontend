@@ -105,8 +105,13 @@ function thermal(
   return shell(`Receipt ${sale.receiptNo}`, 'size: 80mm auto; margin: 3mm;', body);
 }
 
-/** Printable Z report for a closed shift -- drawer count vs. expected cash. */
-export function printZReport(
+/**
+ * Printable shift report. An open shift prints as an X report -- a read-only
+ * mid-shift snapshot with no drawer count, so it can be taken as often as
+ * needed and settles nothing. A closed one prints as the Z report: same
+ * figures, plus the counted cash and variance recorded at close.
+ */
+export function printShiftReport(
   shift: ShiftReport,
   opts: { businessName: string; storeName?: string; currency: string },
 ) {
@@ -116,6 +121,7 @@ export function printZReport(
     alert('Please allow pop-ups to print reports.');
     return;
   }
+  const isX = shift.isOpen;
   const variance = shift.variance ?? 0;
   const varianceLabel = variance === 0 ? 'Balanced' : variance > 0 ? 'Over' : 'Short';
   const tenderRows = shift.byTender
@@ -125,11 +131,15 @@ export function printZReport(
     <div style="width:72mm;padding:2mm;font-size:11px">
       <div class="c" style="font-weight:700;font-size:14px">${esc(opts.businessName)}</div>
       ${opts.storeName ?? shift.store?.name ? `<div class="c muted">${esc(opts.storeName ?? shift.store!.name)}</div>` : ''}
-      <div class="c" style="font-weight:700;margin-top:4px">Z REPORT — SHIFT CLOSE</div>
+      <div class="c" style="font-weight:700;margin-top:4px">${isX ? 'X REPORT — SHIFT IN PROGRESS' : 'Z REPORT — SHIFT CLOSE'}</div>
       <hr/>
       <div>Cashier: <b>${esc(shift.user?.name ?? '—')}</b></div>
       <div class="muted">Opened: ${new Date(shift.openedAt).toLocaleString()}</div>
-      <div class="muted">Closed: ${shift.closedAt ? new Date(shift.closedAt).toLocaleString() : '—'}</div>
+      ${
+        isX
+          ? `<div class="muted">Printed: ${new Date().toLocaleString()}</div>`
+          : `<div class="muted">Closed: ${shift.closedAt ? new Date(shift.closedAt).toLocaleString() : '—'}</div>`
+      }
       <hr/>
       <table>
         <tr class="muted"><td>Opening float</td><td class="r">${m(shift.openingFloat)}</td></tr>
@@ -141,12 +151,19 @@ export function printZReport(
       <hr/>
       <table>
         <tr style="font-weight:700"><td>Expected cash</td><td class="r">${m(shift.expectedCash)}</td></tr>
-        <tr style="font-weight:700"><td>Counted cash</td><td class="r">${m(shift.countedCash ?? 0)}</td></tr>
-        <tr style="font-weight:700"><td>${varianceLabel}</td><td class="r">${m(Math.abs(variance))}</td></tr>
+        ${
+          isX
+            ? ''
+            : `<tr style="font-weight:700"><td>Counted cash</td><td class="r">${m(shift.countedCash ?? 0)}</td></tr>
+        <tr style="font-weight:700"><td>${varianceLabel}</td><td class="r">${m(Math.abs(variance))}</td></tr>`
+        }
       </table>
       ${shift.note ? `<hr/><div class="muted">Note: ${esc(shift.note)}</div>` : ''}
+      ${isX ? '<hr/><div class="c muted">Shift still open — drawer not counted.</div>' : ''}
     </div>`;
-  const title = `Z Report ${new Date(shift.closedAt ?? shift.openedAt).toLocaleDateString()}`;
+  const title = isX
+    ? `X Report ${new Date().toLocaleDateString()}`
+    : `Z Report ${new Date(shift.closedAt ?? shift.openedAt).toLocaleDateString()}`;
   w.document.write(shell(title, 'size: 80mm auto; margin: 3mm;', body));
   w.document.close();
 }

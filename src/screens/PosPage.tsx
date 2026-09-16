@@ -1,12 +1,12 @@
 'use client';
 import { useEffect, useMemo, useDeferredValue, useState } from 'react';
 import { useMutation, useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
-import { Plus, Package, Barcode, ChevronUp, Printer, ShoppingCart, Wallet, Star } from 'lucide-react';
+import { Plus, Package, Barcode, ChevronUp, Printer, ShoppingCart, Wallet, Star, FileText } from 'lucide-react';
 import { CategoriesApi, CustomersApi, InventoryApi, ProductsApi, SalesApi } from '@/api';
 import type { Product, Paginated, StockItem } from '@/types';
 import { useAuth } from '@/auth/AuthContext';
 import { useShift } from '@/shift/ShiftContext';
-import { printSale, printZReport } from '@/lib/print';
+import { printSale, printShiftReport } from '@/lib/print';
 import { loadFavoriteIds, saveFavoriteIds } from '@/lib/favorites';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -28,7 +28,7 @@ export default function PosPage() {
   const qc = useQueryClient();
   const { show } = useToast();
   const { user } = useAuth();
-  const { shift, isLoading: shiftLoading, isOpening, isClosing, openShift, closeShift } = useShift();
+  const { shift, isLoading: shiftLoading, isOpening, isClosing, isReporting, openShift, closeShift, loadReport } = useShift();
   const [showCloseShift, setShowCloseShift] = useState(false);
   // Master tax switch (from business settings). When off, nothing is taxed.
   const taxEnabled = user?.business?.taxEnabled ?? true;
@@ -237,7 +237,7 @@ export default function PosPage() {
       const closed = await closeShift(countedCash, note);
       setShowCloseShift(false);
       if (!closed) return;
-      printZReport(closed, {
+      printShiftReport(closed, {
         businessName: user?.business?.name ?? 'Shift report',
         currency: user?.business?.currency ?? 'USD',
       });
@@ -246,6 +246,21 @@ export default function PosPage() {
           ? 'Shift closed — drawer balances'
           : `Shift closed — ${closed.variance! > 0 ? 'over' : 'short'} by ${formatMoney(Math.abs(closed.variance!))}`,
       );
+    } catch (e) {
+      show(apiError(e), 'error');
+    }
+  };
+
+  // X report: a mid-shift read of the drawer that settles nothing, so it can
+  // be taken as often as the cashier likes without closing the shift.
+  const printXReport = async () => {
+    try {
+      const fresh = await loadReport();
+      if (!fresh) return;
+      printShiftReport(fresh, {
+        businessName: user?.business?.name ?? 'Shift report',
+        currency: user?.business?.currency ?? 'USD',
+      });
     } catch (e) {
       show(apiError(e), 'error');
     }
@@ -479,14 +494,25 @@ export default function PosPage() {
         <h1 className="text-xl font-semibold tracking-tight">Point of Sale</h1>
         <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
           {shift && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setShowCloseShift(true)}
-              title="Close shift and print a Z report"
-            >
-              <Wallet className="h-4 w-4" /> {formatMoney(shift.gross)} · Close shift
-            </Button>
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                loading={isReporting}
+                onClick={printXReport}
+                title="Print an X report — mid-shift drawer reading, shift stays open"
+              >
+                <FileText className="h-4 w-4" /> X report
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowCloseShift(true)}
+                title="Close shift and print a Z report"
+              >
+                <Wallet className="h-4 w-4" /> {formatMoney(shift.gross)} · Close shift
+              </Button>
+            </>
           )}
           {lastSaleId && (
             <Button variant="outline" size="sm" onClick={printLast} title="Print the last sale's receipt">

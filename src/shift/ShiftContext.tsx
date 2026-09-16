@@ -10,8 +10,11 @@ interface ShiftState {
   isLoading: boolean;
   isOpening: boolean;
   isClosing: boolean;
+  isReporting: boolean;
   openShift: (openingFloat: number, note?: string) => Promise<void>;
   closeShift: (countedCash: number, note?: string) => Promise<ShiftReport | null>;
+  /** Freshly computed totals for the open shift — the X report. */
+  loadReport: () => Promise<ShiftReport | null>;
 }
 
 const Ctx = createContext<ShiftState>(null as never);
@@ -44,6 +47,20 @@ export function ShiftProvider({ children }: { children: React.ReactNode }) {
     [openMutation],
   );
 
+  // Read-only mid-shift snapshot. Deliberately not served from the
+  // `shift-current` cache: an X report is taken to see where the drawer stands
+  // *now*, and that cache is 15s stale by design.
+  const reportMutation = useMutation({
+    mutationFn: (id: string) => ShiftsApi.report(id),
+  });
+  const loadReport = useCallback(async (): Promise<ShiftReport | null> => {
+    if (!shift) return null;
+    const fresh = await reportMutation.mutateAsync(shift.id);
+    // The X report is the authoritative read, so let the header totals follow it.
+    qc.setQueryData(['shift-current'], fresh);
+    return fresh;
+  }, [shift, reportMutation, qc]);
+
   const closeMutation = useMutation({
     mutationFn: (vars: { id: string; countedCash: number; note?: string }) =>
       ShiftsApi.close(vars.id, { countedCash: vars.countedCash, note: vars.note }),
@@ -67,8 +84,10 @@ export function ShiftProvider({ children }: { children: React.ReactNode }) {
         isLoading: enabled && isLoading,
         isOpening: openMutation.isPending,
         isClosing: closeMutation.isPending,
+        isReporting: reportMutation.isPending,
         openShift,
         closeShift,
+        loadReport,
       }}
     >
       {children}
