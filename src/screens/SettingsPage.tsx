@@ -1,7 +1,7 @@
 'use client';
 import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Pencil, Store as StoreIcon, Building2, Download, Percent } from 'lucide-react';
+import { Plus, Pencil, Store as StoreIcon, Building2, Download, Percent, Power, RotateCcw } from 'lucide-react';
 import { BusinessApi, StoresApi } from '@/api';
 import type { Store } from '@/types';
 import { useStores } from '@/hooks/useStores';
@@ -14,6 +14,7 @@ import { Field } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogFooter } from '@/components/ui/dialog';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { useToast } from '@/components/ui/toast';
 import { apiError } from '@/lib/api';
 import { CURRENCIES } from '@/lib/currencies';
@@ -28,6 +29,7 @@ export default function SettingsPage() {
   const { data: stores, isLoading, isError, refetch } = useStores();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Store | null>(null);
+  const [deactivating, setDeactivating] = useState<Store | null>(null);
   const [form, setForm] = useState<Form>(empty);
 
   // Business profile editing. The vertical (type) is locked — only a platform
@@ -79,6 +81,7 @@ export default function SettingsPage() {
   // Master tax switch. When off, no sale charges tax (even for taxable products).
   const taxEnabled = user?.business?.taxEnabled ?? true;
   const canManageBiz = user?.role === 'OWNER' || user?.role === 'MANAGER';
+  const isOwner = user?.role === 'OWNER';
   const saveTax = useMutation({
     mutationFn: (next: boolean) => BusinessApi.update({ taxEnabled: next }),
     onSuccess: async (_data, next) => {
@@ -104,6 +107,29 @@ export default function SettingsPage() {
     mutationFn: () =>
       editing ? StoresApi.update(editing.id, form) : StoresApi.create(form),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['stores'] }); show(editing ? 'Store updated' : 'Store added'); setOpen(false); },
+    onError: (e) => show(apiError(e), 'error'),
+  });
+
+  // DELETE /stores/:id is a soft delete — it flips `isActive` to false and
+  // keeps every sale, purchase and stock row attached to the store. Owner only,
+  // matching the backend guard; reactivating is a plain update, so a manager
+  // can do that too.
+  const deactivate = useMutation({
+    mutationFn: (id: string) => StoresApi.remove(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['stores'] });
+      show('Store deactivated');
+      setDeactivating(null);
+    },
+    onError: (e) => show(apiError(e), 'error'),
+  });
+
+  const reactivate = useMutation({
+    mutationFn: (id: string) => StoresApi.update(id, { isActive: true }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['stores'] });
+      show('Store reactivated');
+    },
     onError: (e) => show(apiError(e), 'error'),
   });
 
@@ -215,7 +241,36 @@ export default function SettingsPage() {
                   {[s.address, s.phone].filter(Boolean).join(' · ') || 'No address set'}
                 </div>
               </div>
-              <Button size="icon" variant="ghost" onClick={() => openEdit(s)} aria-label={`Edit ${s.name}`}><Pencil className="h-4 w-4" /></Button>
+              <div className="flex shrink-0 items-center gap-1">
+                <Button size="icon" variant="ghost" onClick={() => openEdit(s)} aria-label={`Edit ${s.name}`}><Pencil className="h-4 w-4" /></Button>
+                {!s.isActive ? (
+                  canManageBiz && (
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      loading={reactivate.isPending && reactivate.variables === s.id}
+                      onClick={() => reactivate.mutate(s.id)}
+                      aria-label={`Reactivate ${s.name}`}
+                      title="Reactivate this store"
+                    >
+                      <RotateCcw className="h-4 w-4" />
+                    </Button>
+                  )
+                ) : (
+                  isOwner &&
+                  stores!.filter((x) => x.isActive).length > 1 && (
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={() => setDeactivating(s)}
+                      aria-label={`Deactivate ${s.name}`}
+                      title="Deactivate this store"
+                    >
+                      <Power className="h-4 w-4 text-destructive" />
+                    </Button>
+                  )
+                )}
+              </div>
             </Card>
           ))}
         </div>
@@ -246,6 +301,16 @@ export default function SettingsPage() {
           value in <code className="rounded bg-muted px-1.5 py-0.5 text-xs">src/index.css</code>.
         </CardContent>
       </Card>
+
+      <ConfirmDialog
+        open={!!deactivating}
+        title={`Deactivate ${deactivating?.name ?? 'store'}?`}
+        description="Its sales, purchases and stock history are kept, and it stops being offered when recording new ones. You can reactivate it here at any time."
+        confirmLabel="Deactivate"
+        loading={deactivate.isPending}
+        onConfirm={() => deactivating && deactivate.mutate(deactivating.id)}
+        onCancel={() => setDeactivating(null)}
+      />
 
       <Dialog open={bizOpen} onClose={() => setBizOpen(false)} title="Edit business">
         <form onSubmit={(e) => { e.preventDefault(); saveBiz.mutate(); }} className="space-y-4">

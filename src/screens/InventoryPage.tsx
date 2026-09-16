@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Boxes, SlidersHorizontal, AlertTriangle, CalendarClock, History, ArrowLeftRight, Trash2, ClipboardCheck, Fingerprint, PackagePlus, Target } from 'lucide-react';
 import { InventoryApi, ProductsApi, PurchasesApi } from '@/api';
 import type { CountSheetLine, ReorderSuggestionGroup, SerialStatus, StockItem, StockTakeResult } from '@/types';
-import { useStores } from '@/hooks/useStores';
+import { useActiveStores } from '@/hooks/useStores';
 import { PageHeader, LoadingBlock, EmptyState, ErrorState } from '@/components/ui/misc';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -27,7 +27,7 @@ type DraftTarget = { storeId?: string; supplierId?: string; label: string };
 export default function InventoryPage() {
   const qc = useQueryClient();
   const { show } = useToast();
-  const { data: stores } = useStores();
+  const { data: stores } = useActiveStores();
   const [tab, setTab] = useState<Tab>('stock');
   const [stockPage, setStockPage] = useState(1);
   const [movementPage, setMovementPage] = useState(1);

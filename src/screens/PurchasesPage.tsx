@@ -4,7 +4,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, ClipboardList, Trash2, Pencil, RotateCcw, PackageCheck } from 'lucide-react';
 import { ProductsApi, PurchasesApi, SuppliersApi } from '@/api';
 import type { Product, Purchase } from '@/types';
-import { useStores } from '@/hooks/useStores';
+
+/** Just enough of a store to render one option in the picker. */
+type StoreOption = { id: string; name: string; isActive: boolean };
+import { useActiveStores } from '@/hooks/useStores';
 import { PageHeader, LoadingBlock, EmptyState, ErrorState } from '@/components/ui/misc';
 import { Button } from '@/components/ui/button';
 import { Input, Textarea } from '@/components/ui/input';
@@ -33,9 +36,12 @@ interface Line {
 export default function PurchasesPage() {
   const qc = useQueryClient();
   const { show } = useToast();
-  const { data: stores } = useStores();
+  const { data: stores } = useActiveStores();
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  // Set while editing: the store the purchase is already on, so the picker can
+  // still show it if it has since been deactivated.
+  const [attachedStore, setAttachedStore] = useState<StoreOption | null>(null);
   const [storeId, setStoreId] = useState('');
   const [supplierId, setSupplierId] = useState('');
   const [reference, setReference] = useState('');
@@ -146,6 +152,7 @@ export default function PurchasesPage() {
     setLines([]);
     setPayMode('full');
     setAmountPaid(0);
+    setAttachedStore(null);
     setOpen(true);
   };
 
@@ -154,6 +161,7 @@ export default function PurchasesPage() {
     try {
       const p = await PurchasesApi.get(id);
       setEditingId(p.id);
+      setAttachedStore(p.store ? { ...p.store, isActive: false } : null);
       setStoreId(p.store?.id ?? stores?.[0]?.id ?? '');
       setSupplierId(p.supplier?.id ?? '');
       setReference(p.reference ?? '');
@@ -265,6 +273,15 @@ export default function PurchasesPage() {
     },
     onError: (e) => show(apiError(e), 'error'),
   });
+
+  // The picker offers active stores, but an existing purchase may be attached to
+  // one that has since been deactivated — keep that one listed so editing it
+  // doesn't silently move the purchase to another store.
+  const storeOptions = useMemo<StoreOption[]>(() => {
+    const active = stores ?? [];
+    if (!attachedStore || active.some((s) => s.id === attachedStore.id)) return active;
+    return [...active, attachedStore];
+  }, [stores, attachedStore]);
 
   const returnableOf = (l: { quantity: string; returnedQty: string }) =>
     Math.max(0, Math.round((Number(l.quantity) - Number(l.returnedQty)) * 1000) / 1000);
@@ -386,10 +403,14 @@ export default function PurchasesPage() {
       <Dialog open={open} onClose={() => setOpen(false)} title={editingId ? 'Edit purchase' : 'Receive stock'} className="max-w-3xl">
         <div className="space-y-4">
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            {stores && stores.length > 1 && (
+            {stores && storeOptions.length > 1 && (
               <Field label="Store">
                 <Select value={storeId} onChange={(e) => setStoreId(e.target.value)}>
-                  {stores.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  {storeOptions.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}{!s.isActive && ' (deactivated)'}
+                    </option>
+                  ))}
                 </Select>
               </Field>
             )}
