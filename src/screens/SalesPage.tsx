@@ -14,7 +14,7 @@ import {
   TrendingUp,
 } from 'lucide-react';
 import { SalesApi } from '@/api';
-import type { PaymentMethod, Sale, SaleListItem } from '@/types';
+import type { PaymentMethod, Sale, SaleItem, SaleListItem } from '@/types';
 import { PageHeader, LoadingBlock, EmptyState, ErrorState } from '@/components/ui/misc';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -292,7 +292,7 @@ export default function SalesPage() {
                   <TR key={it.id}>
                     <TD>
                       {it.name}
-                      {it.returnedQty > 0 && <Badge tone="warning" className="ml-2">{it.returnedQty} returned</Badge>}
+                      {Number(it.returnedQty) > 0 && <Badge tone="warning" className="ml-2">{it.returnedQty} returned</Badge>}
                     </TD>
                     <TD className="text-right">{it.quantity}</TD>
                     <TD className="text-right">{formatMoney(it.unitPrice)}</TD>
@@ -421,6 +421,18 @@ function RowMenu({
   );
 }
 
+/**
+ * How much of a line can still go back. `quantity` and `returnedQty` are
+ * Decimal(12,3) strings, so coerce before subtracting; rounding keeps the
+ * float artefacts out of the qty input's max.
+ */
+function remainingOf(it: SaleItem) {
+  return Math.max(
+    0,
+    Math.round((Number(it.quantity) - Number(it.returnedQty)) * 1000) / 1000,
+  );
+}
+
 function ReturnSection({
   sale,
   returnQty,
@@ -430,14 +442,14 @@ function ReturnSection({
   returnQty: Record<string, number>;
   setReturnQty: (v: Record<string, number>) => void;
 }) {
-  const returnable = sale.items.filter((it) => it.quantity - it.returnedQty > 0);
+  const returnable = sale.items.filter((it) => remainingOf(it) > 0);
   if (returnable.length === 0) return null;
   return (
     <details className="rounded-md border border-border p-3">
       <summary className="cursor-pointer text-sm font-medium">Return items</summary>
       <div className="mt-3 space-y-2">
         {returnable.map((it) => {
-          const max = it.quantity - it.returnedQty;
+          const max = remainingOf(it);
           return (
             <div key={it.id} className="flex items-center gap-2 text-sm">
               <span className="flex-1 truncate">{it.name}</span>
