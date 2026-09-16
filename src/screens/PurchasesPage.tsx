@@ -4,9 +4,6 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, ClipboardList, Trash2, Pencil, RotateCcw, PackageCheck } from 'lucide-react';
 import { ProductsApi, PurchasesApi, SuppliersApi } from '@/api';
 import type { Product, Purchase } from '@/types';
-
-/** Just enough of a store to render one option in the picker. */
-type StoreOption = { id: string; name: string; isActive: boolean };
 import { useActiveStores } from '@/hooks/useStores';
 import { PageHeader, LoadingBlock, EmptyState, ErrorState } from '@/components/ui/misc';
 import { Button } from '@/components/ui/button';
@@ -22,6 +19,9 @@ import { useToast } from '@/components/ui/toast';
 import { apiError } from '@/lib/api';
 import { formatMoney, formatDate } from '@/lib/format';
 import { hasDuplicateSerials, parseSerials, serialsInvalid } from '@/lib/serials';
+
+/** Just enough of a store to render one option in the picker. */
+type StoreOption = { id: string; name: string; isActive: boolean };
 
 interface Line {
   productId: string;
