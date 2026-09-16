@@ -25,7 +25,7 @@ interface AuthState {
     password: string;
   }) => Promise<{ message: string; email: string }>;
   verifyEmail: (email: string, code: string) => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
   refresh: () => Promise<void>;
 }
 
@@ -80,7 +80,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await loadMe();
   };
 
-  const logout = () => {
+  const logout = async () => {
+    // Tell the server first — it writes the `auth.logout` audit row, which
+    // mirrors `auth.login`, and the request needs the token still in place.
+    // A failure here (offline, expired token) must not trap the user in the
+    // app, so the sign-out continues either way.
+    try {
+      await AuthApi.logout();
+    } catch {
+      // Nothing to surface: the local sign-out below is what the user asked for.
+    }
     clearToken();
     setUser(null);
     // Full-page redirect resets the app to a clean login state.
