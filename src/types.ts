@@ -143,7 +143,8 @@ export interface SerialRecord {
 export interface ProductVariant extends Product {
   variantName?: string | null;
   attributes?: Record<string, string> | null;
-  stockItems: { storeId: string; quantity: number }[];
+  /** `quantity` is Decimal(12,3) — a string, exactly as on {@link StockItem}. */
+  stockItems: { storeId: string; quantity: string }[];
 }
 
 export interface StockItem {
@@ -161,7 +162,11 @@ export interface StockItem {
 export interface StockMovement {
   id: string;
   type: string;
-  quantity: number;
+  /**
+   * Decimal(12,3) — arrives as a string, so `Number()` it before any
+   * arithmetic. Signed: negative is stock out.
+   */
+  quantity: string;
   reason?: string | null;
   note?: string | null;
   createdAt: string;
@@ -209,7 +214,8 @@ export interface Batch {
   id: string;
   batchNumber?: string | null;
   expiryDate?: string | null;
-  quantity: number;
+  /** Decimal(12,3) — arrives as a string, so `Number()` it before any arithmetic. */
+  quantity: string;
   product: { id: string; name: string; sku?: string | null };
   store?: { id: string; name: string };
 }
