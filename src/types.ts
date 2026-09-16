@@ -238,12 +238,14 @@ export interface SaleItem {
   id: string;
   productId: string;
   name: string;
-  quantity: number;
+  /** Decimal(12,3) — arrives as a string, so `Number()` it before any arithmetic. */
+  quantity: string;
   unitPrice: string;
   discount: string;
   taxRate: string;
   lineTotal: string;
-  returnedQty: number;
+  /** Decimal(12,3) — arrives as a string, so `Number()` it before any arithmetic. */
+  returnedQty: string;
 }
 
 export interface SaleListItem {
