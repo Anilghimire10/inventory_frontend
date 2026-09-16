@@ -261,6 +261,12 @@ export default function PosPage() {
         businessName: user?.business?.name ?? 'Shift report',
         currency: user?.business?.currency ?? 'USD',
       });
+      // The shift can have been closed from another till since this page
+      // loaded, in which case the figures are final and print as a Z report.
+      // Say so, because the button said X.
+      if (!fresh.isOpen) {
+        show('That shift was already closed elsewhere — printed as a Z report.', 'info');
+      }
     } catch (e) {
       show(apiError(e), 'error');
     }

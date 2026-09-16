@@ -56,8 +56,16 @@ export function ShiftProvider({ children }: { children: React.ReactNode }) {
   const loadReport = useCallback(async (): Promise<ShiftReport | null> => {
     if (!shift) return null;
     const fresh = await reportMutation.mutateAsync(shift.id);
-    // The X report is the authoritative read, so let the header totals follow it.
-    qc.setQueryData(['shift-current'], fresh);
+    // `shift-current` must only ever hold an *open* shift — the POS decides
+    // whether to block the till on its presence alone. The report endpoint
+    // serves closed shifts too (`isOpen: shift.closedAt === null`), so if this
+    // one was closed from another device, clear the key instead of pinning a
+    // closed shift into it and offering "Close shift" for a shift that would
+    // now reject it.
+    qc.setQueryData(['shift-current'], fresh.isOpen ? fresh : null);
+    if (!fresh.isOpen) {
+      qc.invalidateQueries({ queryKey: ['shift-history'] });
+    }
     return fresh;
   }, [shift, reportMutation, qc]);
 
