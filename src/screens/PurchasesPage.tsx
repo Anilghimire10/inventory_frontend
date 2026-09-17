@@ -18,6 +18,7 @@ import { Pagination } from '@/components/ui/pagination';
 import { useToast } from '@/components/ui/toast';
 import { apiError } from '@/lib/api';
 import { formatMoney, formatDate } from '@/lib/format';
+import { remainingQty } from '@/lib/decimal';
 import { hasDuplicateSerials, parseSerials, serialsInvalid } from '@/lib/serials';
 
 /** Just enough of a store to render one option in the picker. */
@@ -283,8 +284,6 @@ export default function PurchasesPage() {
     return [...active, attachedStore];
   }, [stores, attachedStore]);
 
-  const returnableOf = (l: { quantity: string; returnedQty: string }) =>
-    Math.max(0, Math.round((Number(l.quantity) - Number(l.returnedQty)) * 1000) / 1000);
   const canReturn = Object.values(returnQtys).some((q) => q > 0);
 
   const addLine = (productId: string) => {
@@ -662,12 +661,12 @@ export default function PurchasesPage() {
         description={returningPurchase?.reference || returningPurchase?.id.slice(-6)} className="max-w-2xl">
         {returningPurchase && (
           <div className="space-y-4">
-            {(returningPurchase.items ?? []).every((l) => returnableOf(l) === 0) ? (
+            {(returningPurchase.items ?? []).every((l) => remainingQty(l) === 0) ? (
               <p className="text-sm text-muted-foreground">Every line on this purchase has already been fully returned.</p>
             ) : (
               <div className="space-y-2">
                 {(returningPurchase.items ?? []).map((l) => {
-                  const returnable = returnableOf(l);
+                  const returnable = remainingQty(l);
                   if (returnable === 0) return null;
                   const qty = returnQtys[l.id] ?? 0;
                   return (
