@@ -7,7 +7,7 @@ import { PasswordInput } from '@/components/ui/password-input';
 import { Field } from '@/components/ui/label';
 import { Dialog, DialogFooter } from '@/components/ui/dialog';
 import { useToast } from '@/components/ui/toast';
-import { apiError } from '@/lib/api';
+import { apiError, setToken } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
 /** Reusable "change my password" dialog (available to every signed-in user). */
@@ -23,7 +23,11 @@ export default function ChangePasswordDialog({
 
   const changePw = useMutation({
     mutationFn: () => AuthApi.changePassword(pw.currentPassword, pw.newPassword),
-    onSuccess: () => {
+    onSuccess: (res) => {
+      // The password change invalidated the token this session is holding;
+      // the response carries its replacement. Store it before anything else
+      // fires a request, or the user is bounced to /login for succeeding.
+      setToken(res.accessToken);
       show('Password changed');
       setPw({ currentPassword: '', newPassword: '', confirm: '' });
       onClose();
