@@ -73,8 +73,13 @@ export const AuthApi = {
     post<{ message: string }>('/auth/reset-password', { email, code, password }),
   /** Server-side record of the sign-out — writes the `auth.logout` audit row. */
   logout: () => post<{ message: string }>('/auth/logout'),
+  /**
+   * Returns a fresh accessToken alongside the message: changing the password
+   * retires every token minted under the old one, this caller's included, so
+   * the client has to swap the new one in or the next request 401s.
+   */
   changePassword: (currentPassword: string, newPassword: string) =>
-    post<{ message: string }>('/auth/change-password', {
+    post<{ message: string; accessToken: string }>('/auth/change-password', {
       currentPassword,
       newPassword,
     }),
