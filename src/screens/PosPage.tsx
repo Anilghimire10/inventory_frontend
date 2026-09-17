@@ -18,8 +18,11 @@ import { cn } from '@/lib/utils';
 import { CartPanel, TENDERS, lineNet } from '@/components/pos/CartPanel';
 import type { CartLine, DiscountType, PayMode } from '@/components/pos/CartPanel';
 import { OpenShiftModal } from '@/components/pos/OpenShiftModal';
+import { ChooseStoreModal } from '@/components/pos/ChooseStoreModal';
 import { CloseShiftModal } from '@/components/pos/CloseShiftModal';
 import { ErrorState, LoadingBlock } from '@/components/ui/misc';
+import { useActiveStores, useStores } from '@/hooks/useStores';
+import { resolvePosStore } from '@/lib/posStore';
 
 /** Sentinel `categoryId` value for the pinned-favorites chip. */
 const FAVORITES = '__favorites__';
@@ -30,6 +33,25 @@ export default function PosPage() {
   const { user } = useAuth();
   const { shift, isLoading: shiftLoading, isOpening, isClosing, isReporting, openShift, closeShift, loadReport } = useShift();
   const [showCloseShift, setShowCloseShift] = useState(false);
+  // Which store this till sells from. Explicit on every request: the grid must
+  // show the stock the cashier can actually hand over, and the sale must deduct
+  // from that same store rather than whatever the server falls back to.
+  const [chosenStoreId, setChosenStoreId] = useState<string | null>(null);
+  const { data: allStores } = useStores();
+  const { data: activeStores } = useActiveStores();
+  const posStore = resolvePosStore({
+    role: user?.role ?? 'CASHIER',
+    assignedStoreId: user?.storeId,
+    openShiftStoreId: shift?.storeId,
+    chosenStoreId,
+    activeStoreIds: (activeStores ?? []).map((st) => st.id),
+  });
+  const storeId = posStore.storeId;
+  const storesLoaded = activeStores !== undefined;
+  // A shift can pin a store that has since been deactivated, so name it from
+  // the full list rather than the sellable one.
+  const storeName = allStores?.find((st) => st.id === storeId)?.name ?? null;
+  const multiStore = (allStores?.length ?? 0) > 1;
   // Master tax switch (from business settings). When off, nothing is taxed.
   const taxEnabled = user?.business?.taxEnabled ?? true;
   const [search, setSearch] = useState('');
@@ -115,22 +137,29 @@ export default function PosPage() {
     queryFn: () => CategoriesApi.list(),
   });
   const { data: heldSalesData } = useQuery({
-    queryKey: ['held-sales'],
-    queryFn: () => SalesApi.list({ status: 'held', limit: 50 }),
+    // Scoped to the till's store: a cart parked at another branch isn't this
+    // cashier's to resume, and resuming it here would price it against this
+    // store's stock.
+    queryKey: ['held-sales', storeId],
+    enabled: !!storeId,
+    queryFn: () => SalesApi.list({ status: 'held', limit: 50, storeId: storeId! }),
   });
   const heldSales = heldSalesData?.data ?? [];
-  // Total on-hand quantity per product (summed across all stores), fetched in
-  // pages because the API caps limit at 100.
+  // On-hand quantity per product at the till's store, fetched in pages because
+  // the API caps limit at 100.
   const { data: stock, isError: stockError, refetch: refetchStock } = useQuery({
     // Keyed under 'stock' so every invalidateQueries(['stock']) elsewhere
     // (receive, adjust, transfer, stock take, returns) refreshes POS too --
     // React Query matches by key prefix.
-    queryKey: ['stock', 'pos'],
+    queryKey: ['stock', 'pos', storeId],
+    // Scoped to the till's store: the cashier can only hand over what is on
+    // this shelf, and the sale deducts from here.
+    enabled: !!storeId,
     queryFn: async () => {
       const all: StockItem[] = [];
       let page = 1;
       for (;;) {
-        const res = await InventoryApi.stock({ limit: 100, page });
+        const res = await InventoryApi.stock({ limit: 100, page, storeId: storeId! });
         all.push(...(res.data ?? []));
         const total = res.meta?.total ?? all.length;
         if (all.length >= total) break;
@@ -142,7 +171,7 @@ export default function PosPage() {
 
   const stockLoaded = stock !== undefined;
 
-  // Total on-hand quantity per product (summed across all stores).
+  // On-hand quantity per product at the till's store.
   const onHand = useMemo(() => {
     const m = new Map<string, number>();
     for (const s of stock?.data ?? []) {
@@ -225,8 +254,14 @@ export default function PosPage() {
   };
 
   const handleOpenShift = async (openingFloat: number, note?: string) => {
+    if (!storeId) {
+      show('Pick a store before opening a shift', 'error');
+      return;
+    }
     try {
-      await openShift(openingFloat, note);
+      // The shift opens against the same store the till sells from, so its
+      // Z report reconciles the drawer that actually took the money.
+      await openShift(openingFloat, note, storeId);
     } catch (e) {
       show(apiError(e), 'error');
     }
@@ -275,6 +310,7 @@ export default function PosPage() {
   const holdMutation = useMutation({
     mutationFn: () =>
       SalesApi.hold({
+        storeId: storeId ?? undefined,
         customerId: customerId || undefined,
         discount: discountAmount || undefined,
         prescriptionRef: prescriptionRef || undefined,
@@ -351,6 +387,7 @@ export default function PosPage() {
   const checkout = useMutation({
     mutationFn: () =>
       SalesApi.create({
+        storeId: storeId ?? undefined,
         customerId: customerId || undefined,
         // Fully on credit -> CREDIT; otherwise the chosen tender (server marks
         // a part-paid sale as MIXED). amountPaid drives the credit split.
@@ -498,6 +535,28 @@ export default function PosPage() {
       {/* Header — register + last-receipt print */}
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <h1 className="text-xl font-semibold tracking-tight">Point of Sale</h1>
+
+        {/* Which store this till sells from. Only worth showing when there is
+            more than one -- a single-store shop has nothing to disambiguate.
+            Always a label, never a control: the store is chosen when the shift
+            is opened (the open-shift modal covers the till, so a control here
+            is unreachable), and an open shift pins it. */}
+        {multiStore && storesLoaded && (
+          <span
+            className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs text-muted-foreground"
+            title={
+              posStore.lockedBy === 'shift'
+                ? 'Your open shift is tied to this store -- close it to sell from another'
+                : posStore.lockedBy === 'role'
+                  ? 'You are assigned to this store'
+                  : 'Stock and the sale both follow this store'
+            }
+          >
+            <Package className="h-3.5 w-3.5" />
+            {storeName ?? 'No store'}
+          </span>
+        )}
+
         <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
           {shift && (
             <>
@@ -531,10 +590,27 @@ export default function PosPage() {
         </div>
       </div>
 
-      {/* Blocks the till until the cashier counts a starting float. Held off
-          while the current shift is still loading, so an already-open shift
-          doesn't flash this modal before the fetch resolves. */}
-      {!shiftLoading && !shift && <OpenShiftModal onOpen={handleOpenShift} isPending={isOpening} />}
+      {/* The store comes first: opening a shift needs one, and so does every
+          sale. Held off until the stores have loaded so this doesn't flash for
+          the usual case of an already-resolved store. */}
+      {storesLoaded && !storeId ? (
+        <ChooseStoreModal stores={activeStores ?? []} onChoose={setChosenStoreId} />
+      ) : (
+        /* Blocks the till until the cashier counts a starting float. Held off
+           while the current shift is still loading, so an already-open shift
+           doesn't flash this modal before the fetch resolves. */
+        !shiftLoading && !shift && storesLoaded && (
+          <OpenShiftModal
+            onOpen={handleOpenShift}
+            isPending={isOpening}
+            // Only where there is a choice to make: a cashier sells from the
+            // till they are assigned to, and one store is no choice at all.
+            stores={posStore.canSwitch ? activeStores : undefined}
+            storeId={storeId}
+            onStoreChange={posStore.canSwitch ? setChosenStoreId : undefined}
+          />
+        )
+      )}
 
       {showCloseShift && shift && (
         <CloseShiftModal

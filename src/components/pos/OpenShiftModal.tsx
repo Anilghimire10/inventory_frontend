@@ -3,20 +3,40 @@ import { useState } from 'react';
 import { Wallet } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
 import { Field } from '@/components/ui/label';
 import { formatMoney } from '@/lib/format';
+import type { Store } from '@/types';
 
-/** Blocks POS checkout until the cashier counts a starting float. */
+/**
+ * Blocks POS checkout until the cashier counts a starting float.
+ *
+ * It also carries the store picker for anyone allowed to choose one. This
+ * modal covers the whole till, so a picker anywhere else on the page cannot be
+ * reached before a shift exists -- and once one does, the shift pins the store
+ * anyway. Opening the drawer and naming the store it belongs to is one
+ * decision, so it is one dialog.
+ */
 export function OpenShiftModal({
   onOpen,
   isPending,
+  stores,
+  storeId,
+  onStoreChange,
 }: {
   onOpen: (openingFloat: number, note?: string) => void;
   isPending?: boolean;
+  /** Stores that may be sold from. Omitted when the user has no say. */
+  stores?: Store[];
+  storeId?: string | null;
+  onStoreChange?: (storeId: string) => void;
 }) {
   const [float, setFloat] = useState('');
   const [note, setNote] = useState('');
   const value = Math.max(0, Number(float) || 0);
+  // Only the multi-store case shows the picker, and only then can the store be
+  // missing -- a single-store till always knows where it is.
+  const picksStore = !!onStoreChange && (stores?.length ?? 0) > 1;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
@@ -30,6 +50,23 @@ export function OpenShiftModal({
             <p className="text-xs text-muted-foreground">Count the drawer before your first sale.</p>
           </div>
         </div>
+
+        {picksStore && (
+          <Field label="Store" className="mb-3">
+            <Select
+              aria-label="Store to sell from"
+              disabled={isPending}
+              value={storeId ?? ''}
+              onChange={(e) => onStoreChange(e.target.value)}
+            >
+              {(stores ?? []).map((st) => (
+                <option key={st.id} value={st.id}>
+                  {st.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        )}
 
         <Field label="Opening float">
           <Input
@@ -58,6 +95,7 @@ export function OpenShiftModal({
         <Button
           className="mt-5 h-11 w-full"
           loading={isPending}
+          disabled={picksStore && !storeId}
           onClick={() => onOpen(value, note.trim() || undefined)}
         >
           Open shift with {formatMoney(value)}
