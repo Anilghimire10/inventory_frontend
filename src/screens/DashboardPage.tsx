@@ -1,4 +1,5 @@
 'use client';
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
 import {
@@ -25,6 +26,7 @@ import {
 } from 'recharts';
 import { ReportsApi } from '@/api';
 import { PageHeader, LoadingBlock, EmptyState, ErrorState } from '@/components/ui/misc';
+import { ALL_STORES, StorePicker, useStoreLabel } from '@/components/StorePicker';
 import { Card } from '@/components/ui/card';
 import { formatMoney } from '@/lib/format';
 import { useAuth } from '@/auth/AuthContext';
@@ -36,17 +38,24 @@ const PRIMARY = 'hsl(var(--primary))';
 export default function DashboardPage() {
   const { user } = useAuth();
   const showMoney = !!user && can.viewFinancials(user.role);
+  const [storeId, setStoreId] = useState(ALL_STORES);
+  const storeLabel = useStoreLabel(storeId);
 
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['dashboard'],
-    queryFn: () => ReportsApi.dashboard(),
+    queryKey: ['dashboard', storeId],
+    queryFn: () => ReportsApi.dashboard(storeId || undefined),
   });
 
   return (
     <div>
       <PageHeader
         title={`Welcome, ${user?.name?.split(' ')[0] ?? ''}`}
-        description="Here's how your business is doing today."
+        description={
+          storeLabel
+            ? `Here's how ${storeLabel === 'all stores' ? 'your business' : storeLabel} is doing today.`
+            : "Here's how your business is doing today."
+        }
+        action={<StorePicker value={storeId} onChange={setStoreId} />}
       />
 
       {isError ? (

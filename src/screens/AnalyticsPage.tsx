@@ -32,6 +32,7 @@ import {
 import { ReportsApi, ShiftsApi } from '@/api';
 import type { Analytics } from '@/types';
 import { PageHeader, LoadingBlock, ErrorState } from '@/components/ui/misc';
+import { ALL_STORES, StorePicker, useStoreLabel } from '@/components/StorePicker';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -81,6 +82,8 @@ export default function AnalyticsPage() {
   const [range, setRange] = useState<RangeKey>('30d');
   const [customFrom, setCustomFrom] = useState(dayStr(7));
   const [customTo, setCustomTo] = useState(dayStr(0));
+  const [storeId, setStoreId] = useState(ALL_STORES);
+  const storeLabel = useStoreLabel(storeId);
 
   const { from, to } = useMemo(() => {
     switch (range) {
@@ -96,22 +99,30 @@ export default function AnalyticsPage() {
   const rangeParams = {
     from: from ? `${from}T00:00:00.000Z` : undefined,
     to: to ? `${to}T23:59:59.999Z` : undefined,
+    storeId: storeId || undefined,
   };
 
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['analytics', from, to],
+    queryKey: ['analytics', from, to, storeId],
     queryFn: () => ReportsApi.analytics(rangeParams),
   });
 
+  // Keeps exports from the same range but different stores out of each
+  // other's way in the downloads folder.
+  const storeSuffix =
+    storeLabel && storeLabel !== 'all stores'
+      ? `_${storeLabel.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}`
+      : '';
+
   const exportAll = () => {
     if (!data) return;
-    exportCsv(`analytics_${from ?? 'all'}_${to ?? 'all'}`, [
+    exportCsv(`analytics_${from ?? 'all'}_${to ?? 'all'}${storeSuffix}`, [
       { key: 'category', label: 'Category' },
       { key: 'revenue', label: 'Revenue' },
       { key: 'units', label: 'Units' },
       { key: 'share', label: 'Share %' },
     ], data.byCategory);
-    exportCsv(`top-products_${from ?? 'all'}_${to ?? 'all'}`, [
+    exportCsv(`top-products_${from ?? 'all'}_${to ?? 'all'}${storeSuffix}`, [
       { key: 'name', label: 'Product' },
       { key: 'quantitySold', label: 'Qty sold' },
       { key: 'revenue', label: 'Revenue' },
@@ -123,13 +134,16 @@ export default function AnalyticsPage() {
   // Either custom date input can be cleared, which drops that bound from the
   // query -- so derive the label from the bounds themselves, not from `range`,
   // and it always describes what was actually asked for.
-  const rangeLabel = !from && !to
+  const dateLabel = !from && !to
     ? 'all time'
     : from && to
       ? (from === to ? from : `${from} to ${to}`)
       : from
         ? `from ${from}`
         : `up to ${to}`;
+  // Single-store businesses get no picker, so `storeLabel` is null and the
+  // subtitles read exactly as they did before.
+  const rangeLabel = storeLabel ? `${dateLabel}, ${storeLabel}` : dateLabel;
 
   const orderValue = data?.totals.transactions
     ? data.totals.grossSales / data.totals.transactions
@@ -161,6 +175,7 @@ export default function AnalyticsPage() {
           <Input type="date" className="h-8 w-auto" value={customTo}
             onChange={(e) => { setCustomTo(e.target.value); setRange('custom'); }} />
         </div>
+        <StorePicker value={storeId} onChange={setStoreId} />
         <Button size="sm" variant="outline" className="sm:ml-auto" onClick={exportAll}
           disabled={!data}>
           <Download className="h-4 w-4" /> Export
@@ -176,11 +191,17 @@ export default function AnalyticsPage() {
       )}
 
       <Card className="mt-6">
-        <TaxReportCard from={rangeParams.from} to={rangeParams.to} label={rangeLabel} />
+        <TaxReportCard
+          from={rangeParams.from}
+          to={rangeParams.to}
+          storeId={rangeParams.storeId}
+          label={rangeLabel}
+          fileSuffix={storeSuffix}
+        />
       </Card>
 
       <Card className="mt-6">
-        <ShiftHistory />
+        <ShiftHistory storeId={rangeParams.storeId} storeLabel={storeLabel} />
       </Card>
     </div>
   );
@@ -195,15 +216,19 @@ export default function AnalyticsPage() {
 function TaxReportCard({
   from,
   to,
+  storeId,
   label,
+  fileSuffix,
 }: {
   from?: string;
   to?: string;
+  storeId?: string;
   label: string;
+  fileSuffix: string;
 }) {
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['tax-report', from, to],
-    queryFn: () => ReportsApi.taxReport({ from, to }),
+    queryKey: ['tax-report', from, to, storeId],
+    queryFn: () => ReportsApi.taxReport({ from, to, storeId }),
   });
 
   // Lines taxed at 0% never reach `byRate`, so the table would otherwise not
@@ -230,7 +255,7 @@ function TaxReportCard({
           onClick={() =>
             data &&
             exportCsv(
-              `tax-report_${from?.slice(0, 10) ?? 'all'}_${to?.slice(0, 10) ?? 'all'}`,
+              `tax-report_${from?.slice(0, 10) ?? 'all'}_${to?.slice(0, 10) ?? 'all'}${fileSuffix}`,
               [
                 { key: 'rate', label: 'Rate %' },
                 { key: 'taxableAmount', label: 'Taxable amount' },
@@ -317,11 +342,17 @@ function TaxFigure({ label, value, accent }: { label: string; value: number; acc
   );
 }
 
-/** Cash-drawer sessions across the business — owner/manager only. */
-function ShiftHistory() {
+/** Cash-drawer sessions, for the whole business or one store — owner/manager only. */
+function ShiftHistory({
+  storeId,
+  storeLabel,
+}: {
+  storeId?: string;
+  storeLabel: string | null;
+}) {
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['shift-history'],
-    queryFn: () => ShiftsApi.list({ limit: 20 }),
+    queryKey: ['shift-history', storeId],
+    queryFn: () => ShiftsApi.list({ limit: 20, storeId }),
   });
   const history = data?.data ?? [];
   return (
@@ -329,7 +360,9 @@ function ShiftHistory() {
       <div className="border-b border-border p-5">
         <h2 className="font-semibold">Shift History</h2>
         <p className="text-xs text-muted-foreground">
-          Cash-drawer sessions across the business, most recent first.
+          Cash-drawer sessions {storeLabel && storeLabel !== 'all stores'
+            ? `at ${storeLabel}`
+            : 'across the business'}, most recent first.
         </p>
       </div>
       {isError ? (
@@ -341,7 +374,9 @@ function ShiftHistory() {
           <LoadingBlock />
         </div>
       ) : history.length === 0 ? (
-        <p className="py-8 text-center text-sm text-muted-foreground">No shifts closed yet.</p>
+        <p className="py-8 text-center text-sm text-muted-foreground">
+          {storeId ? 'No shifts at this store yet.' : 'No shifts closed yet.'}
+        </p>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
