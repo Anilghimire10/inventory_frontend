@@ -51,6 +51,9 @@ export interface Paginated<T> {
     limit: number;
     pages: number;
     revenue?: number;
+    /** How many sales `revenue` was summed over — not always `total`, which
+     *  counts whatever the list is showing, returned and held sales included. */
+    revenueCount?: number;
     todayRevenue?: number;
     todayCount?: number;
   };

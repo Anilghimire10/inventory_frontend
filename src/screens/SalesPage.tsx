@@ -14,7 +14,8 @@ import {
   TrendingUp,
 } from 'lucide-react';
 import { SalesApi } from '@/api';
-import type { PaymentMethod, Sale, SaleItem, SaleListItem } from '@/types';
+import { ALL_STORES, StorePicker, useStoreLabel } from '@/components/StorePicker';
+import type { PaymentMethod, Sale, SaleListItem } from '@/types';
 import { PageHeader, LoadingBlock, EmptyState, ErrorState } from '@/components/ui/misc';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -27,6 +28,7 @@ import { useToast } from '@/components/ui/toast';
 import { apiError } from '@/lib/api';
 import { printSale } from '@/lib/print';
 import { formatMoney, formatDateTime } from '@/lib/format';
+import { remainingQty } from '@/lib/decimal';
 import { Card } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 
@@ -48,14 +50,32 @@ const PAYMENT_LABEL: Record<PaymentMethod, string> = {
   MIXED: 'Cash + Credit',
 };
 
-const CUTOFF_MS: Record<Exclude<DateFilter, 'all'>, number> = {
-  today: 24 * 3600 * 1000,
-  '7d': 7 * 24 * 3600 * 1000,
-  '30d': 30 * 24 * 3600 * 1000,
+// Whole calendar days back from today, inclusive — the same convention the
+// Analytics range presets use, so "Last 7 days" means the same span on both
+// screens. The previous rolling millisecond cutoffs made "Today" reach back
+// into yesterday evening.
+const DAYS_BACK: Record<Exclude<DateFilter, 'all'>, number> = {
+  today: 0,
+  '7d': 6,
+  '30d': 29,
 };
 
-function cutoffDate(filter: Exclude<DateFilter, 'all'>): string {
-  return new Date(Date.now() - CUTOFF_MS[filter]).toISOString();
+const DATE_LABEL: Record<DateFilter, string> = {
+  all: 'all time',
+  today: 'today',
+  '7d': 'last 7 days',
+  '30d': 'last 30 days',
+};
+
+/** Inclusive start-of-day / end-of-day bounds for a preset. */
+function dateRange(filter: DateFilter): { from?: string; to?: string } {
+  if (filter === 'all') return {};
+  const start = new Date();
+  start.setDate(start.getDate() - DAYS_BACK[filter]);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date();
+  end.setHours(23, 59, 59, 999);
+  return { from: start.toISOString(), to: end.toISOString() };
 }
 
 /** Friendly, payment-aware status: credit sales read as "Due", part-paid as "Partial". */
@@ -77,19 +97,22 @@ export default function SalesPage() {
   const [dateFilter, setDateFilter] = useState<DateFilter>('all');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [payFilter, setPayFilter] = useState<'all' | PaymentMethod>('all');
+  const [storeId, setStoreId] = useState(ALL_STORES);
   const [openId, setOpenId] = useState<string | null>(null);
   const [returnQty, setReturnQty] = useState<Record<string, number>>({});
+  const storeLabel = useStoreLabel(storeId);
 
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['sales', page, search, dateFilter, statusFilter, payFilter],
+    queryKey: ['sales', page, search, dateFilter, statusFilter, payFilter, storeId],
     queryFn: () =>
       SalesApi.list({
         page,
         limit: 20,
         search: search || undefined,
-        from: dateFilter === 'all' ? undefined : cutoffDate(dateFilter),
+        ...dateRange(dateFilter),
         status: statusFilter === 'all' ? undefined : statusFilter,
         paymentMethod: payFilter === 'all' ? undefined : payFilter,
+        storeId: storeId || undefined,
       }),
   });
   const detail = useQuery({
@@ -139,36 +162,50 @@ export default function SalesPage() {
   };
 
   const sale = detail.data;
-  const hasFilters = search !== '' || dateFilter !== 'all' || statusFilter !== 'all' || payFilter !== 'all';
+  const hasFilters =
+    search !== '' ||
+    dateFilter !== 'all' ||
+    statusFilter !== 'all' ||
+    payFilter !== 'all' ||
+    storeId !== ALL_STORES;
+
+  // `revenue` and `revenueCount` follow the date, store, payment and search
+  // filters, and always exclude returned and held sales — so the cards track
+  // the list instead of being pinned to today. The status filter is the one
+  // exception: the server holds revenue steady across it on purpose, so that
+  // picking "Held" can't make revenue jump. Say so when one is set, otherwise
+  // the figures look unrelated to the two rows on screen.
+  const revenue = data?.meta.revenue ?? 0;
+  const revenueCount = data?.meta.revenueCount ?? 0;
+  const summaryLabel = storeLabel && storeLabel !== 'all stores'
+    ? `${DATE_LABEL[dateFilter]}, ${storeLabel}`
+    : DATE_LABEL[dateFilter];
+  const statusNote = statusFilter === 'all' ? '' : ', all statuses';
 
   return (
     <div>
       <PageHeader title="Sales" description="Transaction history and returns." />
 
-{/* Summary cards — always today's completed sales */}
+      {/* Summary cards — the completed sales the current filters match */}
       <div className="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
         <SaleStat
-          label="Today's Sales"
-          value={formatMoney(data?.meta.todayRevenue ?? 0)}
-          sub="Total from all completed sales today"
+          label="Sales"
+          value={formatMoney(revenue)}
+          sub={`Completed sales, ${summaryLabel}${statusNote}`}
           icon={Banknote}
           tone="bg-primary/10 text-primary"
         />
         <SaleStat
           label="Transactions"
-          value={String(data?.meta.todayCount ?? 0)}
-          sub="Number of receipts made today"
+          value={String(revenueCount)}
+          sub={`Receipts, ${summaryLabel}${statusNote}`}
           icon={Receipt}
           tone="bg-primary/10 text-primary"
         />
         <SaleStat
           label="Average Sale"
-          value={formatMoney(
-            (data?.meta.todayCount ?? 0) > 0
-              ? (data?.meta.todayRevenue ?? 0) / (data?.meta.todayCount ?? 1)
-              : 0,
-          )}
-          sub="Average of today's sales"
+          value={formatMoney(revenueCount > 0 ? revenue / revenueCount : 0)}
+          sub="Per completed sale"
           icon={TrendingUp}
           tone="bg-primary/10 text-primary"
         />
@@ -182,7 +219,8 @@ export default function SalesPage() {
             onChange={(e) => { setSearch(e.target.value); setPage(1); }} />
         </div>
         <div className="w-full sm:w-36">
-          <Select value={dateFilter} onChange={(e) => setDateFilter(e.target.value as DateFilter)}>
+          <Select value={dateFilter}
+            onChange={(e) => { setDateFilter(e.target.value as DateFilter); setPage(1); }}>
             <option value="all">All dates</option>
             <option value="today">Today</option>
             <option value="7d">Last 7 days</option>
@@ -190,7 +228,8 @@ export default function SalesPage() {
           </Select>
         </div>
         <div className="w-full sm:w-36">
-          <Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}>
+          <Select value={statusFilter}
+            onChange={(e) => { setStatusFilter(e.target.value as StatusFilter); setPage(1); }}>
             <option value="all">All statuses</option>
             <option value="paid">Paid</option>
             <option value="due">Due</option>
@@ -200,7 +239,8 @@ export default function SalesPage() {
           </Select>
         </div>
         <div className="w-full sm:w-40">
-          <Select value={payFilter} onChange={(e) => setPayFilter(e.target.value as 'all' | PaymentMethod)}>
+          <Select value={payFilter}
+            onChange={(e) => { setPayFilter(e.target.value as 'all' | PaymentMethod); setPage(1); }}>
             <option value="all">All payments</option>
             <option value="CASH">Cash</option>
             <option value="CARD">Card</option>
@@ -209,13 +249,15 @@ export default function SalesPage() {
             <option value="MIXED">Cash + Credit</option>
           </Select>
         </div>
+        <StorePicker value={storeId} onChange={(v) => { setStoreId(v); setPage(1); }}
+          className="h-10 w-full sm:w-44" wrapperClassName="w-full sm:w-44" />
       </div>
 
       {isError ? <ErrorState onRetry={() => refetch()} /> :
         isLoading ? <LoadingBlock /> :
         !data || data.data.length === 0 ? (
           hasFilters ? (
-            <EmptyState title="No sales match your filters" description="Try widening your date, status, or payment filters." icon={Search} />
+            <EmptyState title="No sales match your filters" description="Try widening your date, status, payment, or store filters." icon={Search} />
           ) : (
             <EmptyState title="No sales yet" description="Completed sales will show up here." icon={Receipt} />
           )
@@ -421,18 +463,6 @@ function RowMenu({
   );
 }
 
-/**
- * How much of a line can still go back. `quantity` and `returnedQty` are
- * Decimal(12,3) strings, so coerce before subtracting; rounding keeps the
- * float artefacts out of the qty input's max.
- */
-function remainingOf(it: SaleItem) {
-  return Math.max(
-    0,
-    Math.round((Number(it.quantity) - Number(it.returnedQty)) * 1000) / 1000,
-  );
-}
-
 function ReturnSection({
   sale,
   returnQty,
@@ -442,14 +472,14 @@ function ReturnSection({
   returnQty: Record<string, number>;
   setReturnQty: (v: Record<string, number>) => void;
 }) {
-  const returnable = sale.items.filter((it) => remainingOf(it) > 0);
+  const returnable = sale.items.filter((it) => remainingQty(it) > 0);
   if (returnable.length === 0) return null;
   return (
     <details className="rounded-md border border-border p-3">
       <summary className="cursor-pointer text-sm font-medium">Return items</summary>
       <div className="mt-3 space-y-2">
         {returnable.map((it) => {
-          const max = remainingOf(it);
+          const max = remainingQty(it);
           return (
             <div key={it.id} className="flex items-center gap-2 text-sm">
               <span className="flex-1 truncate">{it.name}</span>
