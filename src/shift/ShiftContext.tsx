@@ -11,7 +11,7 @@ interface ShiftState {
   isOpening: boolean;
   isClosing: boolean;
   isReporting: boolean;
-  openShift: (openingFloat: number, note?: string) => Promise<void>;
+  openShift: (openingFloat: number, note?: string, storeId?: string) => Promise<void>;
   closeShift: (countedCash: number, note?: string) => Promise<ShiftReport | null>;
   /** Freshly computed totals for the open shift — the X report. */
   loadReport: () => Promise<ShiftReport | null>;
@@ -37,12 +37,16 @@ export function ShiftProvider({ children }: { children: React.ReactNode }) {
   const shift = data ?? null;
 
   const openMutation = useMutation({
-    mutationFn: (vars: { openingFloat: number; note?: string }) => ShiftsApi.open(vars),
+    mutationFn: (vars: { openingFloat: number; note?: string; storeId?: string }) =>
+      ShiftsApi.open(vars),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['shift-current'] }),
   });
+  // `storeId` is passed explicitly rather than left to the server's fallback:
+  // the shift must open against the same store the till is selling from, or
+  // its Z report reconciles one store's drawer against another's stock.
   const openShift = useCallback(
-    async (openingFloat: number, note?: string) => {
-      await openMutation.mutateAsync({ openingFloat, note });
+    async (openingFloat: number, note?: string, storeId?: string) => {
+      await openMutation.mutateAsync({ openingFloat, note, storeId });
     },
     [openMutation],
   );
