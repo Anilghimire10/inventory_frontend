@@ -115,6 +115,8 @@ export interface Product {
   trackSerials: boolean;
   reorderLevel: number;
   isActive: boolean;
+  /** Only returned by GET /products/:id — one row per store that carries it. */
+  stockItems?: { storeId: string; quantity: string }[];
 }
 
 export type SerialStatus = 'IN_STOCK' | 'SOLD' | 'RETURNED_TO_SUPPLIER';
@@ -175,6 +177,7 @@ export interface StockMovement {
   createdAt: string;
   product: { id: string; name: string };
   user?: { id: string; name: string } | null;
+  store?: { id: string; name: string };
 }
 
 export interface TransferResult {
@@ -341,6 +344,11 @@ export interface CreditSummary {
   netPosition: number;
   customersOwing: number;
   suppliersOwed: number;
+  /**
+   * True when a store filter is on: what a customer owes is owed to the
+   * business, so the figure stays whole rather than being split per branch.
+   */
+  receivablesAreBusinessWide?: boolean;
 }
 
 export interface AuditEntry {

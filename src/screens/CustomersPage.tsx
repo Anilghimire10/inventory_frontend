@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, Pencil, Trash2, Users, HandCoins } from 'lucide-react';
 import { CustomersApi } from '@/api';
+import { useStoreScope } from '@/store/StoreContext';
 import type { Customer } from '@/types';
 import { useCrudResource } from '@/hooks/useCrudResource';
 import { PageHeader, LoadingBlock, EmptyState, ErrorState } from '@/components/ui/misc';
@@ -27,10 +28,18 @@ export default function CustomersPage() {
   const { user } = useAuth();
   const canDelete = !!user && can.deleteCustomers(user.role);
   const [page, setPage] = useState(1);
+  // A customer record is business-wide; this narrows the list to the ones who
+  // have actually bought at the branch chosen in the header.
+  const { storeId } = useStoreScope();
+  const [prevStore, setPrevStore] = useState(storeId);
+  if (prevStore !== storeId) {
+    setPrevStore(storeId);
+    setPage(1);
+  }
 
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['customers', page],
-    queryFn: () => CustomersApi.list({ page, limit: 20 }),
+    queryKey: ['customers', page, storeId],
+    queryFn: () => CustomersApi.list({ page, limit: 20, storeId: storeId || undefined }),
   });
 
   const crud = useCrudResource<Customer>({

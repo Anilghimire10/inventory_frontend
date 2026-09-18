@@ -14,7 +14,8 @@ import {
   TrendingUp,
 } from 'lucide-react';
 import { SalesApi } from '@/api';
-import { ALL_STORES, StorePicker, useStoreLabel } from '@/components/StorePicker';
+import { useStoreLabel } from '@/components/StorePicker';
+import { ALL_STORES, useStoreScope } from '@/store/StoreContext';
 import type { PaymentMethod, Sale, SaleListItem } from '@/types';
 import { PageHeader, LoadingBlock, EmptyState, ErrorState } from '@/components/ui/misc';
 import { Button } from '@/components/ui/button';
@@ -97,7 +98,15 @@ export default function SalesPage() {
   const [dateFilter, setDateFilter] = useState<DateFilter>('all');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [payFilter, setPayFilter] = useState<'all' | PaymentMethod>('all');
-  const [storeId, setStoreId] = useState(ALL_STORES);
+  // App-wide selection: switching in the header moves this page too.
+  const { storeId } = useStoreScope();
+  // A branch switch can land you past the end of the new result set. Adjusted
+  // during render (React's documented pattern) rather than in an effect.
+  const [prevStore, setPrevStore] = useState(storeId);
+  if (prevStore !== storeId) {
+    setPrevStore(storeId);
+    setPage(1);
+  }
   const [openId, setOpenId] = useState<string | null>(null);
   const [returnQty, setReturnQty] = useState<Record<string, number>>({});
   const storeLabel = useStoreLabel(storeId);
@@ -249,8 +258,6 @@ export default function SalesPage() {
             <option value="MIXED">Cash + Credit</option>
           </Select>
         </div>
-        <StorePicker value={storeId} onChange={(v) => { setStoreId(v); setPage(1); }}
-          className="h-10 w-full sm:w-44" wrapperClassName="w-full sm:w-44" />
       </div>
 
       {isError ? <ErrorState onRetry={() => refetch()} /> :
