@@ -1,5 +1,5 @@
 'use client';
-import { createContext, useContext, useCallback } from 'react';
+import { createContext, useContext, useCallback, useMemo } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/auth/AuthContext';
 import { useStoreScope } from '@/store/StoreContext';
@@ -33,8 +33,15 @@ export function ShiftProvider({ children }: { children: React.ReactNode }) {
   // means anything once you say which branch. Switching in the header brings
   // up that branch's till and leaves the other one open behind you.
   const { storeId } = useStoreScope();
+  // One key, used by the query *and* by every direct write below. They used to
+  // read ['shift-current'] literally, which stopped matching the moment the
+  // store was added to it -- closing a shift then wrote to a key nobody read,
+  // leaving the till still showing an open shift.
+  // Memoised: a fresh array each render would defeat the useCallback deps
+  // that now depend on it.
+  const shiftKey = useMemo(() => ['shift-current', storeId], [storeId]);
   const { data, isLoading } = useQuery({
-    queryKey: ['shift-current', storeId],
+    queryKey: shiftKey,
     queryFn: () => ShiftsApi.current(storeId || undefined),
     enabled,
     staleTime: 15_000,
@@ -71,18 +78,18 @@ export function ShiftProvider({ children }: { children: React.ReactNode }) {
     // one was closed from another device, clear the key instead of pinning a
     // closed shift into it and offering "Close shift" for a shift that would
     // now reject it.
-    qc.setQueryData(['shift-current'], fresh.isOpen ? fresh : null);
+    qc.setQueryData(shiftKey, fresh.isOpen ? fresh : null);
     if (!fresh.isOpen) {
       qc.invalidateQueries({ queryKey: ['shift-history'] });
     }
     return fresh;
-  }, [shift, reportMutation, qc]);
+  }, [shift, reportMutation, qc, shiftKey]);
 
   const closeMutation = useMutation({
     mutationFn: (vars: { id: string; countedCash: number; note?: string }) =>
       ShiftsApi.close(vars.id, { countedCash: vars.countedCash, note: vars.note }),
     onSuccess: () => {
-      qc.setQueryData(['shift-current'], null);
+      qc.setQueryData(shiftKey, null);
       qc.invalidateQueries({ queryKey: ['shift-history'] });
     },
   });

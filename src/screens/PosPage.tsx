@@ -39,6 +39,16 @@ export default function PosPage() {
   // from that same store rather than whatever the server falls back to.
   const [chosenStoreId, setChosenStoreId] = useState<string | null>(null);
   const { storeId: scopeStoreId } = useStoreScope();
+  // A store picked inside the POS wins over the header -- but only until the
+  // header moves again. Without this reset the first in-POS pick pinned the
+  // till for good and every later branch switch was silently ignored, which is
+  // the very thing the header switch is for. Adjusted during render (React's
+  // documented pattern) rather than in an effect.
+  const [prevScope, setPrevScope] = useState(scopeStoreId);
+  if (prevScope !== scopeStoreId) {
+    setPrevScope(scopeStoreId);
+    setChosenStoreId(null);
+  }
   const { data: allStores } = useStores();
   const { data: activeStores } = useActiveStores();
   const posStore = resolvePosStore({
