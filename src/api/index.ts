@@ -43,6 +43,8 @@ const post = async <T>(url: string, body?: object) =>
   (await api.post<T>(url, body)).data;
 const patch = async <T>(url: string, body?: object) =>
   (await api.patch<T>(url, body)).data;
+const put = async <T>(url: string, body?: object) =>
+  (await api.put<T>(url, body)).data;
 const del = async <T>(url: string) => (await api.delete<T>(url)).data;
 
 export const AuthApi = {
@@ -120,6 +122,12 @@ export const ProductsApi = {
   create: (body: object) => post<Product>('/products', body),
   update: (id: string, body: object) => patch<Product>(`/products/${id}`, body),
   remove: (id: string) => del(`/products/${id}`),
+  /** Set which stores carry this product (and its variants). */
+  setStores: (id: string, storeIds: string[]) =>
+    put<{ id: string; storeIds: string[]; variantsUpdated: number }>(
+      `/products/${id}/stores`,
+      { storeIds },
+    ),
   uploadImage: async (file: File) => {
     const fd = new FormData();
     fd.append('image', file);
@@ -225,7 +233,8 @@ export const PurchasesApi = {
 export const ShiftsApi = {
   open: (body: { storeId?: string; openingFloat: number; note?: string }) =>
     post<Shift>('/shifts/open', body),
-  current: () => get<ShiftReport | null>('/shifts/current'),
+  current: (storeId?: string) =>
+    get<ShiftReport | null>('/shifts/current', storeId ? { storeId } : undefined),
   report: (id: string) => get<ShiftReport>(`/shifts/${id}/report`),
   close: (id: string, body: { countedCash: number; note?: string }) =>
     post<ShiftReport>(`/shifts/${id}/close`, body),
@@ -233,9 +242,12 @@ export const ShiftsApi = {
 };
 
 export const CreditApi = {
-  summary: () => get<CreditSummary>('/credit/summary'),
-  receivables: () => get<Receivable[]>('/credit/receivables'),
-  payables: () => get<Payable[]>('/credit/payables'),
+  summary: (storeId?: string) =>
+    get<CreditSummary>('/credit/summary', storeId ? { storeId } : undefined),
+  receivables: (storeId?: string) =>
+    get<Receivable[]>('/credit/receivables', storeId ? { storeId } : undefined),
+  payables: (storeId?: string) =>
+    get<Payable[]>('/credit/payables', storeId ? { storeId } : undefined),
 };
 
 export const AuditApi = {
@@ -274,7 +286,13 @@ export const UsersApi = {
   list: () => get<AppUser[]>('/users'),
   create: (body: object) => post<AppUser>('/users', body),
   update: (id: string, body: object) => patch<AppUser>(`/users/${id}`, body),
+  /** Deactivate — reversible, keeps the row and its history. */
   remove: (id: string) => del(`/users/${id}`),
+  /**
+   * Permanently delete an already-deactivated staff member. Owner-only, and
+   * the API refuses (409) if they have sales, shifts or stock movements.
+   */
+  destroy: (id: string) => del<AppUser>(`/users/${id}/permanent`),
 };
 
 export const ReportsApi = {

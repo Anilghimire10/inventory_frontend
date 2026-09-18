@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, Search, Pencil, Trash2, Package, Download, Upload, X, Check, Barcode as BarcodeIcon } from 'lucide-react';
 import { CategoriesApi, ProductsApi, TaxesApi } from '@/api';
 import { VariantsSection } from '@/components/products/VariantsSection';
+import { StoreAvailability } from '@/components/products/StoreAvailability';
 import type { Category, Product } from '@/types';
 import { PageHeader, LoadingBlock, EmptyState, ErrorState } from '@/components/ui/misc';
 import { Button } from '@/components/ui/button';
@@ -15,6 +16,7 @@ import { Dialog, DialogFooter } from '@/components/ui/dialog';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
 import { Pagination } from '@/components/ui/pagination';
+import { useStoreScope } from '@/store/StoreContext';
 import { useToast } from '@/components/ui/toast';
 import { apiError } from '@/lib/api';
 import { exportCsv, parseCsv } from '@/lib/csv';
@@ -67,17 +69,34 @@ export default function ProductsPage() {
   const { user } = useAuth();
   const canDelete = !!user && can.deleteCatalog(user.role);
   const [search, setSearch] = useState('');
+  // App-wide selection: switching in the header moves this page too.
+  const { storeId } = useStoreScope();
   const [page, setPage] = useState(1);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Product | null>(null);
   const [form, setForm] = useState<Form>(empty);
   const [removeTarget, setRemoveTarget] = useState<Product | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  // A branch switch can land you past the end of the new catalog, and a
+  // selection made in one branch does not belong to another. Adjusted during
+  // render (React's documented pattern) rather than in an effect.
+  const [prevStore, setPrevStore] = useState(storeId);
+  if (prevStore !== storeId) {
+    setPrevStore(storeId);
+    setPage(1);
+    setSelected(new Set());
+  }
 
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['products', search, page],
+    queryKey: ['products', search, page, storeId],
     queryFn: () =>
-      ProductsApi.list({ search: search || undefined, page, limit: 20, excludeVariants: true }),
+      ProductsApi.list({
+        search: search || undefined,
+        page,
+        limit: 20,
+        excludeVariants: true,
+        storeId: storeId || undefined,
+      }),
   });
   const { data: categories } = useQuery({
     queryKey: ['categories'],
@@ -298,18 +317,20 @@ export default function ProductsPage() {
         }
       />
 
-      <div className="relative mb-4 max-w-sm">
-        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          className="pl-9"
-          placeholder="Search name, SKU, barcode…"
-          value={search}
-          onChange={(e) => {
-            setSearch(e.target.value);
-            setPage(1);
-            setSelected(new Set());
-          }}
-        />
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <div className="relative max-w-sm flex-1">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            className="pl-9"
+            placeholder="Search name, SKU, barcode…"
+            value={search}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setPage(1);
+              setSelected(new Set());
+            }}
+          />
+        </div>
       </div>
 
       {isError ? (
@@ -567,6 +588,8 @@ export default function ProductsPage() {
               Track serial / IMEI numbers
             </label>
           </div>
+
+          <StoreAvailability productId={editing?.id ?? null} />
 
           <VariantsSection productId={editing?.id ?? null} canDelete={canDelete} />
 

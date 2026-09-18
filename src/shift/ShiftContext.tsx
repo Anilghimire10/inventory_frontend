@@ -2,6 +2,7 @@
 import { createContext, useContext, useCallback } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/auth/AuthContext';
+import { useStoreScope } from '@/store/StoreContext';
 import { ShiftsApi } from '@/api';
 import type { ShiftReport } from '@/types';
 
@@ -28,9 +29,13 @@ export function ShiftProvider({ children }: { children: React.ReactNode }) {
   const qc = useQueryClient();
   const enabled = !!user && TILL_ROLES.includes(user.role);
 
+  // A user may have one open till per store, so "the current shift" only
+  // means anything once you say which branch. Switching in the header brings
+  // up that branch's till and leaves the other one open behind you.
+  const { storeId } = useStoreScope();
   const { data, isLoading } = useQuery({
-    queryKey: ['shift-current'],
-    queryFn: ShiftsApi.current,
+    queryKey: ['shift-current', storeId],
+    queryFn: () => ShiftsApi.current(storeId || undefined),
     enabled,
     staleTime: 15_000,
   });

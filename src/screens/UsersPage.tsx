@@ -1,11 +1,13 @@
 'use client';
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { Plus, Pencil, UserX, UserCog } from 'lucide-react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Plus, Pencil, RotateCcw, Trash2, UserX, UserCog } from 'lucide-react';
 import { UsersApi, StoresApi } from '@/api';
 import type { AppUser, UserRole } from '@/types';
 import { useAuth } from '@/auth/AuthContext';
 import { useCrudResource } from '@/hooks/useCrudResource';
+import { useToast } from '@/components/ui/toast';
+import { apiError } from '@/lib/api';
 import { PageHeader, LoadingBlock, EmptyState, ErrorState } from '@/components/ui/misc';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -31,6 +33,35 @@ export default function UsersPage() {
     api: UsersApi,
     messages: { created: 'Staff added', updated: 'Staff updated', removed: 'Staff deactivated' },
   });
+
+  // Permanent delete is a separate, owner-only action on an already-deactivated
+  // account, so it gets its own target + mutation rather than reusing crud.remove
+  // (which deactivates).
+  const qc = useQueryClient();
+  const { show } = useToast();
+  const [deleteTarget, setDeleteTarget] = useState<AppUser | null>(null);
+  const destroy = useMutation({
+    mutationFn: (id: string) => UsersApi.destroy(id),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['users'] });
+      show('Staff deleted permanently');
+      setDeleteTarget(null);
+    },
+    onError: (e) => show(apiError(e), 'error'),
+  });
+  // Deactivating was a one-way trip in the UI: PATCH already accepts
+  // `isActive`, the edit form just never sent it. Same shape as the store
+  // reactivate in Settings.
+  const reactivate = useMutation({
+    mutationFn: (id: string) => UsersApi.update(id, { isActive: true }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['users'] });
+      show('Staff reactivated');
+    },
+    onError: (e) => show(apiError(e), 'error'),
+  });
+
+  const isOwner = me?.role === 'OWNER';
 
   const openCreate = () => { setForm({ name: '', email: '', password: '', role: 'CASHIER', storeId: me?.storeId ?? stores?.[0]?.id ?? '' }); crud.openCreate(); };
   const openEdit = (u: AppUser) => { setForm({ name: u.name, email: u.email, password: '', role: u.role, storeId: u.storeId ?? '' }); crud.openEdit(u); };
@@ -71,6 +102,22 @@ export default function UsersPage() {
                         <Button size="icon" variant="ghost" aria-label={`Deactivate ${u.name}`} onClick={() => crud.setRemoveTarget(u)}>
                           <UserX className="h-4 w-4 text-destructive" /></Button>
                       )}
+                      {u.id !== me?.id && !u.isActive && (
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          loading={reactivate.isPending && reactivate.variables === u.id}
+                          onClick={() => reactivate.mutate(u.id)}
+                          aria-label={`Reactivate ${u.name}`}
+                          title="Reactivate this staff member"
+                        >
+                          <RotateCcw className="h-4 w-4" />
+                        </Button>
+                      )}
+                      {u.id !== me?.id && !u.isActive && isOwner && (
+                        <Button size="icon" variant="ghost" aria-label={`Delete ${u.name} permanently`} onClick={() => setDeleteTarget(u)}>
+                          <Trash2 className="h-4 w-4 text-destructive" /></Button>
+                      )}
                     </div>
                   </TD>
                 </TR>
@@ -86,10 +133,18 @@ export default function UsersPage() {
             <Input type="email" value={form.email} disabled={!!crud.editing}
               onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} required />
           </Field>
-          <Field label={crud.editing ? 'New password (leave blank to keep)' : 'Password'}>
-            <PasswordInput value={form.password} minLength={crud.editing ? undefined : 8}
-              onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))} required={!crud.editing} />
-          </Field>
+          {crud.editing?.id === me?.id ? (
+            /* Setting your own password here would retire the token making the
+               request, so the API refuses it — Settings hands back a fresh one. */
+            <p className="text-sm text-muted-foreground">
+              To change your own password, use Settings → Change password.
+            </p>
+          ) : (
+            <Field label={crud.editing ? 'New password (leave blank to keep)' : 'Password'}>
+              <PasswordInput value={form.password} minLength={crud.editing ? undefined : 8}
+                onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))} required={!crud.editing} />
+            </Field>
+          )}
           <Field label="Role">
             <Select value={form.role} onChange={(e) => setForm((f) => ({ ...f, role: e.target.value as UserRole }))}>
               {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
@@ -118,6 +173,18 @@ export default function UsersPage() {
           if (crud.removeTarget) crud.remove.mutate(crud.removeTarget.id);
         }}
         onCancel={() => crud.setRemoveTarget(null)}
+      />
+
+      <ConfirmDialog
+        open={!!deleteTarget}
+        title="Delete staff permanently"
+        description={deleteTarget ? `Permanently delete ${deleteTarget.name}? This cannot be undone. Staff with sales, shifts or stock movements on record can't be deleted — they stay deactivated.` : undefined}
+        confirmLabel="Delete permanently"
+        loading={destroy.isPending}
+        onConfirm={() => {
+          if (deleteTarget) destroy.mutate(deleteTarget.id);
+        }}
+        onCancel={() => setDeleteTarget(null)}
       />
     </div>
   );

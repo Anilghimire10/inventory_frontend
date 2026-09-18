@@ -32,7 +32,8 @@ import {
 import { ReportsApi, ShiftsApi } from '@/api';
 import type { Analytics } from '@/types';
 import { PageHeader, LoadingBlock, ErrorState } from '@/components/ui/misc';
-import { ALL_STORES, StorePicker, useStoreLabel } from '@/components/StorePicker';
+import { useStoreLabel } from '@/components/StorePicker';
+import { useStoreScope } from '@/store/StoreContext';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -82,7 +83,8 @@ export default function AnalyticsPage() {
   const [range, setRange] = useState<RangeKey>('30d');
   const [customFrom, setCustomFrom] = useState(dayStr(7));
   const [customTo, setCustomTo] = useState(dayStr(0));
-  const [storeId, setStoreId] = useState(ALL_STORES);
+  // App-wide selection: switching in the header moves this page too.
+  const { storeId } = useStoreScope();
   const storeLabel = useStoreLabel(storeId);
 
   const { from, to } = useMemo(() => {
@@ -175,7 +177,6 @@ export default function AnalyticsPage() {
           <Input type="date" className="h-8 w-auto" value={customTo}
             onChange={(e) => { setCustomTo(e.target.value); setRange('custom'); }} />
         </div>
-        <StorePicker value={storeId} onChange={setStoreId} />
         <Button size="sm" variant="outline" className="sm:ml-auto" onClick={exportAll}
           disabled={!data}>
           <Download className="h-4 w-4" /> Export

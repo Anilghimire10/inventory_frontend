@@ -5,6 +5,7 @@ import { Boxes, SlidersHorizontal, AlertTriangle, CalendarClock, History, ArrowL
 import { InventoryApi, ProductsApi, PurchasesApi } from '@/api';
 import type { CountSheetLine, ReorderSuggestionGroup, SerialStatus, StockItem, StockTakeResult } from '@/types';
 import { useActiveStores } from '@/hooks/useStores';
+import { useStoreScope } from '@/store/StoreContext';
 import { PageHeader, LoadingBlock, EmptyState, ErrorState } from '@/components/ui/misc';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -61,32 +62,52 @@ export default function InventoryPage() {
   const [serialStatus, setSerialStatus] = useState<SerialStatus | ''>('');
   const [serialProductId, setSerialProductId] = useState('');
 
+  // Every list on this page follows the branch chosen in the header. The
+  // server scopes pinned staff on its own; this is what lets an owner review
+  // one branch at a time.
+  const { storeId } = useStoreScope();
+  const forStore = storeId || undefined;
+  // Only when a row could be from any of several branches: with a store
+  // selected every row is that store's, and one store is no ambiguity at all.
+  const showStoreColumn = !storeId && (stores?.length ?? 0) > 1;
+  // A branch switch can land you past the end of the new list. Adjusted during
+  // render (React's documented pattern) rather than in an effect.
+  const [prevStore, setPrevStore] = useState(storeId);
+  if (prevStore !== storeId) {
+    setPrevStore(storeId);
+    setStockPage(1);
+    setMovementPage(1);
+    setSerialsPage(1);
+  }
+
   const stock = useQuery({
-    queryKey: ['stock', stockPage],
-    queryFn: () => InventoryApi.stock({ page: stockPage, limit: 20 }),
+    queryKey: ['stock', stockPage, storeId],
+    queryFn: () => InventoryApi.stock({ page: stockPage, limit: 20, storeId: forStore }),
     enabled: tab === 'stock',
   });
   const low = useQuery({
-    queryKey: ['low-stock'],
-    queryFn: () => InventoryApi.lowStock(),
+    queryKey: ['low-stock', storeId],
+    queryFn: () => InventoryApi.lowStock(forStore),
     enabled: tab === 'low',
   });
   const expiring = useQuery({
-    queryKey: ['expiring'],
-    queryFn: () => InventoryApi.expiring({ days: 30 }),
+    queryKey: ['expiring', storeId],
+    queryFn: () => InventoryApi.expiring({ days: 30, storeId: forStore }),
     enabled: tab === 'expiring',
   });
   const movements = useQuery({
-    queryKey: ['movements', movementPage],
-    queryFn: () => InventoryApi.movements({ page: movementPage, limit: 20 }),
+    queryKey: ['movements', movementPage, storeId],
+    queryFn: () =>
+      InventoryApi.movements({ page: movementPage, limit: 20, storeId: forStore }),
     enabled: tab === 'movements',
   });
   const serials = useQuery({
-    queryKey: ['serials', serialsPage, serialSearch, serialStatus, serialProductId],
+    queryKey: ['serials', serialsPage, serialSearch, serialStatus, serialProductId, storeId],
     queryFn: () =>
       InventoryApi.serials({
         page: serialsPage,
         limit: 20,
+        storeId: forStore,
         search: serialSearch || undefined,
         status: serialStatus || undefined,
         productId: serialProductId || undefined,
@@ -332,7 +353,7 @@ export default function InventoryPage() {
           <EmptyState title="No stock records" description="Stock appears once you receive purchases or adjust manually." icon={Boxes} />
         ) : (
           <>
-            <StockTable items={stock.data.data} onAdjust={openAdjust} onReorderLevel={openReorderLevel} />
+            <StockTable items={stock.data.data} onAdjust={openAdjust} onReorderLevel={openReorderLevel} showStore={showStoreColumn} />
             <Pagination page={stock.data.meta.page} pages={stock.data.meta.pages} onPage={setStockPage} />
           </>
         )
@@ -344,7 +365,7 @@ export default function InventoryPage() {
         !low.data || low.data.length === 0 ? (
           <EmptyState title="All good!" description="No items are below their reorder level." icon={AlertTriangle} />
         ) : (
-          <StockTable items={low.data} onAdjust={openAdjust} onReorderLevel={openReorderLevel} lowMode />
+          <StockTable items={low.data} onAdjust={openAdjust} onReorderLevel={openReorderLevel} lowMode showStore={showStoreColumn} />
         )
       )}
 
@@ -436,7 +457,7 @@ export default function InventoryPage() {
         ) : (
           <>
             <Table>
-              <THead><TR><TH>When</TH><TH>Product</TH><TH>Type</TH><TH className="text-right">Change</TH><TH>By</TH></TR></THead>
+              <THead><TR><TH>When</TH><TH>Product</TH>{showStoreColumn && <TH>Store</TH>}<TH>Type</TH><TH className="text-right">Change</TH><TH>By</TH></TR></THead>
               <TBody>
                 {movements.data.data.map((m) => {
                   // Decimal(12,3) string: coerce for the sign test, but print
@@ -446,6 +467,9 @@ export default function InventoryPage() {
                     <TR key={m.id}>
                       <TD className="whitespace-nowrap text-muted-foreground">{formatDateTime(m.createdAt)}</TD>
                       <TD className="font-medium">{m.product.name}</TD>
+                      {showStoreColumn && (
+                        <TD className="text-muted-foreground">{m.store?.name ?? '—'}</TD>
+                      )}
                       <TD><Badge tone="muted">{m.type}</Badge></TD>
                       <TD className={cn('text-right font-medium', change >= 0 ? 'text-success' : 'text-destructive')}>
                         {change >= 0 ? '+' : ''}{m.quantity}
@@ -892,17 +916,22 @@ function StockTable({
   onAdjust,
   onReorderLevel,
   lowMode,
+  showStore,
 }: {
   items: StockItem[];
   onAdjust: (i: StockItem) => void;
   onReorderLevel: (i: StockItem) => void;
   lowMode?: boolean;
+  /** Viewing every branch at once — without this the same product appears
+   *  once per store with nothing to tell the rows apart. */
+  showStore?: boolean;
 }) {
   return (
     <Table>
       <THead>
         <TR>
           <TH>Product</TH>
+          {showStore && <TH>Store</TH>}
           <TH>SKU</TH>
           <TH className="text-right">Qty</TH>
           <TH className="text-right">Reorder at</TH>
@@ -917,6 +946,9 @@ function StockTable({
           return (
             <TR key={it.id}>
               <TD className="font-medium">{it.product.name}</TD>
+              {showStore && (
+                <TD className="text-muted-foreground">{it.store?.name ?? '—'}</TD>
+              )}
               <TD className="text-muted-foreground">{it.product.sku || '—'}</TD>
               <TD className="text-right">
                 <span className={cn('font-semibold', (lowMode || lowFlag) && 'text-warning')}>

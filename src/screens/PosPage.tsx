@@ -23,6 +23,7 @@ import { CloseShiftModal } from '@/components/pos/CloseShiftModal';
 import { ErrorState, LoadingBlock } from '@/components/ui/misc';
 import { useActiveStores, useStores } from '@/hooks/useStores';
 import { resolvePosStore } from '@/lib/posStore';
+import { useStoreScope } from '@/store/StoreContext';
 
 /** Sentinel `categoryId` value for the pinned-favorites chip. */
 const FAVORITES = '__favorites__';
@@ -37,13 +38,17 @@ export default function PosPage() {
   // show the stock the cashier can actually hand over, and the sale must deduct
   // from that same store rather than whatever the server falls back to.
   const [chosenStoreId, setChosenStoreId] = useState<string | null>(null);
+  const { storeId: scopeStoreId } = useStoreScope();
   const { data: allStores } = useStores();
   const { data: activeStores } = useActiveStores();
   const posStore = resolvePosStore({
     role: user?.role ?? 'CASHIER',
     assignedStoreId: user?.storeId,
     openShiftStoreId: shift?.storeId,
-    chosenStoreId,
+    // The header switch doubles as the till's choice, so an owner moving
+    // branches there arrives at the POS already on it. A pick made inside the
+    // POS wins, and an open shift still overrides both.
+    chosenStoreId: chosenStoreId ?? (scopeStoreId || null),
     activeStoreIds: (activeStores ?? []).map((st) => st.id),
   });
   const storeId = posStore.storeId;
@@ -99,17 +104,19 @@ export default function PosPage() {
   } = useQuery({
     queryKey:
       categoryId === FAVORITES
-        ? ['pos-products', 'favorites', favorites]
-        : ['pos-products', deferredSearch, categoryId],
+        ? ['pos-products', 'favorites', favorites, storeId]
+        : ['pos-products', deferredSearch, categoryId, storeId],
     queryFn: () =>
       categoryId === FAVORITES
         ? favorites.length
-          ? ProductsApi.list({ ids: favorites, limit: 100 })
+          ? ProductsApi.list({ ids: favorites, limit: 100, storeId: storeId ?? undefined })
           : Promise.resolve({ data: [], meta: { total: 0, page: 1, limit: 100, pages: 0 } } as Paginated<Product>)
         : ProductsApi.list({
             search: deferredSearch || undefined,
             categoryId: categoryId || undefined,
             limit: 50,
+            // The till only sells what this store carries.
+            storeId: storeId ?? undefined,
           }),
     placeholderData: keepPreviousData,
   });
@@ -546,7 +553,7 @@ export default function PosPage() {
             className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs text-muted-foreground"
             title={
               posStore.lockedBy === 'shift'
-                ? 'Your open shift is tied to this store -- close it to sell from another'
+                ? 'This till is running against the shift open at this store'
                 : posStore.lockedBy === 'role'
                   ? 'You are assigned to this store'
                   : 'Stock and the sale both follow this store'

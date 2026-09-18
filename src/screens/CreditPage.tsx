@@ -11,6 +11,7 @@ import {
   Search,
 } from 'lucide-react';
 import { CreditApi, CustomersApi, PurchasesApi } from '@/api';
+import { useStoreScope } from '@/store/StoreContext';
 import type { CreditInvoice, Payable, Receivable } from '@/types';
 import { PageHeader, LoadingBlock, EmptyState, ErrorState } from '@/components/ui/misc';
 import { Card } from '@/components/ui/card';
@@ -39,15 +40,21 @@ export default function CreditPage() {
   const [query, setQuery] = useState('');
   const [payTarget, setPayTarget] = useState<PayTarget | null>(null);
 
-  const summary = useQuery({ queryKey: ['credit', 'summary'], queryFn: () => CreditApi.summary() });
+  // Follows the branch chosen in the header. Payables scope exactly;
+  // receivable balances stay business-wide (see the note by the tile).
+  const { storeId } = useStoreScope();
+  const summary = useQuery({
+    queryKey: ['credit', 'summary', storeId],
+    queryFn: () => CreditApi.summary(storeId || undefined),
+  });
   const receivables = useQuery({
-    queryKey: ['credit', 'receivables'],
-    queryFn: () => CreditApi.receivables(),
+    queryKey: ['credit', 'receivables', storeId],
+    queryFn: () => CreditApi.receivables(storeId || undefined),
     enabled: tab === 'receivables',
   });
   const payables = useQuery({
-    queryKey: ['credit', 'payables'],
-    queryFn: () => CreditApi.payables(),
+    queryKey: ['credit', 'payables', storeId],
+    queryFn: () => CreditApi.payables(storeId || undefined),
     enabled: tab === 'payables',
   });
 
@@ -81,6 +88,9 @@ export default function CreditPage() {
   );
 
   const receivablesTotal = summary.data?.receivablesTotal ?? 0;
+  // Payables scope exactly to a branch; receivable balances cannot, because a
+  // customer's debt is to the business and payCredit records no store.
+  const businessWide = !!summary.data?.receivablesAreBusinessWide;
   const payablesTotal = summary.data?.payablesTotal ?? 0;
 
   return (
@@ -90,12 +100,25 @@ export default function CreditPage() {
         description="Track what customers owe you and what you owe suppliers."
       />
 
+      {businessWide && (
+        <p className="mb-4 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+          Showing one store. Payables are that store&apos;s. Receivables list the
+          customers who buy there, each with the <strong>full</strong> balance
+          they owe the business — a customer&apos;s debt isn&apos;t split
+          between branches.
+        </p>
+      )}
+
       {/* Summary */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <SummaryCard
           label="Receivables"
           value={formatMoney(receivablesTotal)}
-          sub={`${summary.data?.customersOwing ?? 0} customers owe you`}
+          sub={
+            businessWide
+              ? `${summary.data?.customersOwing ?? 0} customers who buy here — full balances`
+              : `${summary.data?.customersOwing ?? 0} customers owe you`
+          }
           icon={ArrowDownLeft}
           tone="success"
         />

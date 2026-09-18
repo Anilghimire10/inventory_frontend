@@ -1,5 +1,6 @@
 'use client';
 import { useState } from 'react';
+import { GlobalStorePicker } from '@/components/StorePicker';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
@@ -143,6 +144,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             <Menu className="h-5 w-5" />
           </button>
           <div className="ml-auto flex items-center gap-2">
+            {/* Switching here moves the whole app to that branch. */}
+            <GlobalStorePicker />
             <Notifications />
             <button
               onClick={toggle}
