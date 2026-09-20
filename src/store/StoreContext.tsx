@@ -9,10 +9,15 @@ export const ALL_STORES = '';
 const KEY = 'inv_store';
 
 /**
- * The chosen branch lives outside React: it is read from localStorage, which
+ * The chosen branch lives outside React: it is read from sessionStorage, which
  * does not exist while the page is prerendered. useSyncExternalStore is the
  * supported way to read that without a hydration mismatch, and without writing
  * state from an effect.
+ *
+ * sessionStorage, not localStorage: it must stay scoped to one tab. Two tabs
+ * on the same machine can be signed in as different users (e.g. an owner and
+ * a staff member), and localStorage is shared by every tab of the same
+ * origin — one tab's branch switch would leak into the other's session.
  */
 let cached: string | null = null;
 const listeners = new Set<() => void>();
@@ -20,7 +25,7 @@ const listeners = new Set<() => void>();
 function readStored(): string {
   if (cached !== null) return cached;
   try {
-    cached = localStorage.getItem(KEY) ?? ALL_STORES;
+    cached = sessionStorage.getItem(KEY) ?? ALL_STORES;
   } catch {
     // Private window or blocked storage — all stores is a fine default.
     cached = ALL_STORES;
@@ -31,8 +36,8 @@ function readStored(): string {
 function writeStored(id: string) {
   cached = id;
   try {
-    if (id) localStorage.setItem(KEY, id);
-    else localStorage.removeItem(KEY);
+    if (id) sessionStorage.setItem(KEY, id);
+    else sessionStorage.removeItem(KEY);
   } catch {
     // The selection still applies for this session.
   }
@@ -41,17 +46,8 @@ function writeStored(id: string) {
 
 function subscribe(cb: () => void) {
   listeners.add(cb);
-  // Another tab switching branch should move this one too.
-  const onStorage = (e: StorageEvent) => {
-    if (e.key === KEY) {
-      cached = null;
-      cb();
-    }
-  };
-  window.addEventListener('storage', onStorage);
   return () => {
     listeners.delete(cb);
-    window.removeEventListener('storage', onStorage);
   };
 }
 
