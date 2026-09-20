@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useMemo, useDeferredValue, useState } from 'react';
+import { useEffect, useMemo, useDeferredValue, useState, useRef } from 'react';
 import { useMutation, useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { Plus, Package, Barcode, ChevronUp, Printer, ShoppingCart, Wallet, Star, FileText } from 'lucide-react';
 import { CategoriesApi, CustomersApi, InventoryApi, ProductsApi, SalesApi } from '@/api';
@@ -355,51 +355,54 @@ export default function PosPage() {
     holdMutation.mutate();
   };
 
-  useEffect(() => {
+  const handlerRef = useRef<(e: KeyboardEvent) => void>(() => {});
+  handlerRef.current = (e: KeyboardEvent) => {
     const focusSearch = () => {
       setSearch('');
       const inp = document.querySelector('input[placeholder="Search products, SKUs, or scan a barcode…"]');
       if (inp) (inp as HTMLInputElement).focus();
     };
-    const handler = (e: KeyboardEvent) => {
-      const tag = (e.target as HTMLElement | null)?.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (e.target as HTMLElement | null)?.isContentEditable) return;
-      if (e.metaKey || e.ctrlKey) {
-        switch (e.key.toLowerCase()) {
-          case 'h': e.preventDefault(); hold(); break;
-          case 'd': e.preventDefault(); setDiscountType(discountType === 'percent' ? 'amount' : 'percent'); break;
-          case 'p': e.preventDefault(); printLast(); break;
-          case 'k': e.preventDefault(); focusSearch(); break;
-        }
-      } else {
-        switch (e.key.toLowerCase()) {
-          case '/': e.preventDefault(); focusSearch(); break;
-          case 't': {
-            // Deliberate, cashier-initiated jump to the tendered field --
-            // NOT auto-focused on every item add, since that would steal
-            // focus from the search box mid-barcode-scan (a scanner just
-            // types into whatever has focus and sends Enter).
-            const input = document.querySelector('input[aria-label="Amount tendered"]');
-            if (input) { e.preventDefault(); (input as HTMLInputElement).focus(); }
-            break;
-          }
-          case 'enter': if (cart.length > 0) { const last = cart[cart.length - 1]; setQty(last.product.id, last.quantity + 1); } break;
-          case 'escape': setSearch(''); break;
-          case 'tab':
-            // Credit sales have no tender to cycle.
-            if (payMode === 'credit') break;
-            e.preventDefault();
-            setPaymentMethod((m) => {
-              const i = TENDERS.findIndex((t) => t.value === m);
-              return TENDERS[(i + 1) % TENDERS.length].value;
-            });
-            break;
-        }
+    const tag = (e.target as HTMLElement | null)?.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (e.target as HTMLElement | null)?.isContentEditable) return;
+    if (e.metaKey || e.ctrlKey) {
+      switch (e.key.toLowerCase()) {
+        case 'h': e.preventDefault(); hold(); break;
+        case 'd': e.preventDefault(); setDiscountType(discountType === 'percent' ? 'amount' : 'percent'); break;
+        case 'p': e.preventDefault(); printLast(); break;
+        case 'k': e.preventDefault(); focusSearch(); break;
       }
-    };
-    document.addEventListener('keydown', handler);
-    return () => document.removeEventListener('keydown', handler);
-  }, [cart, discountType, hold, payMode, printLast, setSearch]);
+    } else {
+      switch (e.key.toLowerCase()) {
+        case '/': e.preventDefault(); focusSearch(); break;
+        case 't': {
+          // Deliberate, cashier-initiated jump to the tendered field --
+          // NOT auto-focused on every item add, since that would steal
+          // focus from the search box mid-barcode-scan (a scanner just
+          // types into whatever has focus and sends Enter).
+          const input = document.querySelector('input[aria-label="Amount tendered"]');
+          if (input) { e.preventDefault(); (input as HTMLInputElement).focus(); }
+          break;
+        }
+        case 'enter': if (cart.length > 0) { const last = cart[cart.length - 1]; setQty(last.product.id, last.quantity + 1); } break;
+        case 'escape': setSearch(''); break;
+        case 'tab':
+          // Credit sales have no tender to cycle.
+          if (payMode === 'credit') break;
+          e.preventDefault();
+          setPaymentMethod((m) => {
+            const i = TENDERS.findIndex((t) => t.value === m);
+            return TENDERS[(i + 1) % TENDERS.length].value;
+          });
+          break;
+      }
+    }
+  };
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => handlerRef.current(e);
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, []);
 
   const checkout = useMutation({
     mutationFn: () =>
