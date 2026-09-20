@@ -608,9 +608,9 @@ export default function PosPage() {
       </div>
 
       {/* The store comes first: opening a shift needs one, and so does every
-          sale. Held off until the stores have loaded so this doesn't flash for
-          the usual case of an already-resolved store. */}
-      {storesLoaded && !storeId ? (
+          sale. Held off until the stores and the shift have loaded so this
+          doesn't flash when an open shift is about to pin the store. */}
+      {storesLoaded && !shiftLoading && !storeId ? (
         <ChooseStoreModal stores={activeStores ?? []} onChoose={setChosenStoreId} />
       ) : (
         /* Blocks the till until the cashier counts a starting float. Held off

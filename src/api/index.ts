@@ -73,8 +73,12 @@ export const AuthApi = {
     post<{ message: string }>('/auth/forgot-password', { email }),
   resetPassword: (email: string, code: string, password: string) =>
     post<{ message: string }>('/auth/reset-password', { email, code, password }),
-  /** Server-side record of the sign-out — writes the `auth.logout` audit row. */
-  logout: () => post<{ message: string }>('/auth/logout'),
+  /**
+   * Server-side record of the sign-out — writes the `auth.logout` audit row.
+   * Time-boxed: sign-out awaits it, and a cold or slow server must not hold
+   * the user in the app.
+   */
+  logout: async () => (await api.post<{ message: string }>('/auth/logout', undefined, { timeout: 5000 })).data,
   /**
    * Returns a fresh accessToken alongside the message: changing the password
    * retires every token minted under the old one, this caller's included, so
