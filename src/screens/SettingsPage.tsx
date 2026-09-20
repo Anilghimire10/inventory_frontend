@@ -82,6 +82,8 @@ export default function SettingsPage() {
   const taxEnabled = user?.business?.taxEnabled ?? true;
   const canManageBiz = user?.role === 'OWNER' || user?.role === 'MANAGER';
   const isOwner = user?.role === 'OWNER';
+  // The last active store can't be deactivated -- nothing could take a sale.
+  const activeCount = stores?.filter((s) => s.isActive).length ?? 0;
   const saveTax = useMutation({
     mutationFn: (next: boolean) => BusinessApi.update({ taxEnabled: next }),
     onSuccess: async (_data, next) => {
@@ -258,7 +260,7 @@ export default function SettingsPage() {
                   )
                 ) : (
                   isOwner &&
-                  stores!.filter((x) => x.isActive).length > 1 && (
+                  activeCount > 1 && (
                     <Button
                       size="icon"
                       variant="ghost"
