@@ -5,6 +5,7 @@ import {
   useEffect,
   useState,
   useCallback,
+  useMemo,
 } from 'react';
 import { AuthApi } from '@/api';
 import { clearToken, setToken, getToken } from '@/lib/api';
@@ -63,24 +64,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     })();
   }, [loadMe]);
 
-  const login = async (email: string, password: string) => {
-    const res = await AuthApi.login(email, password);
-    setToken(res.accessToken);
-    await loadMe();
-  };
+  const login = useCallback(
+    async (email: string, password: string) => {
+      const res = await AuthApi.login(email, password);
+      setToken(res.accessToken);
+      await loadMe();
+    },
+    [loadMe],
+  );
 
   // Registration no longer logs in: the user must verify their email first.
-  const register: AuthState['register'] = async (body) => {
+  const register: AuthState['register'] = useCallback(async (body) => {
     return AuthApi.register(body);
-  };
+  }, []);
 
-  const verifyEmail: AuthState['verifyEmail'] = async (email, code) => {
-    const res = await AuthApi.verifyEmail(email, code);
-    setToken(res.accessToken);
-    await loadMe();
-  };
+  const verifyEmail: AuthState['verifyEmail'] = useCallback(
+    async (email, code) => {
+      const res = await AuthApi.verifyEmail(email, code);
+      setToken(res.accessToken);
+      await loadMe();
+    },
+    [loadMe],
+  );
 
-  const logout = async () => {
+  const logout = useCallback(async () => {
     // Tell the server first — it writes the `auth.logout` audit row, which
     // mirrors `auth.login`, and the request needs the token still in place.
     // A failure here (offline, expired token) must not trap the user in the
@@ -95,13 +102,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Full-page redirect resets the app to a clean login state.
     // eslint-disable-next-line @next/next/no-location-assign-relative-destination
     location.href = '/login';
-  };
+  }, []);
 
-  return (
-    <Ctx.Provider
-      value={{ user, loading, login, register, verifyEmail, logout, refresh: loadMe }}
-    >
-      {children}
-    </Ctx.Provider>
+  const value = useMemo<AuthState>(
+    () => ({ user, loading, login, register, verifyEmail, logout, refresh: loadMe }),
+    [user, loading, login, register, verifyEmail, logout, loadMe],
   );
+
+  return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

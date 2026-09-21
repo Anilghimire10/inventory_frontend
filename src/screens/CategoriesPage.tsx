@@ -181,6 +181,8 @@ function CategoryProductsDialog({
                       <img
                         src={p.imageUrl}
                         alt={p.name}
+                        loading="lazy"
+                        decoding="async"
                         className="h-8 w-8 shrink-0 rounded-md border border-border object-cover"
                       />
                     ) : (

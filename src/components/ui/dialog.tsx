@@ -1,8 +1,9 @@
 'use client';
-import { useEffect, useId, useRef } from 'react';
+import { useId, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useFocusTrap } from '@/hooks/useFocusTrap';
 
 export function Dialog({
   open,
@@ -22,54 +23,7 @@ export function Dialog({
   const titleId = useId();
   const descId = useId();
   const panelRef = useRef<HTMLDivElement>(null);
-  // Keep a stable ref so the open effect doesn't re-run (and re-steal focus)
-  // on every parent re-render when an inline onClose is passed.
-  const onCloseRef = useRef(onClose);
-  useEffect(() => {
-    onCloseRef.current = onClose;
-  }, [onClose]);
-
-  useEffect(() => {
-    if (!open) return;
-    const panel = panelRef.current;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onCloseRef.current();
-        return;
-      }
-      if (e.key !== 'Tab' || !panel) return;
-      // Trap focus inside the dialog.
-      const focusables = Array.from(
-        panel.querySelectorAll<HTMLElement>(
-          'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])',
-        ),
-      ).filter((el) => !el.hasAttribute('disabled'));
-      if (focusables.length === 0) return;
-      const first = focusables[0];
-      const last = focusables[focusables.length - 1];
-      if (e.shiftKey && document.activeElement === first) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && document.activeElement === last) {
-        e.preventDefault();
-        first.focus();
-      }
-    };
-    document.addEventListener('keydown', onKey);
-    document.body.style.overflow = 'hidden';
-    // Move focus into the dialog once it opens, skipping the close button.
-    const active = document.activeElement;
-    const focusables = panel?.querySelectorAll<HTMLElement>(
-      'a[href], button:not([disabled]):not([aria-label="Close"]), textarea, input, select, [tabindex]:not([tabindex="-1"])',
-    );
-    const first = focusables && focusables[0];
-    first?.focus();
-    return () => {
-      document.removeEventListener('keydown', onKey);
-      document.body.style.overflow = '';
-      if (active instanceof HTMLElement) active.focus();
-    };
-  }, [open]);
+  useFocusTrap(panelRef, open, onClose);
 
   if (!open) return null;
 

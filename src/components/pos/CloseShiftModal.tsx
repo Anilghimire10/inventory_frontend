@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -7,6 +7,7 @@ import { Field } from '@/components/ui/label';
 import { formatMoney } from '@/lib/format';
 import type { ShiftReport } from '@/types';
 import { cn } from '@/lib/utils';
+import { useFocusTrap } from '@/hooks/useFocusTrap';
 
 /** Cash-count screen shown when the cashier ends their shift. */
 export function CloseShiftModal({
@@ -25,12 +26,20 @@ export function CloseShiftModal({
   const hasCounted = counted.trim() !== '';
   const countedValue = Number(counted) || 0;
   const variance = Math.round((countedValue - shift.expectedCash) * 100) / 100;
+  const panelRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(panelRef, true, isPending ? undefined : onClose);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-      <div className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-lg">
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="close-shift-title"
+        className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-lg"
+      >
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-base font-semibold text-foreground">Close shift</h2>
+          <h2 id="close-shift-title" className="text-base font-semibold text-foreground">Close shift</h2>
           <button
             type="button"
             onClick={onClose}

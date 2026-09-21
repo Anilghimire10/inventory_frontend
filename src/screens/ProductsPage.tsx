@@ -383,6 +383,8 @@ export default function ProductsPage() {
                         <img
                           src={p.imageUrl}
                           alt={p.name}
+                          loading="lazy"
+                          decoding="async"
                           className="h-9 w-9 shrink-0 rounded-md border border-border object-cover"
                         />
                       ) : (
@@ -495,6 +497,7 @@ export default function ProductsPage() {
                 <img
                   src={form.imageUrl}
                   alt="Product"
+                  decoding="async"
                   className="h-16 w-16 rounded-md border border-border object-cover"
                 />
               ) : (

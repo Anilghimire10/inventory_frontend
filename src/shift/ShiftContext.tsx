@@ -101,20 +101,29 @@ export function ShiftProvider({ children }: { children: React.ReactNode }) {
     [shift, closeMutation],
   );
 
-  return (
-    <Ctx.Provider
-      value={{
-        shift,
-        isLoading: enabled && isLoading,
-        isOpening: openMutation.isPending,
-        isClosing: closeMutation.isPending,
-        isReporting: reportMutation.isPending,
-        openShift,
-        closeShift,
-        loadReport,
-      }}
-    >
-      {children}
-    </Ctx.Provider>
+  const value = useMemo<ShiftState>(
+    () => ({
+      shift,
+      isLoading: enabled && isLoading,
+      isOpening: openMutation.isPending,
+      isClosing: closeMutation.isPending,
+      isReporting: reportMutation.isPending,
+      openShift,
+      closeShift,
+      loadReport,
+    }),
+    [
+      shift,
+      enabled,
+      isLoading,
+      openMutation.isPending,
+      closeMutation.isPending,
+      reportMutation.isPending,
+      openShift,
+      closeShift,
+      loadReport,
+    ],
   );
+
+  return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

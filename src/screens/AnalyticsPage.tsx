@@ -171,10 +171,10 @@ export default function AnalyticsPage() {
           </Button>
         ))}
         <div className="flex flex-wrap items-center gap-2">
-          <Input type="date" className="h-8 w-auto" value={customFrom}
+          <Input type="date" className="h-8 w-auto" aria-label="Custom range start date" value={customFrom}
             onChange={(e) => { setCustomFrom(e.target.value); setRange('custom'); }} />
           <span className="text-sm text-muted-foreground">to</span>
-          <Input type="date" className="h-8 w-auto" value={customTo}
+          <Input type="date" className="h-8 w-auto" aria-label="Custom range end date" value={customTo}
             onChange={(e) => { setCustomTo(e.target.value); setRange('custom'); }} />
         </div>
         <Button size="sm" variant="outline" className="sm:ml-auto" onClick={exportAll}
@@ -765,6 +765,10 @@ function InventoryPerformance({ data }: { data: Analytics['inventory'] }) {
 }
 
 function StockMovement({ data }: { data: Analytics['stockMovement'] }) {
+  const chartData = useMemo(
+    () => data.map((d) => ({ ...d, date: d.date.slice(5) })),
+    [data],
+  );
   return (
     <>
       <div className="border-b border-border p-5">
@@ -776,7 +780,7 @@ function StockMovement({ data }: { data: Analytics['stockMovement'] }) {
           <p className="py-8 text-center text-sm text-muted-foreground">No stock movements in this period.</p>
         ) : (
           <ResponsiveContainer width="100%" height={260}>
-            <LineChart data={data.map((d) => ({ ...d, date: d.date.slice(5) }))}
+            <LineChart data={chartData}
               margin={{ top: 8, right: 8, left: -8, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
               <XAxis dataKey="date" tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} />

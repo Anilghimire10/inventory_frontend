@@ -41,6 +41,7 @@ export default function ActivityLogPage() {
         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <Input
           className="pl-9"
+          aria-label="Filter by action"
           placeholder="Filter by action (e.g. sale, product.delete)…"
           value={action}
           onChange={(e) => {

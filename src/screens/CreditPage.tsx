@@ -152,6 +152,7 @@ export default function CreditPage() {
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             className="pl-9"
+            aria-label={tab === 'receivables' ? 'Search customer' : 'Search supplier'}
             placeholder={tab === 'receivables' ? 'Search customer…' : 'Search supplier…'}
             value={query}
             onChange={(e) => setQuery(e.target.value)}

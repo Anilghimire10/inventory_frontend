@@ -28,6 +28,27 @@ import { useStoreScope } from '@/store/StoreContext';
 /** Sentinel `categoryId` value for the pinned-favorites chip. */
 const FAVORITES = '__favorites__';
 
+/**
+ * Every stock row for a store, fetched in pages because the API caps limit
+ * at 100. The first page's `meta.pages` tells us how many more there are, so
+ * the rest are requested in parallel instead of one round trip at a time.
+ */
+async function fetchAllStock(storeId: string): Promise<Paginated<StockItem>> {
+  const limit = 100;
+  const first = await InventoryApi.stock({ limit, page: 1, storeId });
+  const all: StockItem[] = [...(first.data ?? [])];
+  const totalPages = first.meta?.pages ?? 1;
+  if (totalPages > 1) {
+    const rest = await Promise.all(
+      Array.from({ length: totalPages - 1 }, (_, i) =>
+        InventoryApi.stock({ limit, page: i + 2, storeId }),
+      ),
+    );
+    for (const res of rest) all.push(...(res.data ?? []));
+  }
+  return { data: all } as Paginated<StockItem>;
+}
+
 export default function PosPage() {
   const qc = useQueryClient();
   const { show } = useToast();
@@ -172,18 +193,7 @@ export default function PosPage() {
     // Scoped to the till's store: the cashier can only hand over what is on
     // this shelf, and the sale deducts from here.
     enabled: !!storeId,
-    queryFn: async () => {
-      const all: StockItem[] = [];
-      let page = 1;
-      for (;;) {
-        const res = await InventoryApi.stock({ limit: 100, page, storeId: storeId! });
-        all.push(...(res.data ?? []));
-        const total = res.meta?.total ?? all.length;
-        if (all.length >= total) break;
-        page++;
-      }
-      return { data: all } as Paginated<StockItem>;
-    },
+    queryFn: () => fetchAllStock(storeId!),
   });
 
   const stockLoaded = stock !== undefined;
@@ -356,6 +366,12 @@ export default function PosPage() {
   };
 
   const handlerRef = useRef<(e: KeyboardEvent) => void>(() => {});
+  // Deliberate "latest ref" idiom: writing handlerRef.current here (not in an
+  // effect) keeps it in sync every render with zero extra effect churn. It's
+  // read only from the keydown listener below, never during render, so this
+  // never affects what's painted -- eslint's react-compiler check doesn't
+  // recognize the pattern and flags it as a false positive.
+  // eslint-disable-next-line react-hooks/refs
   handlerRef.current = (e: KeyboardEvent) => {
     const focusSearch = () => {
       setSearch('');
@@ -749,6 +765,8 @@ export default function PosPage() {
                         <img
                           src={p.imageUrl}
                           alt={p.name}
+                          loading="lazy"
+                          decoding="async"
                           className={cn(
                             'h-full w-full object-cover transition-transform duration-300',
                             !out && 'group-hover:scale-105',
