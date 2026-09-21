@@ -889,7 +889,12 @@ function ReorderGroupCard({
             <TR key={it.productId}>
               <TD className="font-medium">{it.name}</TD>
               <TD className="text-muted-foreground">{it.sku || '—'}</TD>
-              <TD className="text-right text-destructive">{it.onHand}</TD>
+              <TD className="text-right text-destructive">
+                <span className="inline-flex items-center justify-end gap-1">
+                  <AlertTriangle className="h-3.5 w-3.5" aria-hidden />
+                  {it.onHand}
+                </span>
+              </TD>
               <TD className="text-right text-muted-foreground">{it.reorderLevel}</TD>
               <TD className="text-right font-medium">
                 {it.quantity} <span className="text-muted-foreground">{it.unit}</span>

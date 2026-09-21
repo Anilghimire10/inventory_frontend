@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Wallet } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -7,6 +7,7 @@ import { Select } from '@/components/ui/select';
 import { Field } from '@/components/ui/label';
 import { formatMoney } from '@/lib/format';
 import type { Store } from '@/types';
+import { useFocusTrap } from '@/hooks/useFocusTrap';
 
 /**
  * Blocks POS checkout until the cashier counts a starting float.
@@ -37,16 +38,26 @@ export function OpenShiftModal({
   // Only the multi-store case shows the picker, and only then can the store be
   // missing -- a single-store till always knows where it is.
   const picksStore = !!onStoreChange && (stores?.length ?? 0) > 1;
+  const panelRef = useRef<HTMLDivElement>(null);
+  // No onEscape: this modal blocks checkout until a shift is opened, so
+  // Escape must not offer a way out.
+  useFocusTrap(panelRef, true);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-      <div className="w-full max-w-sm rounded-2xl border border-border bg-card p-6 shadow-lg">
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="open-shift-title"
+        className="w-full max-w-sm rounded-2xl border border-border bg-card p-6 shadow-lg"
+      >
         <div className="mb-4 flex items-center gap-3">
           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
             <Wallet className="h-5 w-5" />
           </span>
           <div>
-            <h2 className="text-base font-semibold text-foreground">Open your shift</h2>
+            <h2 id="open-shift-title" className="text-base font-semibold text-foreground">Open your shift</h2>
             <p className="text-xs text-muted-foreground">Count the drawer before your first sale.</p>
           </div>
         </div>

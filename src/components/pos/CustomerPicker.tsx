@@ -179,6 +179,7 @@ export const CustomerPicker = forwardRef<CustomerPickerHandle, CustomerPickerPro
                         }
                       }}
                       placeholder="Search by name or phone…"
+                      aria-label="Search customers by name or phone"
                       className="h-10 w-full bg-transparent pl-9 pr-3 text-sm text-foreground placeholder:text-muted-foreground outline-none"
                     />
                   </div>

@@ -1,8 +1,10 @@
 'use client';
+import { useRef } from 'react';
 import { Store as StoreIcon } from 'lucide-react';
 import { Select } from '@/components/ui/select';
 import { Field } from '@/components/ui/label';
 import type { Store } from '@/types';
+import { useFocusTrap } from '@/hooks/useFocusTrap';
 
 /**
  * Blocks the till until it knows which store it is selling from.
@@ -20,10 +22,15 @@ export function ChooseStoreModal({
   onChoose: (storeId: string) => void;
 }) {
   const none = stores.length === 0;
+  const panelRef = useRef<HTMLDivElement>(null);
+  // No onEscape: this modal blocks the till until a store is chosen, so
+  // Escape must not offer a way out.
+  useFocusTrap(panelRef, true);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
       <div
+        ref={panelRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="choose-store-title"
