@@ -10,7 +10,12 @@ export const Select = forwardRef<
     <select
       ref={ref}
       className={cn(
-        'flex h-10 w-full appearance-none rounded-md border border-input bg-background px-3 pr-9 py-2 text-sm',
+        // No vertical padding: a single-line control centres its own text in
+        // the content box, so the height alone positions it. py-2 here meant a
+        // caller passing a shorter h-* (the header's h-8) kept the 16px of
+        // padding and left a 14px box for a 20px line -- the text overflowed
+        // and looked like it was sinking out of the control.
+        'flex h-10 w-full appearance-none rounded-md border border-input bg-background px-3 pr-9 py-0 text-sm',
         'focus-visible:outline-2 focus-visible:outline-ring outline-offset-0',
         'disabled:cursor-not-allowed disabled:opacity-50',
         className,
