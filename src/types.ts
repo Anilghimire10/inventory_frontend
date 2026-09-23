@@ -595,6 +595,21 @@ export interface Shift {
   _count?: { sales: number };
 }
 
+/**
+ * One till currently open at a store (GET /shifts/open).
+ *
+ * Offered to an owner or manager when more than one is running and the server
+ * cannot tell which drawer they're standing at.
+ */
+export interface OpenShiftSummary {
+  id: string;
+  openedAt: string;
+  openingFloat: number;
+  openedBy: { id: string; name: string };
+  salesCount: number;
+  isOwnShift: boolean;
+}
+
 export interface ShiftTenderTotal {
   method: PaymentMethod;
   count: number;
@@ -609,6 +624,12 @@ export interface ShiftTenderTotal {
  */
 export interface ShiftReport extends Omit<Shift, 'countedCash' | 'expectedCash' | 'variance'> {
   isOpen: boolean;
+  /**
+   * False when an owner or manager has joined a till someone else opened.
+   * The drawer belongs to `user`, not to the viewer, and the POS says so
+   * rather than calling it "your shift".
+   */
+  isOwnShift?: boolean;
   expectedCash: number;
   countedCash: number | null;
   variance: number | null;

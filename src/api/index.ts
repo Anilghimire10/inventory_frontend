@@ -21,6 +21,7 @@ import type {
   SessionUser,
   Shift,
   ShiftReport,
+  OpenShiftSummary,
   Tax,
   Sale,
   SaleListItem,
@@ -244,8 +245,19 @@ export const PurchasesApi = {
 export const ShiftsApi = {
   open: (body: { storeId?: string; openingFloat: number; note?: string }) =>
     post<Shift>('/shifts/open', body),
-  current: (storeId?: string) =>
-    get<ShiftReport | null>('/shifts/current', storeId ? { storeId } : undefined),
+  /**
+   * The till the caller is on. For an owner or manager with none of their own
+   * that is the shift already open at the store — `shiftId` says which, when
+   * more than one is open and they have picked.
+   */
+  current: (storeId?: string, shiftId?: string) =>
+    get<ShiftReport | null>('/shifts/current', {
+      ...(storeId ? { storeId } : {}),
+      ...(shiftId ? { shiftId } : {}),
+    }),
+  /** Every till open at a store, for the "which drawer?" picker. */
+  openAtStore: (storeId: string) =>
+    get<OpenShiftSummary[]>('/shifts/open', { storeId }),
   report: (id: string) => get<ShiftReport>(`/shifts/${id}/report`),
   close: (id: string, body: { countedCash: number; note?: string }) =>
     post<ShiftReport>(`/shifts/${id}/close`, body),
