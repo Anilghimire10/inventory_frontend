@@ -2,8 +2,8 @@
 import { useEffect, useMemo, useDeferredValue, useState, useRef } from 'react';
 import { useMutation, useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { Plus, Package, Barcode, ChevronUp, Printer, ShoppingCart, Wallet, Star, FileText } from 'lucide-react';
-import { CategoriesApi, CustomersApi, InventoryApi, ProductsApi, SalesApi } from '@/api';
-import type { Product, Paginated, StockItem } from '@/types';
+import { CategoriesApi, CustomersApi, ProductsApi, SalesApi } from '@/api';
+import type { Product, Paginated } from '@/types';
 import { useAuth } from '@/auth/AuthContext';
 import { useShift } from '@/shift/ShiftContext';
 import { printSale, printShiftReport } from '@/lib/print';
@@ -27,27 +27,6 @@ import { useStoreScope } from '@/store/StoreContext';
 
 /** Sentinel `categoryId` value for the pinned-favorites chip. */
 const FAVORITES = '__favorites__';
-
-/**
- * Every stock row for a store, fetched in pages because the API caps limit
- * at 100. The first page's `meta.pages` tells us how many more there are, so
- * the rest are requested in parallel instead of one round trip at a time.
- */
-async function fetchAllStock(storeId: string): Promise<Paginated<StockItem>> {
-  const limit = 100;
-  const first = await InventoryApi.stock({ limit, page: 1, storeId });
-  const all: StockItem[] = [...(first.data ?? [])];
-  const totalPages = first.meta?.pages ?? 1;
-  if (totalPages > 1) {
-    const rest = await Promise.all(
-      Array.from({ length: totalPages - 1 }, (_, i) =>
-        InventoryApi.stock({ limit, page: i + 2, storeId }),
-      ),
-    );
-    for (const res of rest) all.push(...(res.data ?? []));
-  }
-  return { data: all } as Paginated<StockItem>;
-}
 
 export default function PosPage() {
   const qc = useQueryClient();
@@ -133,10 +112,16 @@ export default function PosPage() {
     isError: productsError,
     refetch: refetchProducts,
   } = useQuery({
+    // Prefixed with 'stock' because the rows now carry this store's on-hand
+    // quantity and reorder level (see the `onHand` map below). Every
+    // invalidateQueries(['stock']) elsewhere -- receive, adjust, transfer,
+    // stock take, returns, checkout -- has to refresh the grid, and React
+    // Query matches by key prefix. This is the same trick the separate stock
+    // query used before it was folded into this one.
     queryKey:
       categoryId === FAVORITES
-        ? ['pos-products', 'favorites', favorites, storeId]
-        : ['pos-products', deferredSearch, categoryId, storeId],
+        ? ['stock', 'pos-products', 'favorites', favorites, storeId]
+        : ['stock', 'pos-products', deferredSearch, categoryId, storeId],
     queryFn: () =>
       categoryId === FAVORITES
         ? favorites.length
@@ -183,38 +168,38 @@ export default function PosPage() {
     queryFn: () => SalesApi.list({ status: 'held', limit: 50, storeId: storeId! }),
   });
   const heldSales = heldSalesData?.data ?? [];
-  // On-hand quantity per product at the till's store, fetched in pages because
-  // the API caps limit at 100.
-  const { data: stock, isError: stockError, refetch: refetchStock } = useQuery({
-    // Keyed under 'stock' so every invalidateQueries(['stock']) elsewhere
-    // (receive, adjust, transfer, stock take, returns) refreshes POS too --
-    // React Query matches by key prefix.
-    queryKey: ['stock', 'pos', storeId],
-    // Scoped to the till's store: the cashier can only hand over what is on
-    // this shelf, and the sale deducts from here.
-    enabled: !!storeId,
-    queryFn: () => fetchAllStock(storeId!),
-  });
+  // On-hand quantity and reorder level per product at the till's store.
+  //
+  // These come along with the product rows now (`GET /products?storeId=`
+  // returns `onHandQty` and `effectiveReorderLevel` when scoped to a store).
+  // The till used to mirror the store's whole stock table into the browser to
+  // build these two maps -- one request per 100 SKUs, in parallel, re-fired
+  // after every sale -- which at 5,000 SKUs spent the per-IP rate limit in
+  // about two sales.
+  const stockLoaded = products !== undefined;
 
-  const stockLoaded = stock !== undefined;
-
-  // On-hand quantity per product at the till's store.
   const onHand = useMemo(() => {
     const m = new Map<string, number>();
-    for (const s of stock?.data ?? []) {
-      m.set(s.productId, (m.get(s.productId) ?? 0) + Number(s.quantity));
+    // Cart lines first. The grid holds one page of results, so a product added
+    // before the cashier typed a search -- or resumed from a held sale -- is no
+    // longer in `products.data`, and without this its ceiling would silently
+    // become unlimited mid-sale. Each line carries the row it was added from,
+    // which is the same figure the grid showed at the time.
+    for (const l of cart) {
+      if (l.product.onHandQty != null) m.set(l.product.id, Number(l.product.onHandQty));
     }
+    // Live rows win: they are the fresher read of the same number.
+    for (const p of products?.data ?? []) m.set(p.id, Number(p.onHandQty ?? 0));
     return m;
-  }, [stock]);
+  }, [products, cart]);
 
   const reorderLevels = useMemo(() => {
     const m = new Map<string, number>();
-    for (const s of stock?.data ?? []) {
-      const lvl = s.effectiveReorderLevel ?? s.reorderLevel ?? s.product?.reorderLevel ?? 0;
-      m.set(s.productId, (m.get(s.productId) ?? 0) + lvl);
+    for (const p of products?.data ?? []) {
+      m.set(p.id, p.effectiveReorderLevel ?? p.reorderLevel ?? 0);
     }
     return m;
-  }, [stock]);
+  }, [products]);
 
   // Category/favorites filtering now happens server-side (see the query
   // above) so this scales past whatever page of results is loaded.
@@ -256,7 +241,10 @@ export default function PosPage() {
   const due = Math.max(0, Math.round((total - paidNow) * 100) / 100);
 
   // Ceiling on how many units of a product can be sold. Falls back to
-  // unlimited while the stock feed is still loading.
+  // unlimited for a product whose stock we have never seen -- while the first
+  // page is still loading, or for a held sale resumed with items that never
+  // appeared in this till's grid. The server's guarded SQL is what actually
+  // prevents an oversell; this is the courtesy warning in front of it.
   const maxOf = (id: string) => onHand.get(id) ?? Infinity;
 
   const resetSaleState = () => {
@@ -695,22 +683,6 @@ export default function PosPage() {
             />
             <Barcode className="pointer-events-none absolute right-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
           </form>
-
-          {stockError && (
-            <div className="flex items-center justify-between gap-2 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-              <span>
-                Stock levels failed to load — items below may show as out of stock even
-                if they aren&apos;t. Don&apos;t trust the stock badges until this is fixed.
-              </span>
-              <button
-                type="button"
-                onClick={() => refetchStock()}
-                className="shrink-0 font-medium underline underline-offset-2"
-              >
-                Retry
-              </button>
-            </div>
-          )}
 
           {/* Category filter chips */}
           <div className="flex gap-2 overflow-x-auto pb-1">

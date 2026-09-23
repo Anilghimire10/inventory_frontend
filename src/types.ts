@@ -115,6 +115,17 @@ export interface Product {
   trackSerials: boolean;
   reorderLevel: number;
   isActive: boolean;
+  /**
+   * On-hand quantity at the requested store. Only returned by
+   * `GET /products?storeId=` — the list is scoped to one store, so there is a
+   * single figure to report. Decimal(12,3), so it arrives as a string.
+   */
+  onHandQty?: string;
+  /**
+   * That store's reorder override when it has one, otherwise `reorderLevel`.
+   * Returned alongside `onHandQty` under the same `storeId` condition.
+   */
+  effectiveReorderLevel?: number;
   /** Only returned by GET /products/:id — one row per store that carries it. */
   stockItems?: { storeId: string; quantity: string }[];
 }
