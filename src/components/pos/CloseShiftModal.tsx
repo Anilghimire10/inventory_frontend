@@ -39,7 +39,15 @@ export function CloseShiftModal({
         className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-lg"
       >
         <div className="mb-4 flex items-center justify-between">
-          <h2 id="close-shift-title" className="text-base font-semibold text-foreground">Close shift</h2>
+          {/* Whose drawer is being counted. An owner can be closing a till
+              someone else opened, and the variance lands against that person
+              -- so the heading names them rather than saying "Close shift"
+              and leaving it to be assumed. */}
+          <h2 id="close-shift-title" className="text-base font-semibold text-foreground">
+            {shift.isOwnShift === false
+              ? `Close ${shift.user?.name ?? 'this user'}\u2019s till`
+              : 'Close shift'}
+          </h2>
           <button
             type="button"
             onClick={onClose}

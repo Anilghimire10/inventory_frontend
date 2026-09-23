@@ -33,7 +33,7 @@ export default function PosPage() {
   const qc = useQueryClient();
   const { show } = useToast();
   const { user } = useAuth();
-  const { shift, isLoading: shiftLoading, isOpening, isClosing, isReporting, openShift, closeShift, loadReport } = useShift();
+  const { shift, isLoading: shiftLoading, isOpening, isClosing, isReporting, openShift, closeShift, loadReport, joinable, joinShift } = useShift();
   const [showCloseShift, setShowCloseShift] = useState(false);
   // Which store this till sells from. Explicit on every request: the grid must
   // show the stock the cashier can actually hand over, and the sale must deduct
@@ -421,6 +421,11 @@ export default function PosPage() {
       SalesApi.create({
         storeId: storeId ?? undefined,
         customerId: customerId || undefined,
+        // The drawer this till is showing. The server would resolve the same
+        // one on its own, but naming it closes the gap where an owner is
+        // looking at Ramesh's till while the server picks a shift that opened
+        // since the page loaded.
+        shiftId: shift?.id,
         // Fully on credit -> CREDIT; otherwise the chosen tender (server marks
         // a part-paid sale as MIXED). amountPaid drives the credit split.
         paymentMethod: payMode === 'credit' ? 'CREDIT' : paymentMethod,
@@ -590,6 +595,15 @@ export default function PosPage() {
         )}
 
         <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+          {shift && shift.isOwnShift === false && (
+            <span
+              className="flex items-center gap-1.5 rounded-md border border-warning/40 bg-warning/10 px-2.5 py-1 text-xs font-medium text-warning"
+              title="You are selling into a drawer someone else opened. Its cash, and its variance at close, are theirs."
+            >
+              <Wallet className="h-3.5 w-3.5" />
+              {shift.user?.name ?? 'Another user'}&apos;s till
+            </span>
+          )}
           {shift && (
             <>
               <Button
@@ -640,6 +654,11 @@ export default function PosPage() {
             stores={posStore.canSwitch ? activeStores : undefined}
             storeId={storeId}
             onStoreChange={posStore.canSwitch ? setChosenStoreId : undefined}
+            // Empty for a cashier, and for management whenever the server
+            // already picked a till for them -- in both cases this is just
+            // the open-shift dialog it has always been.
+            joinable={joinable}
+            onJoin={joinShift}
           />
         )
       )}

@@ -70,6 +70,18 @@ export function formatDate(value: string | Date | null | undefined): string {
   });
 }
 
+/**
+ * Clock time alone, for things that happened today.
+ *
+ * "Opened 09:15" reads better than "Opened 23 Sep 2026, 09:15" on a till
+ * picker where every option was opened the same morning.
+ */
+export function formatTime(value: string | Date | null | undefined): string {
+  if (!value) return '—';
+  const d = typeof value === 'string' ? new Date(value) : value;
+  return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+}
+
 export function formatDateTime(value: string | Date | null | undefined): string {
   if (!value) return '—';
   const d = typeof value === 'string' ? new Date(value) : value;
