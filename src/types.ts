@@ -29,6 +29,8 @@ export interface Business {
   type: string;
   salesModel: string;
   currency: string;
+  /** IANA zone the shop's day is cut on, e.g. `Asia/Kathmandu`. */
+  timezone?: string;
   taxEnabled?: boolean;
   taxId?: string | null;
   showTaxIdOnBill?: boolean;
@@ -492,6 +494,32 @@ export interface ProductAnalytics {
   revenue: number;
   cost: number;
   profit: number;
+  /** Cost of what's left on the shelf — the divisor behind `gmroi`. */
+  inventoryCost: number;
+  /**
+   * Gross Margin Return On Inventory: gross profit per unit of cost tied up
+   * in the product. Margin says what is profitable, this says what earns its
+   * shelf space. Null when nothing is in stock, so there is no investment to
+   * return on — sort those to the bottom rather than treating them as zero.
+   */
+  gmroi: number | null;
+}
+
+/** One cashier's sales and drawer accuracy over the range. */
+export interface StaffAnalytics {
+  userId: string;
+  name: string;
+  revenue: number;
+  transactions: number;
+  averageBasket: number;
+  /** Closed shifts counted in the range; 0 for staff who never ran a till. */
+  shifts: number;
+  /** Null when they closed no shifts. Negative means short in the drawer. */
+  totalVariance: number | null;
+  meanVariance: number | null;
+  /** The single worst count, not the net — a short day cancelled out by a
+   *  long one is still two days that didn't reconcile. */
+  worstVariance: number | null;
 }
 
 export type NotificationType = 'LOW_STOCK' | 'EXPIRING' | 'GENERAL';
@@ -512,6 +540,8 @@ export interface NotificationList {
 }
 
 export interface Analytics {
+  /** The zone the day and hour buckets below were cut on. */
+  timezone: string;
   totals: {
     transactions: number;
     grossSales: number;
@@ -526,6 +556,10 @@ export interface Analytics {
   byDay: { date: string; total: number; count: number; units: number }[];
   byCategory: { category: string; revenue: number; units: number; share: number }[];
   byPaymentMethod: { method: PaymentMethod; total: number; count: number; share: number }[];
+  /** Per cashier. With `unattributed`, revenue here sums to `totals.grossSales`. */
+  byStaff: StaffAnalytics[];
+  /** Sales with no cashier on them — recorded before staff attribution, or by a deleted user. */
+  unattributed: { revenue: number; transactions: number } | null;
   hourly: { hour: number; total: number; count: number; units: number }[];
   inventory: {
     value: number;

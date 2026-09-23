@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useMemo, useDeferredValue, useState, useRef } from 'react';
+import { useEffect, useMemo, useState, useRef } from 'react';
 import { useMutation, useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { Plus, Package, Barcode, ChevronUp, Printer, ShoppingCart, Wallet, Star, FileText } from 'lucide-react';
 import { CategoriesApi, CustomersApi, ProductsApi, SalesApi } from '@/api';
@@ -8,6 +8,7 @@ import { useAuth } from '@/auth/AuthContext';
 import { useShift } from '@/shift/ShiftContext';
 import { printSale, printShiftReport } from '@/lib/print';
 import { loadFavoriteIds, saveFavoriteIds } from '@/lib/favorites';
+import { useDebounced } from '@/hooks/useDebounced';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { RxBadge } from '@/components/ui/RxBadge';
@@ -102,9 +103,16 @@ export default function PosPage() {
   const [cartOpen, setCartOpen] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
 
-  // Debounced search for the product grid: typing is instant in the input,
-  // but network requests wait for a pause (useDeferredValue + keepPreviousData).
-  const deferredSearch = useDeferredValue(search);
+  // Debounced search for the product grid: typing stays instant in the input,
+  // and the request waits for the cashier to stop typing.
+  //
+  // This was `useDeferredValue`, described in the comment as making "network
+  // requests wait for a pause". It does not: it de-prioritises the render, but
+  // every settled keystroke still reaches the query key, so a seven-letter
+  // product name was seven requests. `useDebounced` actually skips the
+  // intermediate values; `keepPreviousData` keeps the old grid on screen while
+  // the one request that survives is in flight.
+  const deferredSearch = useDebounced(search);
 
   const {
     data: products,

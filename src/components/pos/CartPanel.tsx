@@ -4,12 +4,7 @@ import {
   AlertTriangle,
   Check,
   ChevronDown,
-  Hash,
-  Minus,
-  MoreVertical,
-  Package,
   Pause,
-  Plus,
   RotateCcw,
   ShoppingCart,
   Tag,
@@ -19,17 +14,17 @@ import {
 } from 'lucide-react';
 import type { Customer, Product, SaleListItem } from '@/types';
 import { Button } from '@/components/ui/button';
-import { Input, Textarea } from '@/components/ui/input';
+import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Field } from '@/components/ui/label';
 import { RxBadge } from '@/components/ui/RxBadge';
 import { Card } from '@/components/ui/card';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
-import { formatMoney, currencySymbol } from '@/lib/format';
-import { hasDuplicateSerials, parseSerials, serialsInvalid } from '@/lib/serials';
-import { allowsFraction } from '@/lib/units';
+import { formatMoney } from '@/lib/format';
+import { hasDuplicateSerials, serialsInvalid } from '@/lib/serials';
 import { cn } from '@/lib/utils';
 import { CustomerPicker, type CustomerPickerHandle } from '@/components/pos/CustomerPicker';
+import { CartLineRow, type LineEditor } from '@/components/pos/CartLineRow';
 
 export interface CartLine {
   product: Product;
@@ -163,14 +158,11 @@ export function CartPanel({
   const [menuId, setMenuId] = useState<string | null>(null);
   const [showDiscount, setShowDiscount] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
-  // Per-line price-override / discount editor -- one at a time.
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editUnitPrice, setEditUnitPrice] = useState('');
-  const [editDiscount, setEditDiscount] = useState('');
-  const [editDiscountType, setEditDiscountType] = useState<DiscountType>('amount');
-  // Per-line serial/IMEI entry -- one at a time, same pattern as price/discount.
-  const [serialsEditingId, setSerialsEditingId] = useState<string | null>(null);
-  const [editSerialsText, setEditSerialsText] = useState('');
+  // Which line has an inline editor open, and which one -- price/discount or
+  // serials, never both and never on two lines at once. The drafts themselves
+  // live in CartLineRow, so typing in an editor no longer re-renders the cart.
+  const [editorId, setEditorId] = useState<string | null>(null);
+  const [editor, setEditor] = useState<LineEditor | null>(null);
   // A cash sale still posts as fully paid even if less was physically
   // tendered (see isCashFull below) -- gate that specific case behind an
   // explicit confirmation instead of letting it complete silently.
@@ -209,6 +201,14 @@ export function CartPanel({
 
   const missingSerials = (l: CartLine) =>
     l.product.trackSerials && serialsInvalid(l.serials ?? [], l.quantity);
+
+  /** The warning a line shows under itself, or null when its serials are fine. */
+  const serialWarning = (l: CartLine) =>
+    !missingSerials(l)
+      ? null
+      : hasDuplicateSerials(l.serials ?? [])
+        ? 'Duplicate serial numbers entered'
+        : `${l.serials?.length ?? 0} of ${l.quantity} serials entered`;
 
   const checkoutDisabled =
     !shiftOpen ||
@@ -350,220 +350,23 @@ export function CartPanel({
             className="min-h-0 flex-1 divide-y divide-border overflow-y-auto [overflow-anchor:none]"
           >
             {cart.map((l, i) => (
-              <li
+              <CartLineRow
                 key={l.product.id}
-                ref={i === cart.length - 1 ? lastItemRef : undefined}
-                className="flex flex-col gap-2 px-3 py-2"
-              >
-              <div className="flex items-center gap-2">
-                {l.product.imageUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={l.product.imageUrl}
-                    alt={l.product.name}
-                    decoding="async"
-                    className="h-10 w-10 shrink-0 rounded-md border border-border object-cover"
-                  />
-                ) : (
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-muted text-muted-foreground">
-                    <Package className="h-4 w-4" />
-                  </div>
-                )}
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-1.5">
-                    <span className="truncate text-sm font-semibold text-foreground">
-                      {l.product.name}
-                    </span>
-                    {l.product.isRxRequired && <RxBadge />}
-                  </div>
-                  <div className="mt-0.5 truncate text-xs text-muted-foreground">
-                    {l.product.sku || l.product.unit}
-                  </div>
-                  <div className="mt-1 flex items-center gap-1">
-                    <Button
-                      size="icon"
-                      variant="outline"
-                      className="h-7 w-7"
-                      aria-label={`Decrease quantity of ${l.product.name}`}
-                      onClick={() => onSetQty(l.product.id, l.quantity - 1)}
-                    >
-                      <Minus className="h-3.5 w-3.5" />
-                    </Button>
-                    <QtyInput value={l.quantity} unit={l.product.unit} onCommit={(q) => onSetQty(l.product.id, q)} />
-                    <Button
-                      size="icon"
-                      variant="outline"
-                      className="h-7 w-7"
-                      aria-label={`Increase quantity of ${l.product.name}`}
-                      disabled={atMax(l)}
-                      onClick={() => onSetQty(l.product.id, l.quantity + 1)}
-                    >
-                      <Plus className="h-3.5 w-3.5" />
-                    </Button>
-                  </div>
-                </div>
-                <div className="flex flex-col items-end gap-1.5">
-                  {l.unitPrice != null || l.discount ? (
-                    <>
-                      <span className="whitespace-nowrap text-[11px] text-muted-foreground line-through">
-                        {formatMoney(Number(l.product.sellingPrice) * l.quantity)}
-                      </span>
-                      <span className="whitespace-nowrap text-sm font-semibold text-primary">
-                        {formatMoney(lineNet(l))}
-                      </span>
-                    </>
-                  ) : (
-                    <span className="whitespace-nowrap text-sm font-semibold text-foreground">
-                      {formatMoney(lineNet(l))}
-                    </span>
-                  )}
-                  <div className="relative">
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      className="h-7 w-7 rounded-md text-muted-foreground hover:text-foreground"
-                      aria-label={`More options for ${l.product.name}`}
-                      onClick={() => setMenuId(menuId === l.product.id ? null : l.product.id)}
-                    >
-                      <MoreVertical className="h-4 w-4" />
-                    </Button>
-                    {menuId === l.product.id && (
-                      <>
-                        <div className="fixed inset-0 z-20" onClick={() => setMenuId(null)} />
-                        <div className="absolute right-0 top-8 z-30 w-44 overflow-hidden rounded-lg border border-border bg-card py-1 shadow-md">
-                          <button
-                            onClick={() => {
-                              setMenuId(null);
-                              setEditingId(l.product.id);
-                              setEditUnitPrice(l.unitPrice != null ? String(l.unitPrice) : '');
-                              setEditDiscount(l.discount ? String(l.discount) : '');
-                              setEditDiscountType('amount');
-                            }}
-                            className="flex w-full items-center gap-2 px-3 py-2 text-sm font-medium text-foreground hover:bg-muted"
-                          >
-                            <Tag className="h-4 w-4" /> Price / discount
-                          </button>
-                          {l.product.trackSerials && (
-                            <button
-                              onClick={() => {
-                                setMenuId(null);
-                                setSerialsEditingId(l.product.id);
-                                setEditSerialsText((l.serials ?? []).join('\n'));
-                              }}
-                              className="flex w-full items-center gap-2 px-3 py-2 text-sm font-medium text-foreground hover:bg-muted"
-                            >
-                              <Hash className="h-4 w-4" /> Serials
-                            </button>
-                          )}
-                          <button
-                            onClick={() => {
-                              setMenuId(null);
-                              onSetQty(l.product.id, 0);
-                            }}
-                            className="flex w-full items-center gap-2 px-3 py-2 text-sm font-medium text-destructive hover:bg-muted"
-                          >
-                            <Trash2 className="h-4 w-4" /> Remove item
-                          </button>
-                        </div>
-                      </>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {missingSerials(l) && serialsEditingId !== l.product.id && (
-                <p className="flex items-center gap-1 text-xs text-warning">
-                  <AlertTriangle className="h-3.5 w-3.5" />
-                  {hasDuplicateSerials(l.serials ?? [])
-                    ? 'Duplicate serial numbers entered'
-                    : `${l.serials?.length ?? 0} of ${l.quantity} serials entered`}
-                </p>
-              )}
-
-              {serialsEditingId === l.product.id && (
-                <div className="space-y-2 rounded-md border border-dashed border-border bg-muted/30 p-2.5">
-                  <Field label={`Serial / IMEI numbers (one per line, ${l.quantity} needed)`}>
-                    <Textarea
-                      rows={3}
-                      value={editSerialsText}
-                      onChange={(e) => setEditSerialsText(e.target.value)}
-                    />
-                  </Field>
-                  <div className="flex justify-end gap-2">
-                    <Button size="sm" variant="outline" onClick={() => setSerialsEditingId(null)}>
-                      Cancel
-                    </Button>
-                    <Button
-                      size="sm"
-                      onClick={() => {
-                        onUpdateLine(l.product.id, { serials: parseSerials(editSerialsText) });
-                        setSerialsEditingId(null);
-                      }}
-                    >
-                      Apply
-                    </Button>
-                  </div>
-                </div>
-              )}
-
-              {editingId === l.product.id && (
-                <div className="space-y-2 rounded-md border border-dashed border-border bg-muted/30 p-2.5">
-                  <div className="grid grid-cols-2 gap-2">
-                    <Field label="Unit price">
-                      <Input
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        placeholder={String(Number(l.product.sellingPrice))}
-                        value={editUnitPrice}
-                        onChange={(e) => setEditUnitPrice(e.target.value)}
-                      />
-                    </Field>
-                    <Field label="Discount">
-                      <div className="flex gap-1">
-                        <Select
-                          className="w-16 shrink-0"
-                          value={editDiscountType}
-                          onChange={(e) => setEditDiscountType(e.target.value as DiscountType)}
-                        >
-                          <option value="amount">{currencySymbol()}</option>
-                          <option value="percent">%</option>
-                        </Select>
-                        <Input
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          max={editDiscountType === 'percent' ? 100 : undefined}
-                          value={editDiscount}
-                          onChange={(e) => setEditDiscount(e.target.value)}
-                        />
-                      </div>
-                    </Field>
-                  </div>
-                  <div className="flex justify-end gap-2">
-                    <Button size="sm" variant="outline" onClick={() => setEditingId(null)}>
-                      Cancel
-                    </Button>
-                    <Button
-                      size="sm"
-                      onClick={() => {
-                        const unitPrice = editUnitPrice.trim() ? Math.max(0, Number(editUnitPrice)) : undefined;
-                        const basePrice = unitPrice ?? Number(l.product.sellingPrice);
-                        const rawDiscount = Math.max(0, Number(editDiscount) || 0);
-                        const discount =
-                          editDiscountType === 'percent'
-                            ? Math.round(((basePrice * l.quantity * Math.min(rawDiscount, 100)) / 100) * 100) / 100
-                            : Math.min(rawDiscount, basePrice * l.quantity);
-                        onUpdateLine(l.product.id, { unitPrice, discount: discount || undefined });
-                        setEditingId(null);
-                      }}
-                    >
-                      Apply
-                    </Button>
-                  </div>
-                </div>
-              )}
-              </li>
+                line={l}
+                isLast={i === cart.length - 1}
+                lastItemRef={lastItemRef}
+                atMax={atMax(l)}
+                serialWarning={serialWarning(l)}
+                menuOpen={menuId === l.product.id}
+                onMenuOpenChange={(open) => setMenuId(open ? l.product.id : null)}
+                editor={editorId === l.product.id ? editor : null}
+                onEditorChange={(next) => {
+                  setEditor(next);
+                  setEditorId(next ? l.product.id : null);
+                }}
+                onSetQty={onSetQty}
+                onUpdateLine={onUpdateLine}
+              />
             ))}
           </ul>
         )}
@@ -937,54 +740,5 @@ function Segment<T extends string>({
         </button>
       ))}
     </div>
-  );
-}
-
-/** Live-editable quantity: safe to clear while typing, commits on blur/Enter. */
-function QtyInput({
-  value,
-  unit,
-  onCommit,
-}: {
-  value: number;
-  unit?: string;
-  onCommit: (q: number) => void;
-}) {
-  const [focused, setFocused] = useState(false);
-  const [draft, setDraft] = useState(String(value));
-  // Measured goods (kg, l, m) sell in fractions; discrete ones don't, so don't
-  // let the cashier type a decimal point the API is only going to reject.
-  const fractional = allowsFraction(unit);
-  return (
-    <input
-      type="text"
-      inputMode={fractional ? 'decimal' : 'numeric'}
-      aria-label={unit ? `Quantity in ${unit}` : 'Quantity'}
-      className="h-7 w-14 rounded border border-input bg-background text-center text-sm"
-      value={focused ? draft : String(value)}
-      onFocus={(e) => {
-        setDraft(String(value));
-        setFocused(true);
-        e.target.select();
-      }}
-      onChange={(e) => {
-        // Digits with at most one decimal point, matching the backend's
-        // numeric(12,3) quantity columns (weighed goods can be fractional).
-        const next = e.target.value.replace(fractional ? /[^\d.]/g : /[^\d]/g, '');
-        setDraft(next.replace(/(\..*)\./g, '$1'));
-      }}
-      onBlur={() => {
-        setFocused(false);
-        const raw = parseFloat(draft) || 0;
-        const parsed = fractional ? Math.round(raw * 1000) / 1000 : Math.round(raw);
-        onCommit(Math.max(0, parsed));
-      }}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          (e.target as HTMLInputElement).blur();
-        }
-      }}
-    />
   );
 }

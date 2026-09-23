@@ -96,7 +96,13 @@ export const AuthApi = {
 export const BusinessApi = {
   get: () => get<Business>('/business'),
   update: (body: object) => patch<Business>('/business', body),
-  exportData: () => get<unknown>('/business/export'),
+  /**
+   * The full data export. NDJSON, not JSON: one `{"table":..,"row":..}` per
+   * line, streamed, so `responseType: 'text'` keeps axios from trying to
+   * parse the whole thing as a single document.
+   */
+  exportData: async () =>
+    (await api.get<string>('/business/export', { responseType: 'text' })).data,
 };
 
 export const StoresApi = {
