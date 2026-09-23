@@ -448,6 +448,41 @@ export interface Dashboard {
   inventoryValue?: number;
   salesTrend?: { date: string; total: number; count: number }[];
   hourlyToday?: { hour: number; total: number; count: number }[];
+  /** Customer credit outstanding — see CreditAgeing for the breakdown. */
+  creditOutstanding?: number;
+  /** The part of it older than 30 days. */
+  creditOverdue?: number;
+  creditCustomersOwing?: number;
+}
+
+/** One customer's share of the outstanding credit, aged. */
+export interface AgedDebtor {
+  id: string;
+  name: string;
+  phone?: string | null;
+  balance: number;
+  current: number;
+  days30: number;
+  days60Plus: number;
+  /** Balance with no credit sale behind it — an opening balance or an adjustment. */
+  unattributed: number;
+  oldestUnpaidAt: string | null;
+  oldestUnpaidDays: number | null;
+}
+
+/**
+ * Outstanding customer credit (udhaaro) split by age. Buckets plus
+ * `unattributed` always add up to `total`, which is `sum(creditBalance)`.
+ */
+export interface CreditAgeing {
+  total: number;
+  /** days30 + days60Plus — what's worth chasing. */
+  overdue: number;
+  buckets: { current: number; days30: number; days60Plus: number };
+  unattributed: number;
+  customersOwing: number;
+  balancesAreBusinessWide: boolean;
+  topDebtors: AgedDebtor[];
 }
 
 export interface ProductAnalytics {

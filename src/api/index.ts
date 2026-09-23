@@ -30,6 +30,7 @@ import type {
   Store,
   Supplier,
   TaxReport,
+  CreditAgeing,
   TransferResult,
   CountSheetLine,
   StockTakeResult,
@@ -305,4 +306,6 @@ export const ReportsApi = {
   salesSummary: (params?: object) => get<unknown>('/reports/sales-summary', params),
   analytics: (params?: object) => get<Analytics>('/reports/analytics', params),
   taxReport: (params?: object) => get<TaxReport>('/reports/tax', params),
+  creditAgeing: (storeId?: string) =>
+    get<CreditAgeing>('/reports/credit-ageing', storeId ? { storeId } : undefined),
 };

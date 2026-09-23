@@ -10,7 +10,7 @@ import {
   HandCoins,
   Search,
 } from 'lucide-react';
-import { CreditApi, CustomersApi, PurchasesApi } from '@/api';
+import { CreditApi, CustomersApi, PurchasesApi, ReportsApi } from '@/api';
 import { useStoreScope } from '@/store/StoreContext';
 import type { CreditInvoice, Payable, Receivable } from '@/types';
 import { PageHeader, LoadingBlock, EmptyState, ErrorState } from '@/components/ui/misc';
@@ -46,6 +46,12 @@ export default function CreditPage() {
   const summary = useQuery({
     queryKey: ['credit', 'summary', storeId],
     queryFn: () => CreditApi.summary(storeId || undefined),
+  });
+  // How old the receivables are. Keyed under 'credit' so recording a payment
+  // re-ages the book along with everything else on this page.
+  const ageing = useQuery({
+    queryKey: ['credit', 'ageing', storeId],
+    queryFn: () => ReportsApi.creditAgeing(storeId || undefined),
   });
   const receivables = useQuery({
     queryKey: ['credit', 'receivables', storeId],
@@ -137,6 +143,82 @@ export default function CreditPage() {
           tone="primary"
         />
       </div>
+
+      {/* How old the receivables are. A total says how much is out there;
+          this says how long it has been out there, which is the part that
+          decides who to call. */}
+      {ageing.data && ageing.data.total > 0 && (
+        <Card className="mt-4 p-5">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="text-sm font-medium">Receivables by age</h2>
+            {ageing.data.overdue > 0 && (
+              <p className="text-xs text-warning">
+                {formatMoney(ageing.data.overdue)} has been owed for over 30 days
+              </p>
+            )}
+          </div>
+          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <AgeBucket
+              label="0–30 days"
+              value={ageing.data.buckets.current}
+              total={ageing.data.total}
+              tone="bg-success"
+            />
+            <AgeBucket
+              label="30–60 days"
+              value={ageing.data.buckets.days30}
+              total={ageing.data.total}
+              tone="bg-warning"
+            />
+            <AgeBucket
+              label="Over 60 days"
+              value={ageing.data.buckets.days60Plus}
+              total={ageing.data.total}
+              tone="bg-destructive"
+            />
+          </div>
+          {ageing.data.unattributed > 0 && (
+            <p className="mt-3 text-xs text-muted-foreground">
+              {formatMoney(ageing.data.unattributed)} can&apos;t be aged — it isn&apos;t
+              backed by a credit sale (an opening balance or a manual adjustment), so
+              there&apos;s no date to measure from.
+            </p>
+          )}
+          {ageing.data.topDebtors.length > 0 && (
+            <div className="mt-5">
+              <h3 className="text-xs font-medium text-muted-foreground">
+                Largest balances
+              </h3>
+              <ul className="mt-2 divide-y divide-border">
+                {ageing.data.topDebtors.slice(0, 5).map((d) => (
+                  <li key={d.id} className="flex items-center justify-between gap-3 py-2">
+                    <span className="truncate text-sm">{d.name}</span>
+                    <span className="flex shrink-0 items-center gap-3">
+                      {d.oldestUnpaidDays !== null && (
+                        <span
+                          className={cn(
+                            'text-xs',
+                            d.oldestUnpaidDays > 60
+                              ? 'text-destructive'
+                              : d.oldestUnpaidDays > 30
+                                ? 'text-warning'
+                                : 'text-muted-foreground',
+                          )}
+                        >
+                          oldest {d.oldestUnpaidDays}d
+                        </span>
+                      )}
+                      <span className="text-sm font-medium tabular-nums">
+                        {formatMoney(d.balance)}
+                      </span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </Card>
+      )}
 
       {/* Tabs + search */}
       <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
@@ -503,6 +585,33 @@ function TabButton({
       <Icon className="h-4 w-4" />
       {children}
     </button>
+  );
+}
+
+/** One ageing bucket: the amount, and its share of the book as a bar. */
+function AgeBucket({
+  label,
+  value,
+  total,
+  tone,
+}: {
+  label: string;
+  value: number;
+  total: number;
+  tone: string;
+}) {
+  const pct = total > 0 ? Math.round((value / total) * 100) : 0;
+  return (
+    <div className="rounded-lg border border-border p-3">
+      <div className="flex items-baseline justify-between gap-2">
+        <p className="text-xs text-muted-foreground">{label}</p>
+        <p className="text-xs text-muted-foreground tabular-nums">{pct}%</p>
+      </div>
+      <p className="mt-1 text-lg font-semibold tabular-nums">{formatMoney(value)}</p>
+      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-secondary">
+        <div className={cn('h-full rounded-full', tone)} style={{ width: `${pct}%` }} />
+      </div>
+    </div>
   );
 }
 

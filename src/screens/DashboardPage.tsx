@@ -11,6 +11,7 @@ import {
   TrendingDown,
   Receipt,
   Clock,
+  HandCoins,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -65,7 +66,12 @@ export default function DashboardPage() {
       ) : (
         <>
           {/* Stat cards */}
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <div
+            className={cn(
+              'grid grid-cols-1 gap-4 sm:grid-cols-2',
+              showMoney ? 'xl:grid-cols-5' : 'xl:grid-cols-4',
+            )}
+          >
             {showMoney ? (
               <Stat
                 label="Total Sales"
@@ -90,6 +96,24 @@ export default function DashboardPage() {
                 sub="at cost price"
                 icon={Boxes}
                 tone="primary"
+              />
+            )}
+            {showMoney && (
+              // Money already out the door. An owner running udhaaro usually
+              // wants this before margin, so it sits on the home screen rather
+              // than inside Analytics. The tile turns warning-toned the moment
+              // any of it is over 30 days old.
+              <Stat
+                label="Owed to You"
+                value={formatMoney(data.creditOutstanding ?? 0)}
+                sub={
+                  (data.creditOverdue ?? 0) > 0
+                    ? `${formatMoney(data.creditOverdue ?? 0)} over 30 days`
+                    : `${data.creditCustomersOwing ?? 0} customers on credit`
+                }
+                icon={HandCoins}
+                tone={(data.creditOverdue ?? 0) > 0 ? 'warning' : 'default'}
+                to="/credit"
               />
             )}
             <Stat
