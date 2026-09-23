@@ -18,6 +18,7 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { useToast } from '@/components/ui/toast';
 import { apiError } from '@/lib/api';
 import { CURRENCIES } from '@/lib/currencies';
+import { TIMEZONES, DEFAULT_TIMEZONE } from '@/lib/timezones';
 
 const empty = { name: '', address: '', phone: '' };
 type Form = typeof empty;
@@ -35,19 +36,21 @@ export default function SettingsPage() {
   // Business profile editing. The vertical (type) is locked — only a platform
   // super-admin can change it — so it isn't part of the editable form.
   const [bizOpen, setBizOpen] = useState(false);
-  const [biz, setBiz] = useState({ name: '', salesModel: 'RETAIL', currency: 'USD', taxId: '' });
+  const [biz, setBiz] = useState({ name: '', salesModel: 'RETAIL', currency: 'USD', timezone: DEFAULT_TIMEZONE, taxId: '' });
 
   // Full data export (owner).
   const [exporting, setExporting] = useState(false);
   const exportData = async () => {
     setExporting(true);
     try {
+      // NDJSON, written through as the server streams it -- one line per row.
+      // It arrives as text already, so there is nothing to re-serialise.
       const data = await BusinessApi.exportData();
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const blob = new Blob([data], { type: 'application/x-ndjson' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `${(user?.business?.name ?? 'business').replace(/\s+/g, '-').toLowerCase()}-export-${new Date().toISOString().slice(0, 10)}.json`;
+      a.download = `${(user?.business?.name ?? 'business').replace(/\s+/g, '-').toLowerCase()}-export-${new Date().toISOString().slice(0, 10)}.ndjson`;
       a.click();
       URL.revokeObjectURL(url);
       show('Data exported');
@@ -63,6 +66,7 @@ export default function SettingsPage() {
       name: user?.business?.name ?? '',
       salesModel: user?.business?.salesModel ?? 'RETAIL',
       currency: user?.business?.currency ?? 'USD',
+      timezone: user?.business?.timezone ?? DEFAULT_TIMEZONE,
       taxId: user?.business?.taxId ?? '',
     });
     setBizOpen(true);
@@ -155,6 +159,7 @@ export default function SettingsPage() {
           <div><div className="text-muted-foreground">Sells as</div><div className="font-medium">{user?.business?.salesModel === 'WHOLESALE' ? 'Wholesaler' : 'Retailer'}</div></div>
           <div><div className="text-muted-foreground">Currency</div><div className="font-medium">{user?.business?.currency}</div></div>
           <div><div className="text-muted-foreground">PAN / VAT</div><div className="font-medium">{user?.business?.taxId || '—'}</div></div>
+          <div><div className="text-muted-foreground">Time zone</div><div className="font-medium">{(user?.business?.timezone ?? DEFAULT_TIMEZONE).replace(/_/g, ' ')}</div></div>
         </CardContent>
       </Card>
 
@@ -334,6 +339,17 @@ export default function SettingsPage() {
               </Select>
             </Field>
           </div>
+          <Field label="Time zone">
+            <Select value={biz.timezone} onChange={(e) => setBiz((b) => ({ ...b, timezone: e.target.value }))}>
+              {TIMEZONES.map((tz) => (
+                <option key={tz} value={tz}>{tz.replace(/_/g, ' ')}</option>
+              ))}
+            </Select>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Where the shop&apos;s day starts and ends. Reports, daily totals and the
+              hour-of-day chart are all cut on this, not on the server&apos;s clock.
+            </p>
+          </Field>
           <Field label="PAN / VAT number (optional)">
             <Input value={biz.taxId} onChange={(e) => setBiz((b) => ({ ...b, taxId: e.target.value }))}
               placeholder="e.g. 301234567" />

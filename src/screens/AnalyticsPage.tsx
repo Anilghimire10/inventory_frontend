@@ -11,6 +11,7 @@ import {
   Boxes,
   AlertTriangle,
   PackageSearch,
+  Users,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -37,7 +38,7 @@ import { useStoreScope } from '@/store/StoreContext';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { formatMoney, formatNumber, formatDateTime } from '@/lib/format';
+import { formatMoney, formatNumber, formatDateTime, currencySymbol } from '@/lib/format';
 import { exportCsv } from '@/lib/csv';
 import { cn } from '@/lib/utils';
 
@@ -53,14 +54,47 @@ const PALETTE = [
 
 type RangeKey = 'today' | '7d' | '30d' | 'month' | 'all' | 'custom';
 
+const pad = (n: number) => String(n).padStart(2, '0');
+
+/**
+ * A `Date` as its own calendar date, `YYYY-MM-DD`.
+ *
+ * `toISOString().slice(0, 10)` is the UTC date, which for a till in Kathmandu
+ * is yesterday's until 05:45 every morning -- so "Today" opened on the wrong
+ * day for the first quarter of the trading day. The local getters are the
+ * whole fix.
+ */
+function localDay(d: Date): string {
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
 function dayStr(daysAgo: number): string {
   const d = new Date();
   d.setDate(d.getDate() - daysAgo);
-  return d.toISOString().slice(0, 10);
+  return localDay(d);
 }
 function monthStart(): string {
   const d = new Date();
-  return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().slice(0, 10);
+  return localDay(new Date(d.getFullYear(), d.getMonth(), 1));
+}
+
+/**
+ * The instant a local day opens and closes, as the API wants them.
+ *
+ * The page used to send `${day}T00:00:00.000Z` -- UTC midnight, asked for as
+ * though it were the shop's. The range was therefore shifted against the
+ * buckets inside it: a "Today" report on a Nepali till began at 05:45 that
+ * morning and ran to 05:45 the next. Constructing the `Date` from local parts
+ * and letting `toISOString()` convert is what makes the bound mean local
+ * midnight, whatever the offset.
+ */
+function startOfLocalDay(day: string): string {
+  const [y, m, d] = day.split('-').map(Number);
+  return new Date(y, m - 1, d, 0, 0, 0, 0).toISOString();
+}
+function endOfLocalDay(day: string): string {
+  const [y, m, d] = day.split('-').map(Number);
+  return new Date(y, m - 1, d, 23, 59, 59, 999).toISOString();
 }
 
 const PRESETS: { key: RangeKey; label: string }[] = [
@@ -99,8 +133,8 @@ export default function AnalyticsPage() {
   }, [range, customFrom, customTo]);
 
   const rangeParams = {
-    from: from ? `${from}T00:00:00.000Z` : undefined,
-    to: to ? `${to}T23:59:59.999Z` : undefined,
+    from: from ? startOfLocalDay(from) : undefined,
+    to: to ? endOfLocalDay(to) : undefined,
     storeId: storeId || undefined,
   };
 
@@ -496,6 +530,11 @@ function AnalyticsBody({ data, orderValue }: { data: Analytics; orderValue: numb
         </Card>
       </div>
 
+      {/* Who rang it up, and whether their drawer came out straight */}
+      <Card className="mt-6">
+        <StaffPerformance data={data.byStaff} unattributed={data.unattributed} />
+      </Card>
+
       {/* Stock movement */}
       <Card className="mt-6">
         <StockMovement data={data.stockMovement} />
@@ -693,19 +732,63 @@ function PaymentMethods({ data, orders }: { data: Analytics['byPaymentMethod']; 
   );
 }
 
+type ProductSort = 'revenue' | 'gmroi';
+
 function TopProducts({ data }: { data: Analytics['byProduct'] }) {
-  const top = data.slice(0, 5);
+  const [sort, setSort] = useState<ProductSort>('revenue');
+
+  const top = useMemo(() => {
+    const rows = [...data];
+    if (sort === 'revenue') rows.sort((a, b) => b.revenue - a.revenue);
+    // Products with nothing left in stock have no GMROI -- there is no
+    // investment to return on -- so they sort to the bottom rather than
+    // ranking as zero, which would read as "earns nothing" instead of
+    // "not measurable".
+    else
+      rows.sort((a, b) =>
+        a.gmroi === null ? 1 : b.gmroi === null ? -1 : b.gmroi - a.gmroi,
+      );
+    return rows.slice(0, 5);
+  }, [data, sort]);
+
   return (
     <>
-      <div className="flex items-center gap-2 border-b border-border p-5">
+      <div className="flex flex-wrap items-center gap-2 border-b border-border p-5">
         <PackageSearch className="h-5 w-5 text-primary" />
         <h2 className="font-semibold">Top Selling Products</h2>
-        {data.length > 5 && (
-          <Link href="/products" className="ml-auto text-sm font-medium text-primary hover:underline">
-            View all →
-          </Link>
-        )}
+        <div className="ml-auto flex items-center gap-2">
+          <div className="flex rounded-md border border-border p-0.5">
+            {(['revenue', 'gmroi'] as const).map((key) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setSort(key)}
+                aria-pressed={sort === key}
+                className={cn(
+                  'rounded px-2 py-1 text-xs font-medium transition-colors',
+                  sort === key
+                    ? 'bg-primary text-primary-foreground'
+                    : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                {key === 'revenue' ? 'By revenue' : 'By GMROI'}
+              </button>
+            ))}
+          </div>
+          {data.length > 5 && (
+            <Link href="/products" className="text-sm font-medium text-primary hover:underline">
+              View all →
+            </Link>
+          )}
+        </div>
       </div>
+      {sort === 'gmroi' && (
+        <p className="border-b border-border bg-muted/30 px-5 py-2 text-xs text-muted-foreground">
+          Gross profit per {currencySymbol()}1 of stock held. Margin says what is
+          profitable; this says what earns its shelf space — a low-margin item that
+          sells daily beats a high-margin one that moves twice a month.
+        </p>
+      )}
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
@@ -713,11 +796,12 @@ function TopProducts({ data }: { data: Analytics['byProduct'] }) {
               <th className="px-5 py-3 font-medium">Product</th>
               <th className="px-5 py-3 text-right font-medium">Units</th>
               <th className="px-5 py-3 text-right font-medium">Revenue</th>
+              <th className="px-5 py-3 text-right font-medium">GMROI</th>
             </tr>
           </thead>
           <tbody>
             {top.length === 0 && (
-              <tr><td className="px-5 py-8 text-center text-muted-foreground" colSpan={3}>No sales in this period.</td></tr>
+              <tr><td className="px-5 py-8 text-center text-muted-foreground" colSpan={4}>No sales in this period.</td></tr>
             )}
             {top.map((p, i) => (
               <tr key={p.productId} className="border-b border-border/60 last:border-0">
@@ -729,11 +813,100 @@ function TopProducts({ data }: { data: Analytics['byProduct'] }) {
                 </td>
                 <td className="px-5 py-3 text-right">{p.quantitySold}</td>
                 <td className="px-5 py-3 text-right font-medium">{formatMoney(p.revenue)}</td>
+                <td className="px-5 py-3 text-right tabular-nums">
+                  {p.gmroi === null ? (
+                    <span className="text-muted-foreground" title="Nothing left in stock, so there is no inventory to measure a return against">
+                      —
+                    </span>
+                  ) : (
+                    `${p.gmroi.toFixed(2)}x`
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+    </>
+  );
+}
+
+/**
+ * Sales and drawer accuracy per cashier.
+ *
+ * Every sale already recorded who rang it and which shift it belonged to;
+ * nothing read either. Drawer variance by person is the number shift
+ * reconciliation exists to surface, so it is the one the table sorts to the
+ * eye: negative means the till came up short.
+ */
+function StaffPerformance({
+  data,
+  unattributed,
+}: {
+  data: Analytics['byStaff'];
+  unattributed: Analytics['unattributed'];
+}) {
+  return (
+    <>
+      <div className="flex items-center gap-2 border-b border-border p-5">
+        <Users className="h-5 w-5 text-primary" />
+        <h2 className="font-semibold">Staff Performance</h2>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted-foreground">
+              <th className="px-5 py-3 font-medium">Cashier</th>
+              <th className="px-5 py-3 text-right font-medium">Sales</th>
+              <th className="px-5 py-3 text-right font-medium">Revenue</th>
+              <th className="px-5 py-3 text-right font-medium">Avg. basket</th>
+              <th className="px-5 py-3 text-right font-medium">Shifts</th>
+              <th className="px-5 py-3 text-right font-medium">Drawer variance</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.length === 0 && (
+              <tr><td className="px-5 py-8 text-center text-muted-foreground" colSpan={6}>No staff activity in this period.</td></tr>
+            )}
+            {data.map((s) => (
+              <tr key={s.userId} className="border-b border-border/60 last:border-0">
+                <td className="px-5 py-3 font-medium">{s.name}</td>
+                <td className="px-5 py-3 text-right">{formatNumber(s.transactions)}</td>
+                <td className="px-5 py-3 text-right font-medium">{formatMoney(s.revenue)}</td>
+                <td className="px-5 py-3 text-right">{formatMoney(s.averageBasket)}</td>
+                <td className="px-5 py-3 text-right">{s.shifts || '—'}</td>
+                <td
+                  className={cn(
+                    'px-5 py-3 text-right tabular-nums',
+                    s.totalVariance === null
+                      ? 'text-muted-foreground'
+                      : s.totalVariance < 0
+                        ? 'text-destructive'
+                        : s.totalVariance > 0
+                          ? 'text-warning'
+                          : 'text-muted-foreground',
+                  )}
+                  title={
+                    s.worstVariance === null
+                      ? 'No shifts closed in this period'
+                      : `Worst single count: ${formatMoney(s.worstVariance)}`
+                  }
+                >
+                  {s.totalVariance === null ? '—' : formatMoney(s.totalVariance)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {unattributed && (
+        <p className="border-t border-border px-5 py-3 text-xs text-muted-foreground">
+          {formatMoney(unattributed.revenue)} over {formatNumber(unattributed.transactions)} sale
+          {unattributed.transactions === 1 ? '' : 's'} has no cashier recorded against it —
+          rung up before staff attribution existed, or by a user since removed. It is
+          excluded from the rows above but included in the period total.
+        </p>
+      )}
     </>
   );
 }
