@@ -18,6 +18,7 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogFooter } from '@/components/ui/dialog';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
+import { Tooltip } from '@/components/ui/tooltip';
 
 const ROLES: UserRole[] = ['OWNER', 'MANAGER', 'CASHIER', 'STOCK_KEEPER'];
 
@@ -97,26 +98,33 @@ export default function UsersPage() {
                   <TD>{u.isActive ? <Badge tone="success">Active</Badge> : <Badge tone="muted">Inactive</Badge>}</TD>
                   <TD>
                     <div className="flex justify-end gap-1">
-                      <Button size="icon" variant="ghost" onClick={() => openEdit(u)} aria-label={`Edit ${u.name}`}><Pencil className="h-4 w-4" /></Button>
+                      <Tooltip content="Edit">
+                        <Button size="icon" variant="ghost" onClick={() => openEdit(u)} aria-label={`Edit ${u.name}`}><Pencil className="h-4 w-4" /></Button>
+                      </Tooltip>
                       {u.id !== me?.id && u.isActive && (
-                        <Button size="icon" variant="ghost" aria-label={`Deactivate ${u.name}`} onClick={() => crud.setRemoveTarget(u)}>
-                          <UserX className="h-4 w-4 text-destructive" /></Button>
+                        <Tooltip content="Deactivate">
+                          <Button size="icon" variant="ghost" aria-label={`Deactivate ${u.name}`} onClick={() => crud.setRemoveTarget(u)}>
+                            <UserX className="h-4 w-4 text-destructive" /></Button>
+                        </Tooltip>
                       )}
                       {u.id !== me?.id && !u.isActive && (
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          loading={reactivate.isPending && reactivate.variables === u.id}
-                          onClick={() => reactivate.mutate(u.id)}
-                          aria-label={`Reactivate ${u.name}`}
-                          title="Reactivate this staff member"
-                        >
-                          <RotateCcw className="h-4 w-4" />
-                        </Button>
+                        <Tooltip content="Reactivate">
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            loading={reactivate.isPending && reactivate.variables === u.id}
+                            onClick={() => reactivate.mutate(u.id)}
+                            aria-label={`Reactivate ${u.name}`}
+                          >
+                            <RotateCcw className="h-4 w-4" />
+                          </Button>
+                        </Tooltip>
                       )}
                       {u.id !== me?.id && !u.isActive && isOwner && (
-                        <Button size="icon" variant="ghost" aria-label={`Delete ${u.name} permanently`} onClick={() => setDeleteTarget(u)}>
-                          <Trash2 className="h-4 w-4 text-destructive" /></Button>
+                        <Tooltip content="Delete permanently">
+                          <Button size="icon" variant="ghost" aria-label={`Delete ${u.name} permanently`} onClick={() => setDeleteTarget(u)}>
+                            <Trash2 className="h-4 w-4 text-destructive" /></Button>
+                        </Tooltip>
                       )}
                     </div>
                   </TD>

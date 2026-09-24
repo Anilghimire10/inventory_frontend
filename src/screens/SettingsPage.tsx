@@ -16,6 +16,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogFooter } from '@/components/ui/dialog';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { useToast } from '@/components/ui/toast';
+import { Tooltip } from '@/components/ui/tooltip';
 import { apiError } from '@/lib/api';
 import { CURRENCIES } from '@/lib/currencies';
 import { TIMEZONES, DEFAULT_TIMEZONE } from '@/lib/timezones';
@@ -249,32 +250,36 @@ export default function SettingsPage() {
                 </div>
               </div>
               <div className="flex shrink-0 items-center gap-1">
-                <Button size="icon" variant="ghost" onClick={() => openEdit(s)} aria-label={`Edit ${s.name}`}><Pencil className="h-4 w-4" /></Button>
+                <Tooltip content="Edit">
+                  <Button size="icon" variant="ghost" onClick={() => openEdit(s)} aria-label={`Edit ${s.name}`}><Pencil className="h-4 w-4" /></Button>
+                </Tooltip>
                 {!s.isActive ? (
                   canManageBiz && (
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      loading={reactivate.isPending && reactivate.variables === s.id}
-                      onClick={() => reactivate.mutate(s.id)}
-                      aria-label={`Reactivate ${s.name}`}
-                      title="Reactivate this store"
-                    >
-                      <RotateCcw className="h-4 w-4" />
-                    </Button>
+                    <Tooltip content="Reactivate this store">
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        loading={reactivate.isPending && reactivate.variables === s.id}
+                        onClick={() => reactivate.mutate(s.id)}
+                        aria-label={`Reactivate ${s.name}`}
+                      >
+                        <RotateCcw className="h-4 w-4" />
+                      </Button>
+                    </Tooltip>
                   )
                 ) : (
                   isOwner &&
                   activeCount > 1 && (
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      onClick={() => setDeactivating(s)}
-                      aria-label={`Deactivate ${s.name}`}
-                      title="Deactivate this store"
-                    >
-                      <Power className="h-4 w-4 text-destructive" />
-                    </Button>
+                    <Tooltip content="Deactivate this store">
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        onClick={() => setDeactivating(s)}
+                        aria-label={`Deactivate ${s.name}`}
+                      >
+                        <Power className="h-4 w-4 text-destructive" />
+                      </Button>
+                    </Tooltip>
                   )
                 )}
               </div>

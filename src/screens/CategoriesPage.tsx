@@ -12,6 +12,7 @@ import { Field } from '@/components/ui/label';
 import { Dialog, DialogFooter } from '@/components/ui/dialog';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
+import { Tooltip } from '@/components/ui/tooltip';
 import { formatMoney } from '@/lib/format';
 import { useAuth } from '@/auth/AuthContext';
 import { can } from '@/lib/permissions';
@@ -82,19 +83,24 @@ export default function CategoriesPage() {
                 <TD className="text-right text-muted-foreground">{c._count?.products ?? 0}</TD>
                 <TD>
                   <div className="flex justify-end gap-1">
-                    <Button size="icon" variant="ghost" onClick={() => setViewing(c)}
-                      title="View products" aria-label={`View products in ${c.name}`}>
-                      <Package className="h-4 w-4" />
-                    </Button>
-                    <Button size="icon" variant="ghost" aria-label={`Edit ${c.name}`}
-                      onClick={() => openEdit(c)}>
-                      <Pencil className="h-4 w-4" />
-                    </Button>
-                    {canDelete && (
-                      <Button size="icon" variant="ghost" aria-label={`Delete ${c.name}`}
-                        onClick={() => crud.setRemoveTarget(c)}>
-                        <Trash2 className="h-4 w-4 text-destructive" />
+                    <Tooltip content="View products">
+                      <Button size="icon" variant="ghost" onClick={() => setViewing(c)} aria-label={`View products in ${c.name}`}>
+                        <Package className="h-4 w-4" />
                       </Button>
+                    </Tooltip>
+                    <Tooltip content="Edit">
+                      <Button size="icon" variant="ghost" aria-label={`Edit ${c.name}`}
+                        onClick={() => openEdit(c)}>
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                    </Tooltip>
+                    {canDelete && (
+                      <Tooltip content="Delete">
+                        <Button size="icon" variant="ghost" aria-label={`Delete ${c.name}`}
+                          onClick={() => crud.setRemoveTarget(c)}>
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </Tooltip>
                     )}
                   </div>
                 </TD>

@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
+import { Tooltip } from '@/components/ui/tooltip';
 
 export function Dialog({
   open,
@@ -45,13 +46,15 @@ export function Dialog({
         aria-describedby={description ? descId : undefined}
         tabIndex={-1}
       >
+        <Tooltip content="Close" className="absolute right-4 top-4">
         <button
           onClick={onClose}
-          className="absolute right-4 top-4 rounded-md p-1 text-muted-foreground hover:bg-accent"
+          className="rounded-md p-1 text-muted-foreground hover:bg-accent"
           aria-label="Close"
         >
           <X className="h-4 w-4" />
         </button>
+        </Tooltip>
         {title && <h2 id={titleId} className="pr-8 text-lg font-semibold">{title}</h2>}
         {description && (
           <p id={descId} className="mt-1 text-sm text-muted-foreground">{description}</p>

@@ -23,6 +23,7 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogFooter } from '@/components/ui/dialog';
 import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
 import { useToast } from '@/components/ui/toast';
+import { Hint } from '@/components/ui/tooltip';
 import { apiError } from '@/lib/api';
 import { formatMoney, formatDate } from '@/lib/format';
 import { SETTLE_METHODS } from '@/lib/payment-methods';
@@ -132,6 +133,7 @@ export default function CreditPage() {
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <SummaryCard
           label="Receivables"
+          hint="Money customers owe you (udhaaro) from sales on credit."
           value={formatMoney(receivablesTotal)}
           sub={
             businessWide
@@ -143,6 +145,7 @@ export default function CreditPage() {
         />
         <SummaryCard
           label="Payables"
+          hint="Money you owe suppliers for purchases not yet paid in full."
           value={formatMoney(payablesTotal)}
           sub={`${summary.data?.suppliersOwed ?? 0} suppliers to pay`}
           icon={ArrowUpRight}
@@ -163,7 +166,11 @@ export default function CreditPage() {
       {ageing.data && ageing.data.total > 0 && (
         <Card className="mt-4 p-5">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <h2 className="text-sm font-medium">Receivables by age</h2>
+            <h2 className="text-sm font-medium">
+              <Hint tip="Each balance is placed by how long ago its oldest unpaid credit sale was made. Over 30 days is overdue.">
+                Receivables by age
+              </Hint>
+            </h2>
             {ageing.data.overdue > 0 && (
               <p className="text-xs text-warning">
                 {formatMoney(ageing.data.overdue)} has been owed for over 30 days
@@ -648,12 +655,14 @@ function AgeBucket({
 
 function SummaryCard({
   label,
+  hint,
   value,
   sub,
   icon: Icon,
   tone,
 }: {
   label: string;
+  hint?: string;
   value: string;
   sub: string;
   icon: React.ComponentType<{ className?: string }>;
@@ -669,7 +678,7 @@ function SummaryCard({
     <Card className="p-5">
       <div className="flex items-start justify-between">
         <div>
-          <p className="text-sm text-muted-foreground">{label}</p>
+          <p className="text-sm text-muted-foreground">{hint ? <Hint tip={hint}>{label}</Hint> : label}</p>
           <p className="mt-1 text-2xl font-semibold tabular-nums">{value}</p>
           <p className="mt-1 text-xs text-muted-foreground">{sub}</p>
         </div>

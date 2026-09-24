@@ -17,6 +17,7 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
 import { Pagination } from '@/components/ui/pagination';
 import { useToast } from '@/components/ui/toast';
+import { Tooltip } from '@/components/ui/tooltip';
 import { apiError } from '@/lib/api';
 import { formatMoney } from '@/lib/format';
 import { SETTLE_METHODS } from '@/lib/payment-methods';
@@ -139,43 +140,49 @@ export default function CustomersPage() {
                   </TD>
                   <TD>
                     <div className="flex justify-end gap-1">
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        title="Account statement"
-                        aria-label={`Account statement for ${customer.name}`}
-                        onClick={() => setStatementFor(customer)}
-                      >
-                        <FileText className="h-4 w-4" />
-                      </Button>
+                      <Tooltip content="Account statement">
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          aria-label={`Account statement for ${customer.name}`}
+                          onClick={() => setStatementFor(customer)}
+                        >
+                          <FileText className="h-4 w-4" />
+                        </Button>
+                      </Tooltip>
                       {due > 0 && (
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          title="Record payment"
-                          aria-label={`Record payment for ${customer.name}`}
-                          onClick={() => creditPayment.open(customer)}
-                        >
-                          <HandCoins className="h-4 w-4 text-success" />
-                        </Button>
+                        <Tooltip content="Record payment">
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            aria-label={`Record payment for ${customer.name}`}
+                            onClick={() => creditPayment.open(customer)}
+                          >
+                            <HandCoins className="h-4 w-4 text-success" />
+                          </Button>
+                        </Tooltip>
                       )}
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        onClick={() => openEditDialog(customer)}
-                        aria-label={`Edit ${customer.name}`}
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      {canDelete && (
+                      <Tooltip content="Edit">
                         <Button
                           size="icon"
                           variant="ghost"
-                          onClick={() => crud.setRemoveTarget(customer)}
-                          aria-label={`Remove ${customer.name}`}
+                          onClick={() => openEditDialog(customer)}
+                          aria-label={`Edit ${customer.name}`}
                         >
-                          <Trash2 className="h-4 w-4 text-destructive" />
+                          <Pencil className="h-4 w-4" />
                         </Button>
+                      </Tooltip>
+                      {canDelete && (
+                        <Tooltip content="Remove">
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            onClick={() => crud.setRemoveTarget(customer)}
+                            aria-label={`Remove ${customer.name}`}
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        </Tooltip>
                       )}
                     </div>
                   </TD>

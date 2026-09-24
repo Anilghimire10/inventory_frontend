@@ -16,6 +16,7 @@ import { Dialog, DialogFooter } from '@/components/ui/dialog';
 import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
 import { Pagination } from '@/components/ui/pagination';
 import { useToast } from '@/components/ui/toast';
+import { Tooltip } from '@/components/ui/tooltip';
 import { apiError } from '@/lib/api';
 import { useAuth } from '@/auth/AuthContext';
 import { can } from '@/lib/permissions';
@@ -377,23 +378,29 @@ export default function PurchasesPage() {
                     <TD className="text-right">
                       <div className="flex justify-end">
                         {p.status !== 'CANCELLED' && (
-                          <Button size="icon" variant="ghost" title="Edit purchase" aria-label="Edit purchase"
-                            onClick={() => openEdit(p.id)}>
-                            <Pencil className="h-4 w-4" />
-                          </Button>
+                          <Tooltip content="Edit purchase">
+                            <Button size="icon" variant="ghost" aria-label="Edit purchase"
+                              onClick={() => openEdit(p.id)}>
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                          </Tooltip>
                         )}
                         {(p.status === 'DRAFT' || p.status === 'ORDERED') && (
-                          <Button size="icon" variant="ghost" title="Receive stock" aria-label="Receive stock"
-                            disabled={receiveLoading}
-                            onClick={() => openReceive(p.id)}>
-                            <PackageCheck className="h-4 w-4" />
-                          </Button>
+                          <Tooltip content="Receive stock">
+                            <Button size="icon" variant="ghost" aria-label="Receive stock"
+                              disabled={receiveLoading}
+                              onClick={() => openReceive(p.id)}>
+                              <PackageCheck className="h-4 w-4" />
+                            </Button>
+                          </Tooltip>
                         )}
                         {p.status === 'RECEIVED' && (
-                          <Button size="icon" variant="ghost" title="Return to supplier" aria-label="Return to supplier"
-                            onClick={() => openReturn(p.id)}>
-                            <RotateCcw className="h-4 w-4" />
-                          </Button>
+                          <Tooltip content="Return to supplier">
+                            <Button size="icon" variant="ghost" aria-label="Return to supplier"
+                              onClick={() => openReturn(p.id)}>
+                              <RotateCcw className="h-4 w-4" />
+                            </Button>
+                          </Tooltip>
                         )}
                       </div>
                     </TD>
@@ -463,9 +470,11 @@ export default function PurchasesPage() {
                 <div key={l.productId} className="rounded-md border border-border p-3">
                   <div className="mb-2 flex items-center justify-between">
                     <span className="font-medium">{productName(l.productId)}</span>
-                    <Button size="icon" variant="ghost" onClick={() => removeLine(i)} aria-label={`Remove ${productName(l.productId)}`}>
-                      <Trash2 className="h-4 w-4 text-destructive" />
-                    </Button>
+                    <Tooltip content="Remove line">
+                      <Button size="icon" variant="ghost" onClick={() => removeLine(i)} aria-label={`Remove ${productName(l.productId)}`}>
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                      </Button>
+                    </Tooltip>
                   </div>
                   <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                     <Field label={`Qty (${product?.unit ?? 'pcs'})`}>

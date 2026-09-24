@@ -22,6 +22,7 @@ import { OpenShiftModal } from '@/components/pos/OpenShiftModal';
 import { ChooseStoreModal } from '@/components/pos/ChooseStoreModal';
 import { CloseShiftModal } from '@/components/pos/CloseShiftModal';
 import { ErrorState, LoadingBlock } from '@/components/ui/misc';
+import { Tooltip } from '@/components/ui/tooltip';
 import { useActiveStores, useStores } from '@/hooks/useStores';
 import { resolvePosStore } from '@/lib/posStore';
 import { useStoreScope } from '@/store/StoreContext';
@@ -630,9 +631,11 @@ export default function PosPage() {
               <Printer className="h-4 w-4" /> Last receipt
             </Button>
           )}
-          <Button variant="outline" size="sm" onClick={() => setShowHelp(true)} title="Show keyboard hints">
-            ?
-          </Button>
+          <Tooltip content="Keyboard shortcuts">
+            <Button variant="outline" size="sm" onClick={() => setShowHelp(true)} aria-label="Keyboard shortcuts">
+              ?
+            </Button>
+          </Tooltip>
         </div>
       </div>
 
@@ -783,17 +786,22 @@ export default function PosPage() {
                           </span>
                         </div>
                       )}
+                      <Tooltip
+                        content={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
+                        className="absolute right-1.5 top-1.5"
+                      >
                       <button
                         type="button"
                         onClick={(e) => { e.stopPropagation(); toggleFavorite(p.id); }}
                         aria-label={isFavorite ? `Remove ${p.name} from favorites` : `Add ${p.name} to favorites`}
                         className={cn(
-                          'absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-background/80 shadow-sm backdrop-blur-sm transition-colors',
+                          'flex h-6 w-6 items-center justify-center rounded-full bg-background/80 shadow-sm backdrop-blur-sm transition-colors',
                           isFavorite ? 'text-warning' : 'text-muted-foreground hover:text-foreground',
                         )}
                       >
                         <Star className={cn('h-3.5 w-3.5', isFavorite && 'fill-current')} />
                       </button>
+                      </Tooltip>
                     </div>
                     <div className="flex flex-1 flex-col gap-1 p-2.5">
                       <div className="flex items-start gap-1">
@@ -802,6 +810,7 @@ export default function PosPage() {
                       </div>
                       <div className="mt-auto flex items-center justify-between pt-1">
                         <span className="text-sm font-bold text-primary">{formatMoney(p.sellingPrice)}</span>
+                        <Tooltip content={out ? 'Out of stock' : 'Add to cart'}>
                         <button
                           disabled={out}
                           onClick={(e) => { e.stopPropagation(); add(p); }}
@@ -810,6 +819,7 @@ export default function PosPage() {
                         >
                           <Plus className="h-4 w-4" />
                         </button>
+                        </Tooltip>
                       </div>
                       <div className="flex items-center justify-between gap-1">
                         <span className="truncate text-xs text-muted-foreground">{p.sku || p.unit}</span>

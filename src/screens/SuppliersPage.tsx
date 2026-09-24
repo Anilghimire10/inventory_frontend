@@ -13,6 +13,7 @@ import { Dialog, DialogFooter } from '@/components/ui/dialog';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
 import { Pagination } from '@/components/ui/pagination';
+import { Tooltip } from '@/components/ui/tooltip';
 import { useAuth } from '@/auth/AuthContext';
 import { can } from '@/lib/permissions';
 
@@ -80,10 +81,14 @@ export default function SuppliersPage() {
                   <TD className="text-muted-foreground">{s.email || '—'}</TD>
                   <TD>
                     <div className="flex justify-end gap-1">
-                      <Button size="icon" variant="ghost" onClick={() => openEdit(s)} aria-label={`Edit ${s.name}`}><Pencil className="h-4 w-4" /></Button>
+                      <Tooltip content="Edit">
+                        <Button size="icon" variant="ghost" onClick={() => openEdit(s)} aria-label={`Edit ${s.name}`}><Pencil className="h-4 w-4" /></Button>
+                      </Tooltip>
                       {canDelete && (
-                        <Button size="icon" variant="ghost" onClick={() => crud.setRemoveTarget(s)} aria-label={`Remove ${s.name}`}>
-                          <Trash2 className="h-4 w-4 text-destructive" /></Button>
+                        <Tooltip content="Remove">
+                          <Button size="icon" variant="ghost" onClick={() => crud.setRemoveTarget(s)} aria-label={`Remove ${s.name}`}>
+                            <Trash2 className="h-4 w-4 text-destructive" /></Button>
+                        </Tooltip>
                       )}
                     </div>
                   </TD>

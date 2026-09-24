@@ -20,6 +20,7 @@ import { Field } from '@/components/ui/label';
 import { RxBadge } from '@/components/ui/RxBadge';
 import { Card } from '@/components/ui/card';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { Tooltip } from '@/components/ui/tooltip';
 import { formatMoney } from '@/lib/format';
 import { hasDuplicateSerials, serialsInvalid } from '@/lib/serials';
 import { cn } from '@/lib/utils';
@@ -259,15 +260,17 @@ export function CartPanel({
               Done
             </Button>
           )}
-          <Button
-            size="icon"
-            variant="ghost"
-            className="h-7 w-7 rounded-full text-muted-foreground hover:bg-accent lg:ml-auto"
-            onClick={onClear}
-            aria-label="Clear cart"
-          >
-            <X className="h-4 w-4" />
-          </Button>
+          <Tooltip content="Clear cart">
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-7 w-7 rounded-full text-muted-foreground hover:bg-accent lg:ml-auto"
+              onClick={onClear}
+              aria-label="Clear cart"
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </Tooltip>
         </div>
 
         {heldSales.length > 0 && (
@@ -297,16 +300,18 @@ export function CartPanel({
                   >
                     <RotateCcw className="h-3 w-3" /> Resume
                   </Button>
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    className="h-6 w-6 shrink-0 text-muted-foreground hover:text-destructive"
-                    aria-label="Discard held sale"
-                    loading={discardingId === s.id}
-                    onClick={() => onDiscardHeld(s.id)}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
+                  <Tooltip content="Discard held sale">
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-6 w-6 shrink-0 text-muted-foreground hover:text-destructive"
+                      aria-label="Discard held sale"
+                      loading={discardingId === s.id}
+                      onClick={() => onDiscardHeld(s.id)}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </Tooltip>
                 </li>
               ))}
             </ul>

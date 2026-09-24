@@ -23,6 +23,7 @@ import { exportCsv, parseCsv } from '@/lib/csv';
 import { printLabelSheet } from '@/lib/print';
 import { generateBarcodeValue } from '@/lib/barcode';
 import { Select } from '@/components/ui/select';
+import { Tooltip } from '@/components/ui/tooltip';
 import { UNITS } from '@/lib/units';
 import { formatMoney } from '@/lib/format';
 import { useAuth } from '@/auth/AuthContext';
@@ -423,18 +424,22 @@ export default function ProductsPage() {
                   <TD className="text-right font-medium">{formatMoney(p.sellingPrice)}</TD>
                   <TD>
                     <div className="flex justify-end gap-1">
-                      <Button size="icon" variant="ghost" onClick={() => openEdit(p)} aria-label={`Edit ${p.name}`}>
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      {canDelete && (
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          onClick={() => setRemoveTarget(p)}
-                          aria-label={`Remove ${p.name}`}
-                        >
-                          <Trash2 className="h-4 w-4 text-destructive" />
+                      <Tooltip content="Edit">
+                        <Button size="icon" variant="ghost" onClick={() => openEdit(p)} aria-label={`Edit ${p.name}`}>
+                          <Pencil className="h-4 w-4" />
                         </Button>
+                      </Tooltip>
+                      {canDelete && (
+                        <Tooltip content="Remove">
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            onClick={() => setRemoveTarget(p)}
+                            aria-label={`Remove ${p.name}`}
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        </Tooltip>
                       )}
                     </div>
                   </TD>
