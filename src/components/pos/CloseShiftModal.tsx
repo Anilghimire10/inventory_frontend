@@ -67,6 +67,9 @@ export function CloseShiftModal({
               value={formatMoney(t.amount)}
             />
           ))}
+          {!!shift.creditCollected && (
+            <Row label="Credit collected (cash)" value={formatMoney(shift.creditCollected)} />
+          )}
           {shift.discounts > 0 && <Row label="Discounts" value={`-${formatMoney(shift.discounts)}`} />}
           {shift.refunds > 0 && <Row label="Refunds" value={`-${formatMoney(shift.refunds)}`} />}
           <Row
