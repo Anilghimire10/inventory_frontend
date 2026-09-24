@@ -17,6 +17,8 @@ import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
 import { Pagination } from '@/components/ui/pagination';
 import { useToast } from '@/components/ui/toast';
 import { apiError } from '@/lib/api';
+import { useAuth } from '@/auth/AuthContext';
+import { can } from '@/lib/permissions';
 import { formatMoney, formatDate } from '@/lib/format';
 import { remainingQty } from '@/lib/decimal';
 import { hasDuplicateSerials, parseSerials, serialsInvalid } from '@/lib/serials';
@@ -50,6 +52,10 @@ export default function PurchasesPage() {
   const [nameCache, setNameCache] = useState<Record<string, string>>({});
   const [pickProduct, setPickProduct] = useState('');
   // Supplier payment: pay in full now, buy on credit, or pay part now.
+  const { user } = useAuth();
+  // Stock keepers receive goods; paying for them is left to management, and
+  // the API records their purchases on credit whatever is sent.
+  const canPay = !!user && can.paySuppliers(user.role);
   const [payMode, setPayMode] = useState<'full' | 'credit' | 'partial'>('full');
   const [amountPaid, setAmountPaid] = useState(0);
 
@@ -117,8 +123,9 @@ export default function PurchasesPage() {
         supplierId: supplierId || undefined,
         reference: reference || undefined,
         receiveNow: true,
-        amountPaid:
-          payMode === 'full'
+        amountPaid: !canPay
+          ? 0
+          : payMode === 'full'
             ? undefined
             : payMode === 'credit'
               ? 0
@@ -510,30 +517,39 @@ export default function PurchasesPage() {
               <span className="text-sm text-muted-foreground">Total cost</span>
               <span className="text-lg font-semibold">{formatMoney(total)}</span>
             </div>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <Field label="Supplier payment">
-                <Select value={payMode} onChange={(e) => setPayMode(e.target.value as typeof payMode)}>
-                  <option value="full">Paid in full now</option>
-                  <option value="credit">On credit (pay later)</option>
-                  <option value="partial">Partial payment now</option>
-                </Select>
-              </Field>
-              {payMode === 'partial' && (
-                <Field label="Amount paid now">
-                  <Input type="number" step="0.01" min="0" max={total} value={amountPaid}
-                    onChange={(e) =>
-                      setAmountPaid(Math.min(Math.max(Number(e.target.value) || 0, 0), total))
-                    } />
-                </Field>
-              )}
-            </div>
-            {payMode !== 'full' && (
+            {canPay ? (
+              <>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <Field label="Supplier payment">
+                    <Select value={payMode} onChange={(e) => setPayMode(e.target.value as typeof payMode)}>
+                      <option value="full">Paid in full now</option>
+                      <option value="credit">On credit (pay later)</option>
+                      <option value="partial">Partial payment now</option>
+                    </Select>
+                  </Field>
+                  {payMode === 'partial' && (
+                    <Field label="Amount paid now">
+                      <Input type="number" step="0.01" min="0" max={total} value={amountPaid}
+                        onChange={(e) =>
+                          setAmountPaid(Math.min(Math.max(Number(e.target.value) || 0, 0), total))
+                        } />
+                    </Field>
+                  )}
+                </div>
+                {payMode !== 'full' && (
+                  <p className="text-xs text-muted-foreground">
+                    Outstanding{' '}
+                    <span className="font-medium text-foreground">
+                      {formatMoney(Math.max(0, total - (payMode === 'credit' ? 0 : amountPaid)))}
+                    </span>{' '}
+                    will appear under Credit → Payables.
+                  </p>
+                )}
+              </>
+            ) : (
               <p className="text-xs text-muted-foreground">
-                Outstanding{' '}
-                <span className="font-medium text-foreground">
-                  {formatMoney(Math.max(0, total - (payMode === 'credit' ? 0 : amountPaid)))}
-                </span>{' '}
-                will appear under Credit → Payables.
+                Recorded on credit. An owner or manager records the payment
+                under Credit → Payables.
               </p>
             )}
           </div>

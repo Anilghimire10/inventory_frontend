@@ -20,6 +20,8 @@ export const can = {
   deleteCustomers: (r: UserRole) => isAdmin(r),
   // Credit & invoices, business settings, financial reports — management.
   manageCredit: (r: UserRole) => isAdmin(r),
+  // Paying a supplier. A stock keeper's purchases are recorded on credit.
+  paySuppliers: (r: UserRole) => isAdmin(r),
   manageBusiness: (r: UserRole) => isAdmin(r),
   viewAnalytics: (r: UserRole) => isAdmin(r),
   viewActivityLog: (r: UserRole) => isAdmin(r),
