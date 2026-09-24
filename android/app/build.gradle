@@ -16,9 +16,36 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    // Release signing. The upload keystore and its passwords live outside the
+    // repo, in ~/.gradle/gradle.properties:
+    //   INVENTORY_UPLOAD_STORE_FILE=/absolute/path/to/upload.jks
+    //   INVENTORY_UPLOAD_STORE_PASSWORD=...
+    //   INVENTORY_UPLOAD_KEY_ALIAS=upload
+    //   INVENTORY_UPLOAD_KEY_PASSWORD=...
+    // Without them a release build still works, it is just unsigned. Back the
+    // keystore up somewhere safe: Play will not accept an update signed by any
+    // other key.
+    def hasUploadKey = project.hasProperty('INVENTORY_UPLOAD_STORE_FILE')
+    signingConfigs {
+        release {
+            if (hasUploadKey) {
+                storeFile file(project.property('INVENTORY_UPLOAD_STORE_FILE'))
+                storePassword project.property('INVENTORY_UPLOAD_STORE_PASSWORD')
+                keyAlias project.property('INVENTORY_UPLOAD_KEY_ALIAS')
+                keyPassword project.property('INVENTORY_UPLOAD_KEY_PASSWORD')
+            }
+        }
+    }
     buildTypes {
         release {
-            minifyEnabled false
+            if (hasUploadKey) {
+                signingConfig signingConfigs.release
+            }
+            // R8 shrinking. Capacitor ships its own keep rules
+            // (consumerProguardFiles), so the bridge survives it; add rules to
+            // proguard-rules.pro if a plugin added later needs them.
+            minifyEnabled true
+            shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
     }

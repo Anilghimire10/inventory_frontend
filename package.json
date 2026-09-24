@@ -11,6 +11,7 @@
     "test:watch": "vitest",
     "build:mobile": "cross-env BUILD_TARGET=mobile next build",
     "sync": "npm run build:mobile && cap sync",
+    "sync:dev": "cross-env CAP_CLEARTEXT=true npm run sync",
     "android": "npm run sync && cap open android",
     "ios": "npm run sync && cap open ios"
   },
