@@ -71,7 +71,7 @@ function subscribeJoined(onChange: () => void) {
   };
 }
 
-function readJoinedShift(storeId: string): string | null {
+export function readJoinedShift(storeId: string): string | null {
   try {
     return localStorage.getItem(joinKey(storeId));
   } catch {

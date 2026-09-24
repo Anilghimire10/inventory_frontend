@@ -641,5 +641,37 @@ export interface ShiftReport extends Omit<Shift, 'countedCash' | 'expectedCash' 
   net: number;
   cashIn: number;
   cashRefunds: number;
+  /**
+   * Cash taken at this till against customer credit. It is in the drawer and
+   * in `expectedCash`, but no sale explains it, so it is shown as its own line.
+   */
+  creditCollected?: number;
   byTender: ShiftTenderTotal[];
+}
+
+/**
+ * GET /customers/:id/statement -- a customer's khata rebuilt from events:
+ * credit sales charged and payments taken. `openingBalance` is whatever those
+ * events don't explain (a balance carried in from before the ledger), so
+ * `openingBalance + charged - paid` always equals the stored balance.
+ */
+export interface CustomerStatement {
+  customer: { id: string; name: string; phone?: string | null };
+  openingBalance: number;
+  charges: { saleId: string; receiptNo: string; createdAt: string; amount: number }[];
+  payments: {
+    id: string;
+    type: 'SALE' | 'REFUND' | 'CUSTOMER_CREDIT' | 'SUPPLIER_PAYMENT' | 'SUPPLIER_REFUND';
+    amount: number;
+    method: PaymentMethod;
+    note?: string | null;
+    createdAt: string;
+    saleId?: string | null;
+    user?: { id: string; name: string } | null;
+    store?: { id: string; name: string } | null;
+    direction: 1 | -1;
+  }[];
+  totals: { openingBalance: number; charged: number; paid: number; closing: number; stored: number };
+  /** True when every rupee owed is explained by a recorded sale or payment. */
+  reconciles: boolean;
 }

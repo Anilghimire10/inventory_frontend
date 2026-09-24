@@ -144,6 +144,11 @@ export function printShiftReport(
       <table>
         <tr class="muted"><td>Opening float</td><td class="r">${m(shift.openingFloat)}</td></tr>
         ${tenderRows}
+        ${
+          shift.creditCollected
+            ? `<tr class="muted"><td>Credit collected (cash)</td><td class="r">${m(shift.creditCollected)}</td></tr>`
+            : ''
+        }
         <tr class="muted"><td>Discounts</td><td class="r">-${m(shift.discounts)}</td></tr>
         <tr class="muted"><td>Refunds</td><td class="r">-${m(shift.refunds)}</td></tr>
         <tr class="muted"><td>${shift.salesCount} sale${shift.salesCount !== 1 ? 's' : ''} · gross</td><td class="r">${m(shift.gross)}</td></tr>

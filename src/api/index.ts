@@ -9,11 +9,13 @@ import type {
   Category,
   CreditSummary,
   Customer,
+  CustomerStatement,
   Dashboard,
   HeldSaleCart,
   NotificationList,
   Paginated,
   Payable,
+  PaymentMethod,
   Product,
   ProductVariant,
   Purchase,
@@ -38,6 +40,12 @@ import type {
   ReturnPurchaseResult,
   ReorderSuggestionGroup,
 } from '@/types';
+
+/** How a credit or supplier payment was made. Omitted, the API assumes cash. */
+export interface PaymentOpts {
+  method?: PaymentMethod;
+  note?: string;
+}
 
 const get = async <T>(url: string, params?: object) =>
   (await api.get<T>(url, { params })).data;
@@ -225,8 +233,8 @@ export const PurchasesApi = {
     id: string,
     body: { note?: string; items: { purchaseItemId: string; quantity: number }[] },
   ) => post<ReturnPurchaseResult>(`/purchases/${id}/return`, body),
-  pay: (id: string, amount: number) =>
-    post<Purchase>(`/purchases/${id}/pay`, { amount }),
+  pay: (id: string, amount: number, opts: PaymentOpts = {}) =>
+    post<Purchase>(`/purchases/${id}/pay`, { amount, ...opts }),
   /** Low-stock items grouped into one suggested order per store + supplier. */
   reorderSuggestions: (storeId?: string) =>
     get<ReorderSuggestionGroup[]>(
@@ -300,9 +308,19 @@ export const CustomersApi = {
   get: (id: string) => get<Customer>(`/customers/${id}`),
   create: (body: object) => post<Customer>('/customers', body),
   update: (id: string, body: object) => patch<Customer>(`/customers/${id}`, body),
-  payCredit: (id: string, amount: number) =>
-    post<Customer>(`/customers/${id}/pay-credit`, { amount }),
+  /**
+   * `storeId` is what lets cash collected at a till reach that till's drawer:
+   * the API books the payment to the shift open there, so the shift's
+   * expected cash includes it.
+   */
+  payCredit: (
+    id: string,
+    amount: number,
+    opts: PaymentOpts & { storeId?: string; shiftId?: string } = {},
+  ) => post<Customer>(`/customers/${id}/pay-credit`, { amount, ...opts }),
   remove: (id: string) => del(`/customers/${id}`),
+  /** The account rebuilt from credit sales and payments, oldest first. */
+  statement: (id: string) => get<CustomerStatement>(`/customers/${id}/statement`),
 };
 
 export const UsersApi = {

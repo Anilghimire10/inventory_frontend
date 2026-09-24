@@ -12,11 +12,12 @@ import {
 } from 'lucide-react';
 import { CreditApi, CustomersApi, PurchasesApi, ReportsApi } from '@/api';
 import { useStoreScope } from '@/store/StoreContext';
-import type { CreditInvoice, Payable, Receivable } from '@/types';
+import type { CreditInvoice, Payable, PaymentMethod, Receivable } from '@/types';
 import { PageHeader, LoadingBlock, EmptyState, ErrorState } from '@/components/ui/misc';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
 import { Field } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogFooter } from '@/components/ui/dialog';
@@ -24,6 +25,8 @@ import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
 import { useToast } from '@/components/ui/toast';
 import { apiError } from '@/lib/api';
 import { formatMoney, formatDate } from '@/lib/format';
+import { SETTLE_METHODS } from '@/lib/payment-methods';
+import { TillPicker, useTillChoice } from '@/components/TillPicker';
 import { cn } from '@/lib/utils';
 
 type Tab = 'receivables' | 'payables';
@@ -70,13 +73,23 @@ export default function CreditPage() {
     mutationFn: ({
       target,
       amount,
+      method,
+      shiftId,
     }: {
       target: PayTarget;
       amount: number;
+      method: PaymentMethod;
+      shiftId: string | null;
     }): Promise<unknown> =>
       target.kind === 'customer'
-        ? CustomersApi.payCredit(target.id, amount)
-        : PurchasesApi.pay(target.id, amount),
+        ? // The branch in the header is where the money was taken, so cash
+          // collected here lands in that branch's open till.
+          CustomersApi.payCredit(target.id, amount, {
+            method,
+            storeId: storeId || undefined,
+            shiftId: shiftId ?? undefined,
+          })
+        : PurchasesApi.pay(target.id, amount, { method }),
     onSuccess: () => {
       show('Payment recorded');
       refresh();
@@ -95,7 +108,7 @@ export default function CreditPage() {
 
   const receivablesTotal = summary.data?.receivablesTotal ?? 0;
   // Payables scope exactly to a branch; receivable balances cannot, because a
-  // customer's debt is to the business and payCredit records no store.
+  // customer's debt is to the business, whichever branch took the payment.
   const businessWide = !!summary.data?.receivablesAreBusinessWide;
   const payablesTotal = summary.data?.payablesTotal ?? 0;
 
@@ -342,7 +355,8 @@ export default function CreditPage() {
           target={payTarget}
           loading={pay.isPending}
           onClose={() => setPayTarget(null)}
-          onSubmit={(amount) => pay.mutate({ target: payTarget, amount })}
+          storeId={storeId}
+          onSubmit={(amount, method, shiftId) => pay.mutate({ target: payTarget, amount, method, shiftId })}
         />
       )}
     </div>
@@ -518,20 +532,25 @@ function PayDialog({
   target,
   loading,
   onClose,
+  storeId,
   onSubmit,
 }: {
   target: PayTarget;
   loading: boolean;
   onClose: () => void;
-  onSubmit: (amount: number) => void;
+  storeId: string;
+  onSubmit: (amount: number, method: PaymentMethod, shiftId: string | null) => void;
 }) {
   const [amount, setAmount] = useState(target.max);
+  const [method, setMethod] = useState<PaymentMethod>('CASH');
+  // Only customer payments land in a till; a supplier is paid from elsewhere.
+  const till = useTillChoice(storeId, method, target.kind === 'customer');
   return (
     <Dialog open onClose={onClose} title="Record payment">
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          onSubmit(amount);
+          onSubmit(amount, method, till.shiftId);
         }}
         className="space-y-4"
       >
@@ -552,9 +571,21 @@ function PayDialog({
             autoFocus
           />
         </Field>
+        <Field label="Paid by">
+          <Select value={method} onChange={(e) => setMethod(e.target.value as PaymentMethod)}>
+            {SETTLE_METHODS.map((m) => (
+              <option key={m.value} value={m.value}>{m.label}</option>
+            ))}
+          </Select>
+        </Field>
+        <TillPicker choice={till} />
         <DialogFooter>
           <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
-          <Button type="submit" loading={loading} disabled={amount <= 0 || amount > target.max}>
+          <Button
+            type="submit"
+            loading={loading}
+            disabled={amount <= 0 || amount > target.max || (till.needsChoice && !till.shiftId)}
+          >
             Record {formatMoney(amount || 0)}
           </Button>
         </DialogFooter>

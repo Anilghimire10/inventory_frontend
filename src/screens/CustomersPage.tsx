@@ -1,14 +1,15 @@
 'use client';
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, Pencil, Trash2, Users, HandCoins } from 'lucide-react';
+import { Plus, Pencil, Trash2, Users, HandCoins, FileText } from 'lucide-react';
 import { CustomersApi } from '@/api';
 import { useStoreScope } from '@/store/StoreContext';
-import type { Customer } from '@/types';
+import type { Customer, PaymentMethod } from '@/types';
 import { useCrudResource } from '@/hooks/useCrudResource';
 import { PageHeader, LoadingBlock, EmptyState, ErrorState } from '@/components/ui/misc';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
 import { Field } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogFooter } from '@/components/ui/dialog';
@@ -18,6 +19,9 @@ import { Pagination } from '@/components/ui/pagination';
 import { useToast } from '@/components/ui/toast';
 import { apiError } from '@/lib/api';
 import { formatMoney } from '@/lib/format';
+import { SETTLE_METHODS } from '@/lib/payment-methods';
+import { CustomerStatementDialog } from '@/components/CustomerStatementDialog';
+import { TillPicker, useTillChoice } from '@/components/TillPicker';
 import { useAuth } from '@/auth/AuthContext';
 import { can } from '@/lib/permissions';
 
@@ -79,7 +83,8 @@ export default function CustomersPage() {
     });
   };
 
-  const creditPayment = useCreditPayment();
+  const creditPayment = useCreditPayment(storeId);
+  const [statementFor, setStatementFor] = useState<Customer | null>(null);
 
   const customers = data?.data ?? [];
 
@@ -134,6 +139,15 @@ export default function CustomersPage() {
                   </TD>
                   <TD>
                     <div className="flex justify-end gap-1">
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        title="Account statement"
+                        aria-label={`Account statement for ${customer.name}`}
+                        onClick={() => setStatementFor(customer)}
+                      >
+                        <FileText className="h-4 w-4" />
+                      </Button>
                       {due > 0 && (
                         <Button
                           size="icon"
@@ -205,6 +219,10 @@ export default function CustomersPage() {
         </form>
       </Dialog>
 
+      {statementFor && (
+        <CustomerStatementDialog customer={statementFor} onClose={() => setStatementFor(null)} />
+      )}
+
       <Dialog
         open={creditPayment.isOpen}
         onClose={creditPayment.close}
@@ -235,6 +253,17 @@ export default function CustomersPage() {
               autoFocus
             />
           </Field>
+          <Field label="Paid by">
+            <Select
+              value={creditPayment.method}
+              onChange={(e) => creditPayment.setMethod(e.target.value as PaymentMethod)}
+            >
+              {SETTLE_METHODS.map((m) => (
+                <option key={m.value} value={m.value}>{m.label}</option>
+              ))}
+            </Select>
+          </Field>
+          <TillPicker choice={creditPayment.till} />
           <DialogFooter>
             <Button type="button" variant="outline" onClick={creditPayment.close}>
               Cancel
@@ -242,7 +271,10 @@ export default function CustomersPage() {
             <Button
               type="submit"
               loading={creditPayment.isPending}
-              disabled={creditPayment.amount <= 0}
+              disabled={
+                creditPayment.amount <= 0 ||
+                (creditPayment.till.needsChoice && !creditPayment.till.shiftId)
+              }
             >
               Record payment
             </Button>
@@ -267,15 +299,26 @@ export default function CustomersPage() {
   );
 }
 
-/** Record-a-credit-payment flow: separate from the CRUD dialog since it targets a different endpoint. */
-function useCreditPayment() {
+/**
+ * Record-a-credit-payment flow: separate from the CRUD dialog since it targets
+ * a different endpoint. `storeId` is the branch in the header -- where the
+ * money was taken -- so cash lands in that branch's open till.
+ */
+function useCreditPayment(storeId: string) {
   const qc = useQueryClient();
   const { show } = useToast();
   const [target, setTarget] = useState<Customer | null>(null);
   const [amount, setAmount] = useState(0);
+  const [method, setMethod] = useState<PaymentMethod>('CASH');
+  const till = useTillChoice(storeId, method, !!target);
 
   const pay = useMutation({
-    mutationFn: () => CustomersApi.payCredit(target!.id, amount),
+    mutationFn: () =>
+      CustomersApi.payCredit(target!.id, amount, {
+        method,
+        storeId: storeId || undefined,
+        shiftId: till.shiftId ?? undefined,
+      }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['customers'] });
       show('Payment recorded');
@@ -289,10 +332,14 @@ function useCreditPayment() {
     isOpen: !!target,
     amount,
     setAmount,
+    method,
+    setMethod,
+    till,
     isPending: pay.isPending,
     open: (customer: Customer) => {
       setTarget(customer);
       setAmount(Number(customer.creditBalance));
+      setMethod('CASH');
     },
     close: () => setTarget(null),
     submit: () => pay.mutate(),
