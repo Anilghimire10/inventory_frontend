@@ -31,6 +31,7 @@ import { printSale } from '@/lib/print';
 import { formatMoney, formatDateTime } from '@/lib/format';
 import { remainingQty } from '@/lib/decimal';
 import { Card } from '@/components/ui/card';
+import { Tooltip } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 
 type DateFilter = 'all' | 'today' | '7d' | '30d';
@@ -439,17 +440,19 @@ function RowMenu({
   const [open, setOpen] = useState(false);
   return (
     <div className="relative" onBlur={() => setTimeout(() => setOpen(false), 120)}>
-      <Button
-        size="icon"
-        variant="ghost"
-        className="h-8 w-8"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        aria-label="Receipt actions"
-        onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }}
-      >
-        <MoreVertical className="h-4 w-4" />
-      </Button>
+      <Tooltip content="Receipt actions">
+        <Button
+          size="icon"
+          variant="ghost"
+          className="h-8 w-8"
+          aria-haspopup="menu"
+          aria-expanded={open}
+          aria-label="Receipt actions"
+          onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }}
+        >
+          <MoreVertical className="h-4 w-4" />
+        </Button>
+      </Tooltip>
       {open && (
         <div className="absolute right-0 z-20 mt-1 w-44 rounded-md border border-border bg-popover p-1 shadow-lg animate-fade-in">
           <button

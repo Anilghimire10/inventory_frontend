@@ -4,6 +4,7 @@ import { X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Field } from '@/components/ui/label';
+import { Hint, Tooltip } from '@/components/ui/tooltip';
 import { formatMoney } from '@/lib/format';
 import type { ShiftReport } from '@/types';
 import { cn } from '@/lib/utils';
@@ -48,14 +49,16 @@ export function CloseShiftModal({
               ? `Close ${shift.user?.name ?? 'this user'}\u2019s till`
               : 'Close shift'}
           </h2>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Cancel"
-            className="text-muted-foreground hover:text-foreground"
-          >
-            <X className="h-4 w-4" />
-          </button>
+          <Tooltip content="Close">
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Cancel"
+              className="text-muted-foreground hover:text-foreground"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </Tooltip>
         </div>
 
         <div className="space-y-1.5 rounded-lg border border-border bg-muted/30 p-3 text-sm">
@@ -77,7 +80,7 @@ export function CloseShiftModal({
             value={formatMoney(shift.gross)}
           />
           <div className="!mt-2 flex justify-between border-t border-border pt-1.5 font-medium text-foreground">
-            <span>Expected cash</span>
+            <Hint tip="What should be in the drawer: opening float + cash sales + credit collected in cash − cash refunds.">Expected cash</Hint>
             <span>{formatMoney(shift.expectedCash)}</span>
           </div>
         </div>

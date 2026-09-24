@@ -7,6 +7,7 @@ import { NotificationsApi } from '@/api';
 import type { AppNotification, NotificationType } from '@/types';
 import { formatDateTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
+import { Tooltip } from '@/components/ui/tooltip';
 
 const ICONS: Record<NotificationType, React.ComponentType<{ className?: string }>> = {
   LOW_STOCK: AlertTriangle,
@@ -131,18 +132,20 @@ function NotificationRow({
           {formatDateTime(n.createdAt)}
         </div>
       </div>
-      <button
-        onMouseDown={(e) => e.preventDefault()}
-        onClick={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          onDismiss();
-        }}
-        className="shrink-0 rounded p-1 text-muted-foreground hover:bg-accent hover:text-destructive"
-        aria-label="Dismiss"
-      >
-        <Trash2 className="h-3.5 w-3.5" />
-      </button>
+      <Tooltip content="Dismiss" className="shrink-0">
+        <button
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onDismiss();
+          }}
+          className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-destructive"
+          aria-label="Dismiss"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
+      </Tooltip>
     </div>
   );
 

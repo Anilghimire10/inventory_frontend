@@ -12,6 +12,7 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { ErrorState } from '@/components/ui/misc';
 import { formatMoney } from '@/lib/format';
 import { useToast } from '@/components/ui/toast';
+import { Tooltip } from '@/components/ui/tooltip';
 import { apiError } from '@/lib/api';
 
 type Axis = { name: string; values: string };
@@ -184,9 +185,11 @@ export function VariantsSection({
               <li key={v.id} className="space-y-3 rounded-md border border-border bg-muted/20 p-3">
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-medium">{v.variantName}</span>
-                  <Button type="button" size="icon" variant="ghost" aria-label="Cancel" onClick={closeEdit}>
-                    <X className="h-3.5 w-3.5" />
-                  </Button>
+                  <Tooltip content="Cancel editing">
+                    <Button type="button" size="icon" variant="ghost" aria-label="Cancel" onClick={closeEdit}>
+                      <X className="h-3.5 w-3.5" />
+                    </Button>
+                  </Tooltip>
                 </div>
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <Field label="SKU">
@@ -259,25 +262,29 @@ export function VariantsSection({
                   </div>
                 </div>
                 <div className="flex shrink-0 gap-1">
-                  <Button
-                    type="button"
-                    size="icon"
-                    variant="ghost"
-                    aria-label="Edit variant"
-                    onClick={() => openEdit(v)}
-                  >
-                    <Pencil className="h-3.5 w-3.5" />
-                  </Button>
-                  {canDelete && (
+                  <Tooltip content="Edit variant">
                     <Button
                       type="button"
                       size="icon"
                       variant="ghost"
-                      aria-label="Remove variant"
-                      onClick={() => setRemoveTarget(v)}
+                      aria-label="Edit variant"
+                      onClick={() => openEdit(v)}
                     >
-                      <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                      <Pencil className="h-3.5 w-3.5" />
                     </Button>
+                  </Tooltip>
+                  {canDelete && (
+                    <Tooltip content="Remove variant">
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        aria-label="Remove variant"
+                        onClick={() => setRemoveTarget(v)}
+                      >
+                        <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                      </Button>
+                    </Tooltip>
                   )}
                 </div>
               </li>
@@ -290,9 +297,11 @@ export function VariantsSection({
         <div className="space-y-3 rounded-md border border-border bg-muted/20 p-3">
           <div className="flex items-center justify-between">
             <span className="text-sm font-medium">Generate variants</span>
-            <Button type="button" size="icon" variant="ghost" aria-label="Cancel" onClick={closeGenerate}>
-              <X className="h-3.5 w-3.5" />
-            </Button>
+            <Tooltip content="Cancel">
+              <Button type="button" size="icon" variant="ghost" aria-label="Cancel" onClick={closeGenerate}>
+                <X className="h-3.5 w-3.5" />
+              </Button>
+            </Tooltip>
           </div>
           <p className="text-xs text-muted-foreground">
             One row per attribute, comma-separated values — e.g. Colour: Red, Blue and Size: S, M, L
@@ -312,16 +321,18 @@ export function VariantsSection({
                   value={a.values}
                   onChange={(e) => setAxis(i, 'values', e.target.value)}
                 />
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="ghost"
-                  aria-label="Remove attribute"
-                  disabled={axes.length === 1}
-                  onClick={() => removeAxis(i)}
-                >
-                  <X className="h-3.5 w-3.5" />
-                </Button>
+                <Tooltip content="Remove attribute">
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    aria-label="Remove attribute"
+                    disabled={axes.length === 1}
+                    onClick={() => removeAxis(i)}
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </Button>
+                </Tooltip>
               </div>
             ))}
             {axes.length < 3 && (

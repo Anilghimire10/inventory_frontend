@@ -38,6 +38,7 @@ import { useStoreScope } from '@/store/StoreContext';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Hint } from '@/components/ui/tooltip';
 import { formatMoney, formatNumber, formatDateTime, currencySymbol } from '@/lib/format';
 import { exportCsv } from '@/lib/csv';
 import { cn } from '@/lib/utils';
@@ -422,9 +423,9 @@ function ShiftHistory({
                 <th className="px-5 py-3 font-medium">Opened</th>
                 <th className="px-5 py-3 font-medium">Closed</th>
                 <th className="px-5 py-3 text-right font-medium">Sales</th>
-                <th className="px-5 py-3 text-right font-medium">Expected</th>
+                <th className="px-5 py-3 text-right font-medium"><Hint tip="What should be in the drawer: opening float + cash sales + credit collected in cash − cash refunds.">Expected</Hint></th>
                 <th className="px-5 py-3 text-right font-medium">Counted</th>
-                <th className="px-5 py-3 text-right font-medium">Variance</th>
+                <th className="px-5 py-3 text-right font-medium"><Hint tip="Counted cash minus expected. Negative means the drawer is short.">Variance</Hint></th>
               </tr>
             </thead>
             <tbody>
@@ -492,11 +493,11 @@ function AnalyticsBody({ data, orderValue }: { data: Analytics; orderValue: numb
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <KpiCard icon={Banknote} tone="primary" label="Revenue"
           value={formatMoney(data.totals.grossSales)} delta={revDelta} money />
-        <KpiCard icon={TrendingUp} tone="primary" label="Gross Profit"
+        <KpiCard icon={TrendingUp} tone="primary" label="Gross Profit" hint="Revenue minus what the goods sold cost you."
           value={formatMoney(data.totals.profit)} delta={profitDelta} money />
         <KpiCard icon={Receipt} tone="primary" label="Orders"
           value={formatNumber(data.totals.transactions)} delta={ordersDelta} />
-        <KpiCard icon={ShoppingBag} tone="primary" label="Avg. Order Value"
+        <KpiCard icon={ShoppingBag} tone="primary" label="Avg. Order Value" hint="Revenue ÷ number of orders."
           value={formatMoney(orderValue)} delta={aovDelta} money />
       </div>
 
@@ -549,10 +550,10 @@ function AnalyticsBody({ data, orderValue }: { data: Analytics; orderValue: numb
 }
 
 function KpiCard({
-  icon: Icon, label, value, delta, tone, money: isMoney,
+  icon: Icon, label, hint, value, delta, tone, money: isMoney,
 }: {
   icon: React.ComponentType<{ className?: string }>;
-  label: string; value: string; delta: number | null;
+  label: string; hint?: string; value: string; delta: number | null;
   tone: 'primary' | 'success' | 'default';
   money?: boolean;
 }) {
@@ -565,7 +566,7 @@ function KpiCard({
     <Card className="p-5">
       <div className="flex items-start justify-between">
         <div>
-          <p className="text-sm text-muted-foreground">{label}</p>
+          <p className="text-sm text-muted-foreground">{hint ? <Hint tip={hint}>{label}</Hint> : label}</p>
           <p className={cn('mt-1 text-2xl font-semibold tracking-tight', isMoney && 'text-primary')}>
             {value}
           </p>
@@ -796,7 +797,11 @@ function TopProducts({ data }: { data: Analytics['byProduct'] }) {
               <th className="px-5 py-3 font-medium">Product</th>
               <th className="px-5 py-3 text-right font-medium">Units</th>
               <th className="px-5 py-3 text-right font-medium">Revenue</th>
-              <th className="px-5 py-3 text-right font-medium">GMROI</th>
+              <th className="px-5 py-3 text-right font-medium">
+                <Hint tip="Gross margin return on inventory: gross profit ÷ stock value at cost. 3.0 means every rupee of stock earned three in profit. Higher means the product earns its shelf space.">
+                  GMROI
+                </Hint>
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -912,10 +917,25 @@ function StaffPerformance({
 }
 
 function InventoryPerformance({ data }: { data: Analytics['inventory'] }) {
-  const rows: { label: string; value: string; sub: string }[] = [
-    { label: 'Stock Turnover', value: `${data.stockTurnover}x`, sub: 'COGS ÷ inventory value' },
-    { label: 'Sell-through', value: `${data.sellThrough}%`, sub: 'units sold vs. on hand' },
-    { label: 'Dead Stock', value: `${data.deadStockPct}%`, sub: formatMoney(data.deadStockValue) },
+  const rows: { label: string; hint?: string; value: string; sub: string }[] = [
+    {
+      label: 'Stock Turnover',
+      hint: 'How many times the stock sold through in this period: cost of goods sold ÷ inventory value. Higher means stock moves faster.',
+      value: `${data.stockTurnover}x`,
+      sub: 'COGS ÷ inventory value',
+    },
+    {
+      label: 'Sell-through',
+      hint: 'Units sold as a share of units available to sell: sold ÷ (sold + still on hand).',
+      value: `${data.sellThrough}%`,
+      sub: 'units sold vs. on hand',
+    },
+    {
+      label: 'Dead Stock',
+      hint: "Stock that hasn't sold at all in the last 30 days, as a share of inventory value.",
+      value: `${data.deadStockPct}%`,
+      sub: formatMoney(data.deadStockValue),
+    },
     { label: 'Inventory Value', value: formatMoney(data.value), sub: 'at cost' },
   ];
   return (
@@ -927,7 +947,9 @@ function InventoryPerformance({ data }: { data: Analytics['inventory'] }) {
       <div className="space-y-4 p-5">
         {rows.map((r) => (
           <div key={r.label}>
-            <p className="text-sm text-muted-foreground">{r.label}</p>
+            <p className="text-sm text-muted-foreground">
+              {r.hint ? <Hint tip={r.hint}>{r.label}</Hint> : r.label}
+            </p>
             <p className="mt-0.5 text-xl font-semibold">{r.value}</p>
             <p className="text-xs text-muted-foreground">{r.sub}</p>
           </div>

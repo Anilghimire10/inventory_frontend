@@ -15,6 +15,7 @@ import { Input, Textarea } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Field } from '@/components/ui/label';
 import { RxBadge } from '@/components/ui/RxBadge';
+import { Tooltip } from '@/components/ui/tooltip';
 import { formatMoney, currencySymbol } from '@/lib/format';
 import { parseSerials } from '@/lib/serials';
 import { allowsFraction } from '@/lib/units';
@@ -126,30 +127,34 @@ function CartLineRowInner({
             {l.product.sku || l.product.unit}
           </div>
           <div className="mt-1 flex items-center gap-1">
-            <Button
-              size="icon"
-              variant="outline"
-              className="h-7 w-7"
-              aria-label={`Decrease quantity of ${l.product.name}`}
-              onClick={() => onSetQty(l.product.id, l.quantity - 1)}
-            >
-              <Minus className="h-3.5 w-3.5" />
-            </Button>
+            <Tooltip content="Remove one">
+              <Button
+                size="icon"
+                variant="outline"
+                className="h-7 w-7"
+                aria-label={`Decrease quantity of ${l.product.name}`}
+                onClick={() => onSetQty(l.product.id, l.quantity - 1)}
+              >
+                <Minus className="h-3.5 w-3.5" />
+              </Button>
+            </Tooltip>
             <QtyInput
               value={l.quantity}
               unit={l.product.unit}
               onCommit={(q) => onSetQty(l.product.id, q)}
             />
-            <Button
-              size="icon"
-              variant="outline"
-              className="h-7 w-7"
-              aria-label={`Increase quantity of ${l.product.name}`}
-              disabled={atMax}
-              onClick={() => onSetQty(l.product.id, l.quantity + 1)}
-            >
-              <Plus className="h-3.5 w-3.5" />
-            </Button>
+            <Tooltip content={atMax ? 'No more in stock' : 'Add one'}>
+              <Button
+                size="icon"
+                variant="outline"
+                className="h-7 w-7"
+                aria-label={`Increase quantity of ${l.product.name}`}
+                disabled={atMax}
+                onClick={() => onSetQty(l.product.id, l.quantity + 1)}
+              >
+                <Plus className="h-3.5 w-3.5" />
+              </Button>
+            </Tooltip>
           </div>
         </div>
         <div className="flex flex-col items-end gap-1.5">
@@ -168,15 +173,17 @@ function CartLineRowInner({
             </span>
           )}
           <div className="relative">
-            <Button
-              size="icon"
-              variant="ghost"
-              className="h-7 w-7 rounded-md text-muted-foreground hover:text-foreground"
-              aria-label={`More options for ${l.product.name}`}
-              onClick={() => onMenuOpenChange(!menuOpen)}
-            >
-              <MoreVertical className="h-4 w-4" />
-            </Button>
+            <Tooltip content="Price, discount and more">
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-7 w-7 rounded-md text-muted-foreground hover:text-foreground"
+                aria-label={`More options for ${l.product.name}`}
+                onClick={() => onMenuOpenChange(!menuOpen)}
+              >
+                <MoreVertical className="h-4 w-4" />
+              </Button>
+            </Tooltip>
             {menuOpen && (
               <>
                 <div className="fixed inset-0 z-20" onClick={() => onMenuOpenChange(false)} />

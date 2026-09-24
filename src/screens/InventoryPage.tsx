@@ -16,6 +16,7 @@ import { Dialog, DialogFooter } from '@/components/ui/dialog';
 import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
 import { Pagination } from '@/components/ui/pagination';
 import { useToast } from '@/components/ui/toast';
+import { Hint, Tooltip } from '@/components/ui/tooltip';
 import { apiError } from '@/lib/api';
 import { formatDate, formatDateTime, formatMoney } from '@/lib/format';
 import { cn } from '@/lib/utils';
@@ -508,7 +509,7 @@ export default function InventoryPage() {
                       <TH>SKU</TH>
                       <TH className="text-right">System</TH>
                       <TH className="text-right">Counted</TH>
-                      <TH className="text-right">Variance</TH>
+                      <TH className="text-right"><Hint tip="Counted minus the system quantity. Negative means stock is missing.">Variance</Hint></TH>
                     </TR>
                   </THead>
                   <TBody>
@@ -686,10 +687,12 @@ export default function InventoryPage() {
                   <Input type="number" step="0.001" min="0.001" className="w-28"
                     value={l.quantity}
                     onChange={(e) => updateTransferLine(i, Number(e.target.value))} />
-                  <Button size="icon" variant="ghost" onClick={() => removeTransferLine(i)}
-                    aria-label={`Remove ${transferProductName(l.productId)}`}>
-                    <Trash2 className="h-4 w-4 text-destructive" />
-                  </Button>
+                  <Tooltip content="Remove line">
+                    <Button size="icon" variant="ghost" onClick={() => removeTransferLine(i)}
+                      aria-label={`Remove ${transferProductName(l.productId)}`}>
+                      <Trash2 className="h-4 w-4 text-destructive" />
+                    </Button>
+                  </Tooltip>
                 </div>
               ))}
             </div>
@@ -720,7 +723,7 @@ export default function InventoryPage() {
                     <TH>Product</TH>
                     <TH className="text-right">System</TH>
                     <TH className="text-right">Counted</TH>
-                    <TH className="text-right">Variance</TH>
+                    <TH className="text-right"><Hint tip="Counted minus the system quantity. Negative means stock is missing.">Variance</Hint></TH>
                   </TR>
                 </THead>
                 <TBody>

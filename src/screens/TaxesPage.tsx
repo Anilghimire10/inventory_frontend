@@ -13,6 +13,7 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogFooter } from '@/components/ui/dialog';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
+import { Tooltip } from '@/components/ui/tooltip';
 import { useAuth } from '@/auth/AuthContext';
 import { can } from '@/lib/permissions';
 
@@ -72,10 +73,14 @@ export default function TaxesPage() {
                 <TD>
                   {canManage && (
                     <div className="flex justify-end gap-1">
-                      <Button size="icon" variant="ghost" onClick={() => openEdit(t)} aria-label={`Edit ${t.name}`}><Pencil className="h-4 w-4" /></Button>
-                      <Button size="icon" variant="ghost" aria-label={`Delete ${t.name}`} onClick={() => crud.setRemoveTarget(t)}>
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
+                      <Tooltip content="Edit">
+                        <Button size="icon" variant="ghost" onClick={() => openEdit(t)} aria-label={`Edit ${t.name}`}><Pencil className="h-4 w-4" /></Button>
+                      </Tooltip>
+                      <Tooltip content="Delete">
+                        <Button size="icon" variant="ghost" aria-label={`Delete ${t.name}`} onClick={() => crud.setRemoveTarget(t)}>
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </Tooltip>
                     </div>
                   )}
                 </TD>

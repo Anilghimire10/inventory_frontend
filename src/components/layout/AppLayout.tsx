@@ -20,6 +20,7 @@ import ChangePasswordDialog from '@/components/ChangePasswordDialog';
 import { useAuth } from '@/auth/AuthContext';
 import { useTheme } from '@/theme/ThemeProvider';
 import { cn } from '@/lib/utils';
+import { Tooltip } from '@/components/ui/tooltip';
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { user, logout } = useAuth();
@@ -147,13 +148,15 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             {/* Switching here moves the whole app to that branch. */}
             <GlobalStorePicker />
             <Notifications />
-            <button
-              onClick={toggle}
-              className="rounded-md p-2 text-muted-foreground hover:bg-accent hover:text-foreground"
-              aria-label="Toggle theme"
-            >
-              {theme === 'dark' ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
-            </button>
+            <Tooltip content={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}>
+              <button
+                onClick={toggle}
+                className="rounded-md p-2 text-muted-foreground hover:bg-accent hover:text-foreground"
+                aria-label="Toggle theme"
+              >
+                {theme === 'dark' ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+              </button>
+            </Tooltip>
             <div className="relative">
               <button
                 onClick={() => setMenuOpen((o) => !o)}
