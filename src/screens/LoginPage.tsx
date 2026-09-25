@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { PasswordInput } from '@/components/ui/password-input';
 import { Field } from '@/components/ui/label';
-import { apiError } from '@/lib/api';
+import { apiError, rememberBlock, subscriptionBlock } from '@/lib/api';
 
 export default function LoginPage() {
   const { user, login } = useAuth();
@@ -30,6 +30,12 @@ export default function LoginPage() {
       await login(email, password);
       router.replace('/');
     } catch (err) {
+      const block = subscriptionBlock(err);
+      if (block) {
+        rememberBlock(block);
+        router.replace('/subscription-expired');
+        return;
+      }
       setError(apiError(err));
     } finally {
       setLoading(false);

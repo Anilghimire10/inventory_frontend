@@ -32,8 +32,33 @@ export interface Business {
   /** IANA zone the shop's day is cut on, e.g. `Asia/Kathmandu`. */
   timezone?: string;
   taxEnabled?: boolean;
+  /** Selling prices already include their tax. */
+  taxInclusive?: boolean;
   taxId?: string | null;
   showTaxIdOnBill?: boolean;
+}
+
+/** Who a shop contacts to renew (the API's SUPPORT_EMAIL / SUPPORT_PHONE). */
+export interface SupportContact {
+  email?: string;
+  phone?: string;
+}
+
+/**
+ * Where the subscription stands, from GET /auth/me -- owners and managers
+ * only, since they are the ones who can renew.
+ *
+ * - `trial`: never paid; `daysLeft` until the trial ends.
+ * - `ending`: paid, ending within 7 days.
+ * - `grace`: past its end date but still working; `daysLeft` until it stops.
+ */
+export interface SubscriptionInfo {
+  status: 'active' | 'trial' | 'ending' | 'grace';
+  endsAt: string | null;
+  /** End date plus the grace period: when the app actually stops working. */
+  accessEndsAt: string | null;
+  daysLeft: number | null;
+  contact?: SupportContact;
 }
 
 export interface SessionUser {
@@ -43,6 +68,12 @@ export interface SessionUser {
   role: UserRole;
   storeId?: string | null;
   business?: Business;
+  subscription?: SubscriptionInfo;
+  /**
+   * Set when a platform admin opened this session from the admin panel
+   * ("view as owner"). The API refuses every change for its whole life.
+   */
+  impersonation?: { adminId: string; email: string; expiresAt: string } | null;
 }
 
 export interface Paginated<T> {
@@ -289,6 +320,8 @@ export interface Sale extends SaleListItem {
   subtotal: string;
   discount: string;
   tax: string;
+  /** Priced with tax-inclusive prices: `tax` is part of each line, not added on top. */
+  taxInclusive?: boolean;
   amountPaid: string;
   prescriptionRef?: string | null;
   note?: string | null;

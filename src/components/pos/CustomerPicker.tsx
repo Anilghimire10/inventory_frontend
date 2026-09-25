@@ -1,10 +1,10 @@
 'use client';
-import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronDown, Plus, Search, User } from 'lucide-react';
 import { CustomersApi } from '@/api';
-import type { Customer, Paginated } from '@/types';
+import type { Customer } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Field } from '@/components/ui/label';
@@ -12,6 +12,17 @@ import { Dialog, DialogFooter } from '@/components/ui/dialog';
 import { useToast } from '@/components/ui/toast';
 import { apiError } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { useDebounced } from '@/hooks/useDebounced';
+
+/** How many matches the dropdown shows; past that, the cashier keeps typing. */
+const PICK_LIMIT = 20;
+
+/**
+ * Cache key for one customer, as the POS resolves the selected one. The picker
+ * seeds it on selection so choosing someone never costs a request; a resumed
+ * held sale, which only carries the id, fetches it.
+ */
+export const customerKey = (id: string) => ['customers', 'one', id] as const;
 
 export interface CustomerPickerHandle {
   /** Opens the "add customer" dialog, prefilling name/phone from a search query when given. */
@@ -19,16 +30,25 @@ export interface CustomerPickerHandle {
 }
 
 interface CustomerPickerProps {
-  customers: Customer[];
+  /** The chosen customer, resolved by the caller from `customerId`. */
+  selectedCustomer?: Customer;
   customerId: string;
   onCustomerChange: (id: string) => void;
   /** Styles the trigger to flag that a customer must be picked (credit sales). */
   required?: boolean;
 }
 
-/** Search-to-select customer dropdown with inline "add new customer" creation. */
+/**
+ * Search-to-select customer dropdown with inline "add new customer" creation.
+ *
+ * Searches on the server. It used to filter a list the POS loaded once with
+ * `limit: 100`, sorted by name -- so once a shop had more than a hundred
+ * customers, everyone past roughly "M" could not be found at the till, and the
+ * cashier's only way forward was to create them again, splitting their khata
+ * across two accounts.
+ */
 export const CustomerPicker = forwardRef<CustomerPickerHandle, CustomerPickerProps>(
-  function CustomerPicker({ customers, customerId, onCustomerChange, required }, ref) {
+  function CustomerPicker({ selectedCustomer, customerId, onCustomerChange, required }, ref) {
     const qc = useQueryClient();
     const { show } = useToast();
 
@@ -71,15 +91,27 @@ export const CustomerPicker = forwardRef<CustomerPickerHandle, CustomerPickerPro
       };
     }, [custOpen]);
 
-    const selectedCustomer = customers.find((c) => c.id === customerId);
+    const typed = custQuery.trim();
+    const search = useDebounced(typed);
+    const results = useQuery({
+      queryKey: ['customers', 'search', search],
+      queryFn: () => CustomersApi.list({ search: search || undefined, limit: PICK_LIMIT }),
+      enabled: custOpen,
+      placeholderData: keepPreviousData,
+    });
+    const customerOptions = results.data?.data ?? [];
+    const moreThanShown = (results.data?.meta.total ?? 0) > customerOptions.length;
+    // The list answers what is in the box, not a keystroke ago. "No match --
+    // create them?" and Enter-to-pick both act on it, so neither may run on a
+    // stale answer: that is how a duplicate customer gets made.
+    const settled = search === typed && !results.isFetching;
 
-    const customerOptions = useMemo(() => {
-      const q = custQuery.trim().toLowerCase();
-      if (!q) return customers;
-      return customers.filter(
-        (c) => c.name.toLowerCase().includes(q) || (c.phone ?? '').toLowerCase().includes(q),
-      );
-    }, [customers, custQuery]);
+    const pick = (c: Customer | null) => {
+      if (c) qc.setQueryData(customerKey(c.id), c);
+      onCustomerChange(c?.id ?? '');
+      setCustOpen(false);
+      setCustQuery('');
+    };
 
     const openAddCustomer = (initialQuery?: string) => {
       const q = (initialQuery ?? custQuery).trim();
@@ -106,22 +138,10 @@ export const CustomerPicker = forwardRef<CustomerPickerHandle, CustomerPickerPro
     const createCustomer = useMutation({
       mutationFn: (body: { name: string; phone?: string }) => CustomersApi.create(body),
       onSuccess: (c) => {
-        // Optimistically insert the new customer into the cache so selectedCustomer resolves immediately.
-        qc.setQueryData<Paginated<Customer>>(['customers'], (old) => {
-          if (!old) return { data: [c], meta: { total: 1, page: 1, limit: 100, pages: 1 } };
-          return {
-            ...old,
-            data: [c, ...(old.data || [])],
-            meta: {
-              ...old.meta,
-              total: (old.meta?.total || old.data.length) + 1,
-              page: old.meta?.page || 1,
-              limit: old.meta?.limit || 100,
-              pages: old.meta?.pages || 1,
-            },
-          };
-        });
-        qc.invalidateQueries({ queryKey: ['customers'] });
+        // Seed the selected-customer entry so the name shows immediately, and
+        // drop cached searches so the new customer turns up in them.
+        qc.setQueryData(customerKey(c.id), c);
+        qc.invalidateQueries({ queryKey: ['customers', 'search'] });
         onCustomerChange(c.id);
         setAddCustomerOpen(false);
         setNewCustomerName('');
@@ -169,12 +189,11 @@ export const CustomerPicker = forwardRef<CustomerPickerHandle, CustomerPickerPro
                       onKeyDown={(e) => {
                         if (e.key === 'Enter') {
                           e.preventDefault();
+                          if (!settled) return;
                           if (customerOptions.length === 1) {
-                            onCustomerChange(customerOptions[0].id);
-                            setCustOpen(false);
-                            setCustQuery('');
-                          } else if (customerOptions.length === 0 && custQuery.trim()) {
-                            openAddCustomer(custQuery.trim());
+                            pick(customerOptions[0]);
+                          } else if (customerOptions.length === 0 && typed) {
+                            openAddCustomer(typed);
                           }
                         }
                       }}
@@ -187,11 +206,7 @@ export const CustomerPicker = forwardRef<CustomerPickerHandle, CustomerPickerPro
                     <li>
                       <button
                         type="button"
-                        onClick={() => {
-                          onCustomerChange('');
-                          setCustOpen(false);
-                          setCustQuery('');
-                        }}
+                        onClick={() => pick(null)}
                         className={cn(
                           'flex w-full items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-muted',
                           customerId === '' && 'bg-muted/60',
@@ -205,11 +220,7 @@ export const CustomerPicker = forwardRef<CustomerPickerHandle, CustomerPickerPro
                       <li key={c.id}>
                         <button
                           type="button"
-                          onClick={() => {
-                            onCustomerChange(c.id);
-                            setCustOpen(false);
-                            setCustQuery('');
-                          }}
+                          onClick={() => pick(c)}
                           className={cn(
                             'flex w-full items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-muted',
                             c.id === customerId && 'bg-muted/60',
@@ -222,7 +233,20 @@ export const CustomerPicker = forwardRef<CustomerPickerHandle, CustomerPickerPro
                         </button>
                       </li>
                     ))}
-                    {customerOptions.length === 0 && custQuery.trim() !== '' && (
+                    {results.isPending && (
+                      <li className="px-3 py-2 text-xs text-muted-foreground">Searching…</li>
+                    )}
+                    {results.isError && (
+                      <li className="px-3 py-2 text-xs text-destructive">
+                        Couldn&apos;t search customers. Check the connection and try again.
+                      </li>
+                    )}
+                    {moreThanShown && (
+                      <li className="px-3 py-2 text-xs text-muted-foreground">
+                        Showing the first {customerOptions.length}. Keep typing to narrow it down.
+                      </li>
+                    )}
+                    {settled && !results.isError && customerOptions.length === 0 && typed !== '' && (
                       <li className="p-1">
                         <button
                           type="button"

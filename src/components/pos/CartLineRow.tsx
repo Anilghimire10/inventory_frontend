@@ -337,7 +337,7 @@ function QtyInput({
       type="text"
       inputMode={fractional ? 'decimal' : 'numeric'}
       aria-label={unit ? `Quantity in ${unit}` : 'Quantity'}
-      className="h-7 w-14 rounded border border-input bg-background text-center text-sm"
+      className="h-7 w-14 rounded border border-input bg-background text-center text-base sm:text-sm"
       value={focused ? draft : String(value)}
       onFocus={(e) => {
         setDraft(String(value));

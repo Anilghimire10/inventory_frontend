@@ -17,10 +17,12 @@ import { apiError } from '@/lib/api';
 import { formatMoney } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { CartPanel, TENDERS, lineNet } from '@/components/pos/CartPanel';
+import { splitTax } from '@/lib/tax';
 import type { CartLine, DiscountType, PayMode } from '@/components/pos/CartPanel';
 import { OpenShiftModal } from '@/components/pos/OpenShiftModal';
 import { ChooseStoreModal } from '@/components/pos/ChooseStoreModal';
 import { CloseShiftModal } from '@/components/pos/CloseShiftModal';
+import { customerKey } from '@/components/pos/CustomerPicker';
 import { ErrorState, LoadingBlock } from '@/components/ui/misc';
 import { Tooltip } from '@/components/ui/tooltip';
 import { useActiveStores, useStores } from '@/hooks/useStores';
@@ -71,6 +73,8 @@ export default function PosPage() {
   const multiStore = (allStores?.length ?? 0) > 1;
   // Master tax switch (from business settings). When off, nothing is taxed.
   const taxEnabled = user?.business?.taxEnabled ?? true;
+  // Whether shelf prices already contain their tax.
+  const taxInclusive = user?.business?.taxInclusive ?? false;
   const [search, setSearch] = useState('');
   // Real category filter (a category id), or the FAVORITES sentinel -- both
   // pick which chip is active in the same row.
@@ -160,9 +164,13 @@ export default function PosPage() {
       if (pruned.length !== favorites.length) setFavorites(pruned);
     }
   }
-  const { data: customers } = useQuery({
-    queryKey: ['customers'],
-    queryFn: () => CustomersApi.list({ limit: 100 }),
+  // Just the chosen customer. The picker searches on the server as the
+  // cashier types and seeds this entry when they pick someone; a resumed held
+  // sale, which carries only the id, fetches it here.
+  const { data: selectedCustomer } = useQuery({
+    queryKey: customerKey(customerId),
+    queryFn: () => CustomersApi.get(customerId),
+    enabled: !!customerId,
   });
   const { data: categories } = useQuery({
     queryKey: ['categories'],
@@ -219,19 +227,23 @@ export default function PosPage() {
   const { subtotal, tax } = useMemo(() => {
     let sub = 0, t = 0;
     for (const l of cart) {
-      const net = lineNet(l);
-      sub += net;
       // Tax applies only when the master switch is on AND the product is taxable.
-      if (taxEnabled && l.product.isTaxable) t += (net * Number(l.product.taxRate)) / 100;
+      const rate = taxEnabled && l.product.isTaxable ? Number(l.product.taxRate) : 0;
+      const split = splitTax(lineNet(l), rate, taxInclusive);
+      sub += split.net;
+      t += split.tax;
     }
     return { subtotal: Math.round(sub * 100) / 100, tax: Math.round(t * 100) / 100 };
-  }, [cart, taxEnabled]);
+  }, [cart, taxEnabled, taxInclusive]);
 
   const discountAmount = useMemo(() => {
     if (!discount || discount <= 0) return 0;
-    const amt = discountType === 'percent' ? (subtotal * discount) / 100 : discount;
+    // A percentage comes off the prices the customer sees: before tax when tax
+    // is added on top, the shelf total when prices already include it.
+    const base = taxInclusive ? subtotal + tax : subtotal;
+    const amt = discountType === 'percent' ? (base * discount) / 100 : discount;
     return Math.round(amt * 100) / 100;
-  }, [discount, discountType, subtotal]);
+  }, [discount, discountType, subtotal, tax, taxInclusive]);
 
   const total = useMemo(
     () => Math.max(0, Math.round((subtotal + tax - discountAmount) * 100) / 100),
@@ -795,7 +807,7 @@ export default function PosPage() {
                         onClick={(e) => { e.stopPropagation(); toggleFavorite(p.id); }}
                         aria-label={isFavorite ? `Remove ${p.name} from favorites` : `Add ${p.name} to favorites`}
                         className={cn(
-                          'flex h-6 w-6 items-center justify-center rounded-full bg-background/80 shadow-sm backdrop-blur-sm transition-colors',
+                          'flex h-8 w-8 items-center justify-center rounded-full bg-background/80 shadow-sm backdrop-blur-sm transition-colors sm:h-6 sm:w-6',
                           isFavorite ? 'text-warning' : 'text-muted-foreground hover:text-foreground',
                         )}
                       >
@@ -815,7 +827,7 @@ export default function PosPage() {
                           disabled={out}
                           onClick={(e) => { e.stopPropagation(); add(p); }}
                           aria-label={`Add ${p.name}`}
-                          className="flex h-7 w-7 items-center justify-center rounded-full bg-primary text-primary-foreground transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-40"
+                          className="flex h-9 w-9 items-center justify-center rounded-full bg-primary text-primary-foreground transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-40 sm:h-7 sm:w-7"
                         >
                           <Plus className="h-4 w-4" />
                         </button>
@@ -875,7 +887,7 @@ export default function PosPage() {
               heldSales={heldSales}
               resumingId={resumeMutation.isPending ? (resumeMutation.variables ?? null) : null}
               discardingId={discardMutation.isPending ? (discardMutation.variables ?? null) : null}
-              customers={customers?.data ?? []}
+              selectedCustomer={customerId ? selectedCustomer : undefined}
               customerId={customerId}
               onCustomerChange={setCustomerId}
               onSetQty={setQty}
@@ -890,6 +902,7 @@ export default function PosPage() {
               checkingOut={checkout.isPending}
               subtotal={subtotal}
               tax={tax}
+              taxInclusive={taxInclusive}
               total={total}
               paidNow={paidNow}
               due={due}

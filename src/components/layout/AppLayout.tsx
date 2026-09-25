@@ -21,6 +21,8 @@ import { useAuth } from '@/auth/AuthContext';
 import { useTheme } from '@/theme/ThemeProvider';
 import { cn } from '@/lib/utils';
 import { Tooltip } from '@/components/ui/tooltip';
+import { SubscriptionBanner } from './SubscriptionBanner';
+import { ImpersonationBanner } from './ImpersonationBanner';
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { user, logout } = useAuth();
@@ -59,7 +61,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           </div>
           <span className="font-semibold">Inventory</span>
           <button
-            className="ml-auto lg:hidden"
+            className="-mr-2.5 ml-auto rounded-md p-2.5 text-muted-foreground hover:bg-accent lg:hidden"
             onClick={() => setMobileOpen(false)}
             aria-label="Close menu"
           >
@@ -138,7 +140,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="sticky top-0 z-20 flex h-16 items-center gap-3 border-b border-border bg-background/80 px-4 backdrop-blur lg:px-6">
           <button
-            className="lg:hidden"
+            className="-ml-2.5 rounded-md p-2.5 text-muted-foreground hover:bg-accent lg:hidden"
             onClick={() => setMobileOpen(true)}
             aria-label="Open menu"
           >
@@ -201,6 +203,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             </div>
           </div>
         </header>
+
+        <ImpersonationBanner />
+        <SubscriptionBanner />
 
         <main className="flex-1 p-4 lg:p-6 animate-fade-in">
           {children}

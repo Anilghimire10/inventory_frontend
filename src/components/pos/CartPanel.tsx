@@ -71,7 +71,8 @@ interface CartPanelProps {
   heldSales: SaleListItem[];
   resumingId: string | null;
   discardingId: string | null;
-  customers: Customer[];
+  /** The chosen customer, if any. Resolved by the POS from `customerId`. */
+  selectedCustomer?: Customer;
   customerId: string;
   onCustomerChange: (id: string) => void;
   onSetQty: (id: string, qty: number) => void;
@@ -86,6 +87,8 @@ interface CartPanelProps {
   checkingOut: boolean;
   subtotal: number;
   tax: number;
+  /** Prices include tax, so the tax row is part of the subtotal's lines, not extra. */
+  taxInclusive?: boolean;
   total: number;
   paidNow: number;
   due: number;
@@ -119,7 +122,7 @@ export function CartPanel({
   heldSales,
   resumingId,
   discardingId,
-  customers,
+  selectedCustomer,
   customerId,
   onCustomerChange,
   onSetQty,
@@ -134,6 +137,7 @@ export function CartPanel({
   checkingOut,
   subtotal,
   tax,
+  taxInclusive = false,
   total,
   paidNow,
   due,
@@ -191,8 +195,6 @@ export function CartPanel({
       behavior: 'smooth',
     });
   }, [cart]);
-
-  const selectedCustomer = customers.find((c) => c.id === customerId);
 
   // Cash tendered → change due (the highest-frequency operation at the
   // counter). Only meaningful for a full cash sale; tendered itself is never
@@ -264,7 +266,7 @@ export function CartPanel({
             <Button
               size="icon"
               variant="ghost"
-              className="h-7 w-7 rounded-full text-muted-foreground hover:bg-accent lg:ml-auto"
+              className="h-9 w-9 rounded-full text-muted-foreground hover:bg-accent lg:ml-auto lg:h-7 lg:w-7"
               onClick={onClear}
               aria-label="Clear cart"
             >
@@ -416,7 +418,7 @@ export function CartPanel({
                   </p>
                   <CustomerPicker
                     ref={customerPickerRef}
-                    customers={customers}
+                    selectedCustomer={selectedCustomer}
                     customerId={customerId}
                     onCustomerChange={onCustomerChange}
                     required={payMode === 'credit'}
@@ -567,7 +569,7 @@ export function CartPanel({
                 </div>
               )}
               <div className="flex justify-between text-sm text-muted-foreground">
-                <span>Tax</span>
+                <span>{taxInclusive ? 'Tax (included)' : 'Tax'}</span>
                 <span>{formatMoney(tax)}</span>
               </div>
               <div className="flex items-baseline justify-between border-t border-border pt-2">

@@ -46,6 +46,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       role: me.role,
       storeId: me.storeId,
       business: me.business,
+      subscription: me.subscription,
+      impersonation: me.impersonation ?? null,
     };
     if (me.business?.currency) setCurrency(me.business.currency);
     setUser(session);
