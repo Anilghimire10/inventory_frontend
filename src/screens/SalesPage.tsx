@@ -272,17 +272,25 @@ export default function SalesPage() {
         ) : (
           <>
             <Table>
-              <THead><TR><TH>Receipt</TH><TH>When</TH><TH>Customer</TH><TH>Payment</TH><TH>Status</TH><TH className="text-right">Total</TH><TH /></TR></THead>
+              <THead><TR><TH>Receipt</TH><TH className="hidden sm:table-cell">When</TH><TH className="hidden md:table-cell">Customer</TH><TH className="hidden md:table-cell">Payment</TH><TH className="hidden sm:table-cell">Status</TH><TH className="text-right">Total</TH><TH /></TR></THead>
               <TBody>
                 {sales.map((s) => {
                   const v = viewStatus(s);
                   return (
                     <TR key={s.id} className="cursor-pointer" onClick={() => { setOpenId(s.id); setReturnQty({}); }}>
-                      <TD className="font-medium">{s.receiptNo}</TD>
-                      <TD className="whitespace-nowrap text-muted-foreground">{formatDateTime(s.createdAt)}</TD>
-                      <TD>{s.customer?.name ?? 'Walk-in'}</TD>
-                      <TD className="text-muted-foreground">{PAYMENT_LABEL[s.paymentMethod ?? 'CASH']}</TD>
-                      <TD>
+                      <TD className="font-medium">
+                        {s.receiptNo}
+                        {/* Phones hide the When and Status columns; they ride along with the receipt. */}
+                        <div className="text-xs font-normal text-muted-foreground sm:hidden">{formatDateTime(s.createdAt)}</div>
+                        <Badge tone={v.tone} className="mt-1 gap-1 sm:hidden">
+                          {v.paid && <Check className="h-3 w-3" />}
+                          {v.label}
+                        </Badge>
+                      </TD>
+                      <TD className="hidden whitespace-nowrap text-muted-foreground sm:table-cell">{formatDateTime(s.createdAt)}</TD>
+                      <TD className="hidden md:table-cell">{s.customer?.name ?? 'Walk-in'}</TD>
+                      <TD className="hidden text-muted-foreground md:table-cell">{PAYMENT_LABEL[s.paymentMethod ?? 'CASH']}</TD>
+                      <TD className="hidden sm:table-cell">
                         <Badge tone={v.tone} className="gap-1">
                           {v.paid && <Check className="h-3 w-3" />}
                           {v.label}
@@ -358,7 +366,7 @@ export default function SalesPage() {
               <div className="w-full max-w-xs space-y-1 text-sm">
                 <div className="flex justify-between text-muted-foreground"><span>Subtotal</span><span>{formatMoney(sale.subtotal)}</span></div>
                 {Number(sale.discount) > 0 && <div className="flex justify-between text-muted-foreground"><span>Discount</span><span>- {formatMoney(sale.discount)}</span></div>}
-                <div className="flex justify-between text-muted-foreground"><span>Tax</span><span>{formatMoney(sale.tax)}</span></div>
+                <div className="flex justify-between text-muted-foreground"><span>{sale.taxInclusive ? 'Tax (included)' : 'Tax'}</span><span>{formatMoney(sale.tax)}</span></div>
                 <div className="flex justify-between border-t border-border pt-1 text-base font-semibold"><span>Total</span><span>{formatMoney(sale.total)}</span></div>
                 <div className="flex justify-between text-muted-foreground"><span>Paid</span><span>{formatMoney(sale.amountPaid)}</span></div>
                 {due > 0 && <div className="flex justify-between font-medium text-destructive"><span>Balance due</span><span>{formatMoney(due)}</span></div>}

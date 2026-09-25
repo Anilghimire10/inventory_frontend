@@ -98,6 +98,18 @@ export default function SettingsPage() {
     onError: (e) => show(apiError(e), 'error'),
   });
 
+  // Whether selling prices already include their tax (backed out at checkout)
+  // or have it added on top. Each sale remembers which way it was priced.
+  const taxInclusive = user?.business?.taxInclusive ?? false;
+  const saveInclusive = useMutation({
+    mutationFn: (next: boolean) => BusinessApi.update({ taxInclusive: next }),
+    onSuccess: async (_data, next) => {
+      await refresh();
+      show(next ? 'Prices now include tax' : 'Tax is now added on top of prices');
+    },
+    onError: (e) => show(apiError(e), 'error'),
+  });
+
   // Whether the PAN/VAT number prints on bills and invoices.
   const showPan = user?.business?.showTaxIdOnBill ?? false;
   const hasPan = !!user?.business?.taxId;
@@ -190,6 +202,38 @@ export default function SettingsPage() {
           {taxEnabled
             ? 'Tax is ON. Each sale charges tax on products marked “Taxable” using their tax rate. Products that aren’t taxable are never taxed.'
             : 'Tax is OFF. No sale charges tax, even for products marked “Taxable”.'}
+          {taxEnabled && (
+            <div className="mt-4 flex items-start justify-between gap-4 border-t border-border pt-4">
+              <div>
+                <div id="tax-inclusive-label" className="font-medium text-foreground">Prices include tax</div>
+                <div>
+                  {taxInclusive
+                    ? 'A product’s price is what the customer pays; the tax is taken out of it on the bill (113 at 13% is 100 + 13 tax).'
+                    : 'Tax is added on top of a product’s price at checkout (100 at 13% comes to 113).'}{' '}
+                  Sales already made keep the way they were priced.
+                </div>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={taxInclusive}
+                aria-labelledby="tax-inclusive-label"
+                disabled={!canManageBiz || saveInclusive.isPending}
+                onClick={() => saveInclusive.mutate(!taxInclusive)}
+                className={
+                  'relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-50 ' +
+                  (taxInclusive ? 'bg-primary' : 'bg-muted')
+                }
+              >
+                <span
+                  className={
+                    'inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ' +
+                    (taxInclusive ? 'translate-x-5' : 'translate-x-0.5')
+                  }
+                />
+              </button>
+            </div>
+          )}
           {!canManageBiz && <span className="block pt-1">Only an owner or manager can change this.</span>}
         </CardContent>
       </Card>
@@ -288,7 +332,8 @@ export default function SettingsPage() {
         </div>
       )}
 
-      {user?.role === 'OWNER' && (
+      {/* Not while an admin is viewing as the owner: the API refuses it then. */}
+      {user?.role === 'OWNER' && !user.impersonation && (
         <Card className="mt-6">
           <CardHeader className="flex-row items-center justify-between">
             <CardTitle className="flex items-center gap-2"><Download className="h-5 w-5 text-primary" /> Your data</CardTitle>

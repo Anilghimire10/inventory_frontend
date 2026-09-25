@@ -1,5 +1,6 @@
 import type { Sale, ShiftReport } from '@/types';
 import { renderBarcodeSvg } from './barcode';
+import { splitTax } from './tax';
 
 export type PrintFormat = 'thermal' | 'a4';
 
@@ -17,15 +18,18 @@ const esc = (s: unknown) =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c] as string,
   );
 
+/** Label suffix for a tax row when the prices already contained it. */
+const inclSuffix = (sale: Sale) => (sale.taxInclusive ? ' incl.' : '');
+
 /** Build a per-rate tax breakdown from the sale's line items. */
 function taxBreakdown(sale: Sale) {
   const map = new Map<number, { taxable: number; tax: number }>();
   for (const it of sale.items) {
     const rate = Number(it.taxRate ?? 0);
-    const lineNet = Number(it.quantity) * Number(it.unitPrice) - Number(it.discount ?? 0);
-    const tax = Math.round(((lineNet * rate) / 100) * 100) / 100;
+    const amount = Number(it.quantity) * Number(it.unitPrice) - Number(it.discount ?? 0);
+    const { net, tax } = splitTax(amount, rate, !!sale.taxInclusive);
     const cur = map.get(rate) ?? { taxable: 0, tax: 0 };
-    cur.taxable += lineNet;
+    cur.taxable += net;
     cur.tax += tax;
     map.set(rate, cur);
   }
@@ -68,6 +72,7 @@ function thermal(
   m: (v: number | string) => string,
   taxes: { rate: number; taxable: number; tax: number }[],
 ) {
+  const incl = inclSuffix(sale);
   const biz = sale.business?.name ?? 'Receipt';
   const rows = sale.items
     .map(
@@ -77,7 +82,7 @@ function thermal(
     )
     .join('');
   const taxLines = taxes
-    .map((t) => `<tr class="muted"><td>VAT ${t.rate}%</td><td class="r">${m(t.tax)}</td></tr>`)
+    .map((t) => `<tr class="muted"><td>VAT ${t.rate}%${incl}</td><td class="r">${m(t.tax)}</td></tr>`)
     .join('');
   const body = `
     <div style="width:72mm;padding:2mm;font-size:11px">
@@ -208,6 +213,7 @@ function invoiceA4(
   m: (v: number | string) => string,
   taxes: { rate: number; taxable: number; tax: number }[],
 ) {
+  const incl = inclSuffix(sale);
   const biz = sale.business?.name ?? 'Invoice';
   const showPan = !!(sale.business?.showTaxIdOnBill && sale.business?.taxId);
   const due = Math.max(0, Number(sale.total) - Number(sale.amountPaid));
@@ -229,7 +235,7 @@ function invoiceA4(
   const taxLines = taxes
     .map(
       (t) =>
-        `<tr><td class="r muted" colspan="2">VAT ${t.rate}% (on ${m(t.taxable)})</td><td class="r">${m(t.tax)}</td></tr>`,
+        `<tr><td class="r muted" colspan="2">VAT ${t.rate}%${incl} (on ${m(t.taxable)})</td><td class="r">${m(t.tax)}</td></tr>`,
     )
     .join('');
   const body = `
@@ -269,7 +275,7 @@ function invoiceA4(
         <table style="width:320px">
           <tr><td class="r muted" colspan="2">Subtotal</td><td class="r">${m(sale.subtotal)}</td></tr>
           ${Number(sale.discount) > 0 ? `<tr><td class="r muted" colspan="2">Discount</td><td class="r">- ${m(sale.discount)}</td></tr>` : ''}
-          ${taxLines || `<tr><td class="r muted" colspan="2">Tax</td><td class="r">${m(sale.tax)}</td></tr>`}
+          ${taxLines || `<tr><td class="r muted" colspan="2">Tax${incl}</td><td class="r">${m(sale.tax)}</td></tr>`}
           <tr style="border-top:2px solid #111"><td class="r" colspan="2" style="font-weight:700;padding-top:6px">Total</td><td class="r" style="font-weight:700;padding-top:6px">${m(sale.total)}</td></tr>
           <tr><td class="r muted" colspan="2">Paid (${esc(sale.paymentMethod ?? 'CASH')})</td><td class="r">${m(sale.amountPaid)}</td></tr>
           ${due > 0 ? `<tr><td class="r" colspan="2" style="font-weight:700;color:#b00">Balance due</td><td class="r" style="font-weight:700;color:#b00">${m(due)}</td></tr>` : ''}

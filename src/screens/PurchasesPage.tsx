@@ -3,7 +3,7 @@ import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, ClipboardList, Trash2, Pencil, RotateCcw, PackageCheck } from 'lucide-react';
 import { ProductsApi, PurchasesApi, SuppliersApi } from '@/api';
-import type { Product, Purchase } from '@/types';
+import type { Product, Purchase, Supplier } from '@/types';
 import { useActiveStores } from '@/hooks/useStores';
 import { PageHeader, LoadingBlock, EmptyState, ErrorState } from '@/components/ui/misc';
 import { Button } from '@/components/ui/button';
@@ -17,12 +17,29 @@ import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
 import { Pagination } from '@/components/ui/pagination';
 import { useToast } from '@/components/ui/toast';
 import { Tooltip } from '@/components/ui/tooltip';
+import { SearchPicker } from '@/components/SearchPicker';
 import { apiError } from '@/lib/api';
 import { useAuth } from '@/auth/AuthContext';
 import { can } from '@/lib/permissions';
 import { formatMoney, formatDate } from '@/lib/format';
 import { remainingQty } from '@/lib/decimal';
 import { hasDuplicateSerials, parseSerials, serialsInvalid } from '@/lib/serials';
+
+/**
+ * Full product rows for these ids. The list endpoint caps `limit` at 100, so a
+ * long order is fetched in pages. `activeOnly: false` keeps a line whose
+ * product was since deactivated resolvable -- an unresolved product would read
+ * as non-serialised and let the form skip the serial checks.
+ */
+async function productsById(ids: string[]): Promise<Record<string, Product>> {
+  const unique = [...new Set(ids)];
+  const chunks: string[][] = [];
+  for (let i = 0; i < unique.length; i += 100) chunks.push(unique.slice(i, i + 100));
+  const pages = await Promise.all(
+    chunks.map((c) => ProductsApi.list({ ids: c, limit: 100, activeOnly: false })),
+  );
+  return Object.fromEntries(pages.flatMap((r) => r.data).map((x) => [x.id, x]));
+}
 
 /** Just enough of a store to render one option in the picker. */
 type StoreOption = { id: string; name: string; isActive: boolean };
@@ -47,11 +64,15 @@ export default function PurchasesPage() {
   // still show it if it has since been deactivated.
   const [attachedStore, setAttachedStore] = useState<StoreOption | null>(null);
   const [storeId, setStoreId] = useState('');
-  const [supplierId, setSupplierId] = useState('');
+  const [supplier, setSupplier] = useState<{ id: string; label: string } | null>(null);
+  const supplierId = supplier?.id ?? '';
   const [reference, setReference] = useState('');
   const [lines, setLines] = useState<Line[]>([]);
-  const [nameCache, setNameCache] = useState<Record<string, string>>({});
-  const [pickProduct, setPickProduct] = useState('');
+  // The product behind each line on the form. Lines are picked by searching,
+  // so there is no catalog-wide list to look them up in -- and the one there
+  // used to be held only the first 100 products by name, so a line past that
+  // lost its unit and its serial rules.
+  const [lineProducts, setLineProducts] = useState<Record<string, Product>>({});
   // Supplier payment: pay in full now, buy on credit, or pay part now.
   const { user } = useAuth();
   // Stock keepers receive goods; paying for them is left to management, and
@@ -83,21 +104,13 @@ export default function PurchasesPage() {
     queryKey: ['purchases', page],
     queryFn: () => PurchasesApi.list({ page, limit: 20 }),
   });
-  const { data: suppliers } = useQuery({
-    queryKey: ['suppliers'],
-    queryFn: () => SuppliersApi.list({ limit: 100 }),
-  });
-  const { data: products } = useQuery({
-    queryKey: ['products', 'all'],
-    queryFn: () => ProductsApi.list({ limit: 100 }),
-  });
 
   const total = useMemo(
     () => lines.reduce((s, l) => s + l.quantity * l.costPrice, 0),
     [lines],
   );
 
-  const productOf = (id: string) => products?.data.find((p) => p.id === id);
+  const productOf = (id: string): Product | undefined => lineProducts[id];
 
   // A serialised line needs exactly one distinct serial per unit before it
   // can be saved. Skipped while editing -- the backend unconditionally
@@ -156,9 +169,10 @@ export default function PurchasesPage() {
   const openNew = () => {
     setEditingId(null);
     setStoreId(stores?.[0]?.id ?? '');
-    setSupplierId('');
+    setSupplier(null);
     setReference('');
     setLines([]);
+    setLineProducts({});
     setPayMode('full');
     setAmountPaid(0);
     setAttachedStore(null);
@@ -169,10 +183,12 @@ export default function PurchasesPage() {
   const openEdit = async (id: string) => {
     try {
       const p = await PurchasesApi.get(id);
+      const byId = await productsById((p.items ?? []).map((it) => it.productId));
+      setLineProducts(byId);
       setEditingId(p.id);
       setAttachedStore(p.store ? { ...p.store, isActive: false } : null);
       setStoreId(p.store?.id ?? stores?.[0]?.id ?? '');
-      setSupplierId(p.supplier?.id ?? '');
+      setSupplier(p.supplier ? { id: p.supplier.id, label: p.supplier.name } : null);
       setReference(p.reference ?? '');
       setLines(
         (p.items ?? []).map((it) => ({
@@ -202,19 +218,9 @@ export default function PurchasesPage() {
     setReceiveLoading(true);
     try {
       const p = await PurchasesApi.get(id);
-      const ids = (p.items ?? []).map((l) => l.productId);
-      // The list endpoint caps limit at 100, and an unresolved product would
-      // read as non-serialised -- which would let Receive enable and then fail
-      // server-side -- so fetch long orders in pages. activeOnly:false keeps a
-      // line whose product was since deactivated resolvable.
-      const chunks = [];
-      for (let i = 0; i < ids.length; i += 100) chunks.push(ids.slice(i, i + 100));
-      const pages = await Promise.all(
-        chunks.map((c) => ProductsApi.list({ ids: c, limit: 100, activeOnly: false })),
-      );
-      setReceiveProducts(
-        Object.fromEntries(pages.flatMap((r) => r.data).map((x) => [x.id, x])),
-      );
+      // An unresolved product would read as non-serialised, which would let
+      // Receive enable and then fail server-side.
+      setReceiveProducts(await productsById((p.items ?? []).map((l) => l.productId)));
       setReceiveSerials({});
       setReceivingPurchase(p);
     } catch (e) {
@@ -294,21 +300,13 @@ export default function PurchasesPage() {
 
   const canReturn = Object.values(returnQtys).some((q) => q > 0);
 
-  const addLine = (productId: string) => {
-    if (!productId) return;
-    if (productId === '__new__') {
-      setNewProd(newProductEmpty);
-      setNewProdOpen(true);
-      setPickProduct('');
-      return;
-    }
-    const product = products?.data.find((p) => p.id === productId);
-    if (!product || lines.some((l) => l.productId === productId)) return;
+  const addLine = (product: Product | null) => {
+    if (!product || lines.some((l) => l.productId === product.id)) return;
+    setLineProducts((m) => ({ ...m, [product.id]: product }));
     setLines((ls) => [
       ...ls,
-      { productId, quantity: 1, costPrice: Number(product.costPrice), batchNumber: '', expiryDate: '', serialsText: '' },
+      { productId: product.id, quantity: 1, costPrice: Number(product.costPrice), batchNumber: '', expiryDate: '', serialsText: '' },
     ]);
-    setPickProduct('');
   };
 
   // Create a product on the fly, then add it as a purchase line.
@@ -323,12 +321,7 @@ export default function PurchasesPage() {
       }),
     onSuccess: (product) => {
       qc.invalidateQueries({ queryKey: ['products'] });
-      setLines((ls) => [
-        ...ls,
-        { productId: product.id, quantity: 1, costPrice: Number(product.costPrice), batchNumber: '', expiryDate: '', serialsText: '' },
-      ]);
-      // keep the name handy for the line label until products refetch
-      setNameCache((c) => ({ ...c, [product.id]: product.name }));
+      addLine(product);
       show(`"${product.name}" created`);
       setNewProdOpen(false);
     },
@@ -338,8 +331,7 @@ export default function PurchasesPage() {
     setLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
   const removeLine = (i: number) => setLines((ls) => ls.filter((_, idx) => idx !== i));
 
-  const productName = (id: string) =>
-    products?.data.find((p) => p.id === id)?.name ?? nameCache[id] ?? id;
+  const productName = (id: string) => lineProducts[id]?.name ?? id;
 
   return (
     <div>
@@ -428,10 +420,17 @@ export default function PurchasesPage() {
               </Field>
             )}
             <Field label="Supplier">
-              <Select value={supplierId} onChange={(e) => setSupplierId(e.target.value)}>
-                <option value="">— None —</option>
-                {suppliers?.data.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-              </Select>
+              <SearchPicker<Supplier>
+                queryKey={['suppliers', 'pick']}
+                fetchPage={(search, limit) => SuppliersApi.list({ search: search || undefined, limit })}
+                label={(s) => s.name}
+                detail={(s) => s.phone}
+                selected={supplier}
+                noneLabel="— None —"
+                onPick={(s) => setSupplier(s ? { id: s.id, label: s.name } : null)}
+                placeholder="Search suppliers…"
+                aria-label="Supplier"
+              />
             </Field>
             <Field label="Reference (optional)">
               <Input value={reference} onChange={(e) => setReference(e.target.value)} placeholder="Invoice #" />
@@ -439,16 +438,29 @@ export default function PurchasesPage() {
           </div>
 
           <Field label="Add product">
-            <Select value={pickProduct} onChange={(e) => addLine(e.target.value)}>
-              <option value="">Select a product to add…</option>
-              <option value="__new__">➕ Add a new product…</option>
-              {products?.data.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </Select>
-            {products && products.data.length === 0 && (
-              <p className="mt-1 text-xs text-muted-foreground">
-                No products yet — choose “Add a new product” to create one.
-              </p>
-            )}
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <SearchPicker<Product>
+                className="flex-1"
+                queryKey={['products', 'pick']}
+                fetchPage={(search, limit) => ProductsApi.list({ search: search || undefined, limit })}
+                label={(p) => p.name}
+                detail={(p) => p.sku}
+                isTaken={(p) => lines.some((l) => l.productId === p.id)}
+                onPick={addLine}
+                placeholder="Search by name, SKU or barcode…"
+                aria-label="Add product"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setNewProd(newProductEmpty);
+                  setNewProdOpen(true);
+                }}
+              >
+                <Plus className="h-4 w-4" /> New product
+              </Button>
+            </div>
           </Field>
 
           {hasSerializedLineInEdit && (

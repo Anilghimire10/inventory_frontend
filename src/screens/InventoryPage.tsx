@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Boxes, SlidersHorizontal, AlertTriangle, CalendarClock, History, ArrowLeftRight, Trash2, ClipboardCheck, Fingerprint, PackagePlus, Target } from 'lucide-react';
 import { InventoryApi, ProductsApi, PurchasesApi } from '@/api';
-import type { CountSheetLine, ReorderSuggestionGroup, SerialStatus, StockItem, StockTakeResult } from '@/types';
+import type { CountSheetLine, Product, ReorderSuggestionGroup, SerialStatus, StockItem, StockTakeResult } from '@/types';
 import { useActiveStores } from '@/hooks/useStores';
 import { useStoreScope } from '@/store/StoreContext';
 import { PageHeader, LoadingBlock, EmptyState, ErrorState } from '@/components/ui/misc';
@@ -17,6 +17,7 @@ import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
 import { Pagination } from '@/components/ui/pagination';
 import { useToast } from '@/components/ui/toast';
 import { Hint, Tooltip } from '@/components/ui/tooltip';
+import { SearchPicker } from '@/components/SearchPicker';
 import { apiError } from '@/lib/api';
 import { formatDate, formatDateTime, formatMoney } from '@/lib/format';
 import { cn } from '@/lib/utils';
@@ -42,8 +43,7 @@ export default function InventoryPage() {
   const [fromStoreId, setFromStoreId] = useState('');
   const [toStoreId, setToStoreId] = useState('');
   const [transferNote, setTransferNote] = useState('');
-  const [transferLines, setTransferLines] = useState<{ productId: string; quantity: number }[]>([]);
-  const [pickTransferProduct, setPickTransferProduct] = useState('');
+  const [transferLines, setTransferLines] = useState<{ productId: string; name: string; quantity: number }[]>([]);
 
   const [countStoreIdOverride, setCountStoreIdOverride] = useState('');
   const [counts, setCounts] = useState<Record<string, number>>({});
@@ -61,7 +61,8 @@ export default function InventoryPage() {
   const [serialsPage, setSerialsPage] = useState(1);
   const [serialSearch, setSerialSearch] = useState('');
   const [serialStatus, setSerialStatus] = useState<SerialStatus | ''>('');
-  const [serialProductId, setSerialProductId] = useState('');
+  const [serialProduct, setSerialProduct] = useState<{ id: string; label: string } | null>(null);
+  const serialProductId = serialProduct?.id ?? '';
 
   // Every list on this page follows the branch chosen in the header. The
   // server scopes pinned staff on its own; this is what lets an owner review
@@ -165,12 +166,6 @@ export default function InventoryPage() {
     onError: (e) => show(apiError(e), 'error'),
   });
 
-  const { data: products } = useQuery({
-    queryKey: ['products', 'all'],
-    queryFn: () => ProductsApi.list({ limit: 100 }),
-    enabled: transferOpen || tab === 'serials',
-  });
-
   const transfer = useMutation({
     mutationFn: () =>
       InventoryApi.transfer({
@@ -193,22 +188,18 @@ export default function InventoryPage() {
     setToStoreId(stores?.[1]?.id ?? '');
     setTransferNote('');
     setTransferLines([]);
-    setPickTransferProduct('');
     setTransferOpen(true);
   };
 
-  const addTransferLine = (productId: string) => {
-    if (!productId || transferLines.some((l) => l.productId === productId)) return;
-    setTransferLines((ls) => [...ls, { productId, quantity: 1 }]);
-    setPickTransferProduct('');
+  const addTransferLine = (product: Product | null) => {
+    if (!product || transferLines.some((l) => l.productId === product.id)) return;
+    setTransferLines((ls) => [...ls, { productId: product.id, name: product.name, quantity: 1 }]);
   };
   const updateTransferLine = (i: number, quantity: number) =>
     setTransferLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, quantity } : l)));
   const removeTransferLine = (i: number) =>
     setTransferLines((ls) => ls.filter((_, idx) => idx !== i));
 
-  const transferProductName = (id: string) =>
-    products?.data.find((p) => p.id === id)?.name ?? id;
 
   const sameStore = !!fromStoreId && fromStoreId === toStoreId;
   const canTransfer =
@@ -562,23 +553,27 @@ export default function InventoryPage() {
 
       {tab === 'serials' && (
         <div className="space-y-3">
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap items-start gap-2">
             <Input
               className="max-w-xs"
               placeholder="Search by serial number…"
               value={serialSearch}
               onChange={(e) => { setSerialSearch(e.target.value); setSerialsPage(1); }}
             />
-            <Select
-              className="max-w-xs"
-              value={serialProductId}
-              onChange={(e) => { setSerialProductId(e.target.value); setSerialsPage(1); }}
-            >
-              <option value="">All products</option>
-              {(products?.data ?? []).filter((p) => p.trackSerials).map((p) => (
-                <option key={p.id} value={p.id}>{p.name}</option>
-              ))}
-            </Select>
+            <SearchPicker<Product>
+              className="w-full max-w-xs"
+              queryKey={['products', 'pick', 'serialised']}
+              fetchPage={(search, limit) =>
+                ProductsApi.list({ search: search || undefined, limit, trackSerials: true, activeOnly: false })
+              }
+              label={(p) => p.name}
+              detail={(p) => p.sku}
+              selected={serialProduct}
+              noneLabel="All products"
+              onPick={(p) => { setSerialProduct(p ? { id: p.id, label: p.name } : null); setSerialsPage(1); }}
+              placeholder="Search serialised products…"
+              aria-label="Filter by product"
+            />
             <Select
               className="max-w-xs"
               value={serialStatus}
@@ -673,23 +668,32 @@ export default function InventoryPage() {
           )}
 
           <Field label="Add product">
-            <Select value={pickTransferProduct} onChange={(e) => addTransferLine(e.target.value)}>
-              <option value="">Select a product to add…</option>
-              {products?.data.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </Select>
+            {/* Scoped to the source store: only what it carries can leave it. */}
+            <SearchPicker<Product>
+              queryKey={['products', 'pick', 'transfer', fromStoreId]}
+              fetchPage={(search, limit) =>
+                ProductsApi.list({ search: search || undefined, limit, storeId: fromStoreId || undefined })
+              }
+              label={(p) => p.name}
+              detail={(p) => (p.onHandQty != null ? `${Number(p.onHandQty)} ${p.unit} on hand` : p.sku)}
+              isTaken={(p) => transferLines.some((l) => l.productId === p.id)}
+              onPick={addTransferLine}
+              placeholder="Search by name, SKU or barcode…"
+              aria-label="Add product"
+            />
           </Field>
 
           {transferLines.length > 0 && (
             <div className="space-y-2">
               {transferLines.map((l, i) => (
                 <div key={l.productId} className="flex items-center gap-3 rounded-md border border-border p-3">
-                  <span className="flex-1 font-medium">{transferProductName(l.productId)}</span>
+                  <span className="flex-1 font-medium">{l.name}</span>
                   <Input type="number" step="0.001" min="0.001" className="w-28"
                     value={l.quantity}
                     onChange={(e) => updateTransferLine(i, Number(e.target.value))} />
                   <Tooltip content="Remove line">
                     <Button size="icon" variant="ghost" onClick={() => removeTransferLine(i)}
-                      aria-label={`Remove ${transferProductName(l.productId)}`}>
+                      aria-label={`Remove ${l.name}`}>
                       <Trash2 className="h-4 w-4 text-destructive" />
                     </Button>
                   </Tooltip>

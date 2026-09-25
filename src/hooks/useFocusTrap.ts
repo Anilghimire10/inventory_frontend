@@ -24,7 +24,10 @@ export function useFocusTrap(
     const panel = panelRef.current;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        onEscapeRef.current?.();
+        // Something inside already used this Escape (a search list closing,
+        // say) and said so with preventDefault. stopPropagation can't do it:
+        // under the App Router React's own listener is on `document` too.
+        if (!e.defaultPrevented) onEscapeRef.current?.();
         return;
       }
       if (e.key !== 'Tab' || !panel) return;

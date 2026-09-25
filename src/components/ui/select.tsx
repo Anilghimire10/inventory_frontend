@@ -15,7 +15,7 @@ export const Select = forwardRef<
         // caller passing a shorter h-* (the header's h-8) kept the 16px of
         // padding and left a 14px box for a 20px line -- the text overflowed
         // and looked like it was sinking out of the control.
-        'flex h-10 w-full appearance-none rounded-md border border-input bg-background px-3 pr-9 py-0 text-sm',
+        'flex h-10 w-full appearance-none rounded-md border border-input bg-background px-3 pr-9 py-0 text-base sm:text-sm',
         'focus-visible:outline-2 focus-visible:outline-ring outline-offset-0',
         'disabled:cursor-not-allowed disabled:opacity-50',
         className,

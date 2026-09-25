@@ -353,15 +353,17 @@ export default function ProductsPage() {
                 <TH className="w-8">
                   <input
                     type="checkbox"
+                    className="h-5 w-5 sm:h-4 sm:w-4"
                     aria-label="Select all on this page"
                     checked={data.data.length > 0 && data.data.every((p) => selected.has(p.id))}
                     onChange={() => toggleSelectAll(data.data)}
                   />
                 </TH>
                 <TH>Name</TH>
-                <TH>SKU</TH>
-                <TH>Category</TH>
-                <TH className="text-right">Cost</TH>
+                {/* Phones drop these so price and the actions stay on screen. */}
+                <TH className="hidden md:table-cell">SKU</TH>
+                <TH className="hidden md:table-cell">Category</TH>
+                <TH className="hidden text-right sm:table-cell">Cost</TH>
                 <TH className="text-right">Price</TH>
                 <TH></TH>
               </TR>
@@ -372,6 +374,7 @@ export default function ProductsPage() {
                   <TD>
                     <input
                       type="checkbox"
+                      className="h-5 w-5 sm:h-4 sm:w-4"
                       aria-label={`Select ${p.name}`}
                       checked={selected.has(p.id)}
                       onChange={() => toggleSelected(p.id)}
@@ -386,10 +389,10 @@ export default function ProductsPage() {
                           alt={p.name}
                           loading="lazy"
                           decoding="async"
-                          className="h-9 w-9 shrink-0 rounded-md border border-border object-cover"
+                          className="hidden h-9 w-9 shrink-0 rounded-md border border-border object-cover sm:block"
                         />
                       ) : (
-                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-muted text-muted-foreground">
+                        <div className="hidden h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-muted text-muted-foreground sm:flex">
                           <Package className="h-4 w-4" />
                         </div>
                       )}
@@ -408,8 +411,8 @@ export default function ProductsPage() {
                       </div>
                     </div>
                   </TD>
-                  <TD className="text-muted-foreground">{p.sku || '—'}</TD>
-                  <TD>
+                  <TD className="hidden text-muted-foreground md:table-cell">{p.sku || '—'}</TD>
+                  <TD className="hidden md:table-cell">
                     {p.categories && p.categories.length > 0 ? (
                       <div className="flex flex-wrap gap-1">
                         {p.categories.map((c) => (
@@ -420,10 +423,11 @@ export default function ProductsPage() {
                       '—'
                     )}
                   </TD>
-                  <TD className="text-right">{formatMoney(p.costPrice)}</TD>
+                  <TD className="hidden text-right sm:table-cell">{formatMoney(p.costPrice)}</TD>
                   <TD className="text-right font-medium">{formatMoney(p.sellingPrice)}</TD>
                   <TD>
-                    <div className="flex justify-end gap-1">
+                    {/* Stacked on phones, so the row fits without scrolling sideways. */}
+                    <div className="flex flex-col items-end gap-1 sm:flex-row sm:justify-end">
                       <Tooltip content="Edit">
                         <Button size="icon" variant="ghost" onClick={() => openEdit(p)} aria-label={`Edit ${p.name}`}>
                           <Pencil className="h-4 w-4" />
