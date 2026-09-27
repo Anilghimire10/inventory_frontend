@@ -109,7 +109,9 @@ export default function ProductsPage() {
     mutationFn: (body: Form) => {
       const payload = {
         ...body,
-        taxId: body.taxId || undefined,
+        // null, not absent: "No tax" has to clear a tax the product had, or
+        // the old one stays attached and comes back the next time it's opened.
+        taxId: body.taxId || null,
         imageUrl: body.imageUrl || undefined,
         // The unique indexes treat two empty strings as a collision, so a
         // blank SKU/barcode has to go up as absent, not as ''.

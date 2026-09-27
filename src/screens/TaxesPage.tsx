@@ -101,6 +101,12 @@ export default function TaxesPage() {
                 onChange={(e) => setForm((f) => ({ ...f, rate: Number(e.target.value) }))} required />
             </Field>
           </div>
+          {crud.editing && Number(crud.editing.rate) !== form.rate && (
+            <p className="text-xs text-muted-foreground">
+              Every product using this tax will charge {form.rate}% from the next sale. Sales
+              already made keep the rate they were charged.
+            </p>
+          )}
           <div className="flex gap-6">
             <label className="flex items-center gap-2 text-sm">
               <input type="checkbox" checked={form.isActive} onChange={(e) => setForm((f) => ({ ...f, isActive: e.target.checked }))} /> Active
