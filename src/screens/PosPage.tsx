@@ -370,8 +370,24 @@ export default function PosPage() {
     onError: (e) => show(apiError(e), 'error'),
   });
   const hold = () => {
-    if (cart.length === 0) return;
+    if (cart.length === 0 || holdMutation.isPending) return;
     holdMutation.mutate();
+  };
+
+  // One checkout at a time. `checkout.isPending` alone can't be trusted for
+  // this: two Enter presses in the tendered field -- or a scanner's trailing
+  // Enter landing there -- arrive before React re-renders, both read the old
+  // `false`, and the same cart was rung up twice: charged twice, stock taken
+  // twice. A ref flips synchronously, so the second press sees it.
+  const checkingOutRef = useRef(false);
+  const completeSale = () => {
+    if (checkingOutRef.current) return;
+    checkingOutRef.current = true;
+    checkout.mutate(undefined, {
+      onSettled: () => {
+        checkingOutRef.current = false;
+      },
+    });
   };
 
   const handlerRef = useRef<(e: KeyboardEvent) => void>(() => {});
@@ -898,7 +914,7 @@ export default function PosPage() {
               onResumeHeld={resume}
               onDiscardHeld={(id) => discardMutation.mutate(id)}
               onClear={clear}
-              onCheckout={() => checkout.mutate()}
+              onCheckout={completeSale}
               checkingOut={checkout.isPending}
               subtotal={subtotal}
               tax={tax}

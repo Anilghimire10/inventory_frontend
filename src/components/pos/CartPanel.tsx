@@ -592,7 +592,7 @@ export function CartPanel({
                       value={tendered || ''}
                       onChange={(e) => onTenderedChange(Math.max(0, Number(e.target.value) || 0))}
                       onKeyDown={(e) => {
-                        if (e.key === 'Enter' && !checkoutDisabled) {
+                        if (e.key === 'Enter' && !checkoutDisabled && !checkingOut) {
                           e.preventDefault();
                           attemptCheckout();
                         }
