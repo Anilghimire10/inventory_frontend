@@ -279,11 +279,16 @@ export default function PurchasesPage() {
           .filter(([, qty]) => qty > 0)
           .map(([purchaseItemId, quantity]) => ({ purchaseItemId, quantity })),
       }),
-    onSuccess: ({ returnedValue }) => {
+    onSuccess: ({ returnedValue, refundDueFromSupplier }) => {
       qc.invalidateQueries({ queryKey: ['purchases'] });
       qc.invalidateQueries({ queryKey: ['stock'] });
       qc.invalidateQueries({ queryKey: ['movements'] });
-      show(`Returned ${formatMoney(returnedValue)} to supplier`);
+      qc.invalidateQueries({ queryKey: ['credit'] });
+      show(
+        refundDueFromSupplier > 0
+          ? `Returned ${formatMoney(returnedValue)} to supplier — they owe you ${formatMoney(refundDueFromSupplier)} back (Credit → Supplier refunds)`
+          : `Returned ${formatMoney(returnedValue)} to supplier`,
+      );
       setReturningPurchase(null);
     },
     onError: (e) => show(apiError(e), 'error'),
@@ -357,7 +362,9 @@ export default function PurchasesPage() {
                     <TD>{p.supplier?.name ?? '—'}</TD>
                     <TD><Badge tone={p.status === 'RECEIVED' ? 'success' : 'muted'}>{p.status}</Badge></TD>
                     <TD>
-                      {outstanding <= 0.001 ? (
+                      {Number(p.refundDue ?? 0) > 0 ? (
+                        <Badge tone="warning">Owes you {formatMoney(p.refundDue!)}</Badge>
+                      ) : outstanding <= 0.001 ? (
                         <Badge tone="success">Paid</Badge>
                       ) : Number(p.amountPaid) > 0 ? (
                         <Badge tone="warning">Owing {formatMoney(outstanding)}</Badge>

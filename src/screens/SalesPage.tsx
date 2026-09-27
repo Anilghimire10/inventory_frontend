@@ -16,7 +16,7 @@ import {
 import { SalesApi } from '@/api';
 import { useStoreLabel } from '@/components/StorePicker';
 import { ALL_STORES, useStoreScope } from '@/store/StoreContext';
-import type { PaymentMethod, Sale, SaleListItem } from '@/types';
+import type { PaymentMethod, ReturnQuote, Sale, SaleListItem, SettleMethod } from '@/types';
 import { PageHeader, LoadingBlock, EmptyState, ErrorState } from '@/components/ui/misc';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -27,7 +27,7 @@ import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
 import { Pagination } from '@/components/ui/pagination';
 import { useToast } from '@/components/ui/toast';
 import { apiError } from '@/lib/api';
-import { printSale } from '@/lib/print';
+import { printReturnSlip, printSale, type ReturnSlip } from '@/lib/print';
 import { formatMoney, formatDateTime } from '@/lib/format';
 import { remainingQty } from '@/lib/decimal';
 import { Card } from '@/components/ui/card';
@@ -49,7 +49,9 @@ const PAYMENT_LABEL: Record<PaymentMethod, string> = {
   CARD: 'Card',
   MOBILE: 'Mobile',
   CREDIT: 'Credit',
-  MIXED: 'Cash + Credit',
+  // Part paid now (by any tender -- the payment row records which), the rest
+  // on the customer's khata. Not "Cash + Credit": a card part-payment is MIXED too.
+  MIXED: 'Part credit',
 };
 
 // Whole calendar days back from today, inclusive — the same convention the
@@ -79,6 +81,14 @@ function dateRange(filter: DateFilter): { from?: string; to?: string } {
   end.setHours(23, 59, 59, 999);
   return { from: start.toISOString(), to: end.toISOString() };
 }
+
+/**
+ * Whether goods can come back against this sale. Not once it is fully
+ * returned, and never for a held cart: it isn't a sale yet, so nothing left
+ * the shelf and nothing was paid. Resume or discard it instead.
+ */
+const canReturn = (s: { status: SaleListItem['status'] }) =>
+  s.status === 'COMPLETED' || s.status === 'PARTIALLY_RETURNED';
 
 /** Friendly, payment-aware status: credit sales read as "Due", part-paid as "Partial". */
 function viewStatus(s: SaleListItem): StatusView {
@@ -110,6 +120,25 @@ export default function SalesPage() {
   }
   const [openId, setOpenId] = useState<string | null>(null);
   const [returnQty, setReturnQty] = useState<Record<string, number>>({});
+  // null = the tender the sale was paid on, which the quote reports.
+  const [refundMethod, setRefundMethod] = useState<SettleMethod | null>(null);
+  // Lines coming back unfit to sell: written off rather than restocked.
+  const [damaged, setDamaged] = useState<Record<string, boolean>>({});
+  const [returnReason, setReturnReason] = useState('');
+  // Serialised lines: which units are coming back, by serial number.
+  const [pickedSerials, setPickedSerials] = useState<Record<string, string[]>>({});
+  // The return just made, kept so its slip can be printed.
+  const [lastReturn, setLastReturn] = useState<ReturnSlip | null>(null);
+  const resetReturn = () => {
+    setReturnQty({});
+    setRefundMethod(null);
+    setDamaged({});
+    setReturnReason('');
+    setPickedSerials({});
+  };
+  const returnLines = Object.entries(returnQty)
+    .filter(([, q]) => q > 0)
+    .map(([saleItemId, quantity]) => ({ saleItemId, quantity }));
   const storeLabel = useStoreLabel(storeId);
 
   const { data, isLoading, isError, refetch } = useQuery({
@@ -133,19 +162,48 @@ export default function SalesPage() {
 
   const sales = data?.data ?? [];
 
+  // What the return would hand back, from the same calculation the return
+  // itself runs -- so the cashier sees the amount before confirming, not
+  // after the money has already gone.
+  const quote = useQuery({
+    queryKey: ['return-quote', openId, returnLines],
+    queryFn: () => SalesApi.returnQuote(openId!, returnLines),
+    enabled: !!openId && returnLines.length > 0,
+  });
+
   const doReturn = useMutation({
-    mutationFn: () => {
-      const items = Object.entries(returnQty)
-        .filter(([, q]) => q > 0)
-        .map(([saleItemId, quantity]) => ({ saleItemId, quantity }));
-      return SalesApi.return(openId!, { items });
-    },
+    mutationFn: () =>
+      SalesApi.return(openId!, {
+        items: returnLines.map((l) => ({
+          ...l,
+          ...(damaged[l.saleItemId] ? { restock: false } : {}),
+          ...(pickedSerials[l.saleItemId]?.length ? { serials: pickedSerials[l.saleItemId] } : {}),
+        })),
+        ...(refundMethod ? { refundMethod } : {}),
+        ...(returnReason.trim() ? { reason: returnReason.trim() } : {}),
+      }),
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ['sales'] });
       qc.invalidateQueries({ queryKey: ['sale', openId] });
       qc.invalidateQueries({ queryKey: ['stock'] });
-      show(`Returned — ${formatMoney(res.refund)} refunded`);
-      setReturnQty({});
+      qc.invalidateQueries({ queryKey: ['return-quote', openId] });
+      const parts = [
+        res.cashBack > 0 && `${formatMoney(res.cashBack)} back in ${PAYMENT_LABEL[res.method ?? 'CASH'].toLowerCase()}`,
+        res.creditCancelled > 0 && `${formatMoney(res.creditCancelled)} off their balance`,
+      ].filter(Boolean);
+      show(`Returned — ${parts.length ? parts.join(', ') : 'nothing to refund'}`);
+      const names = new Map(sale?.items.map((it) => [it.id, it.name]));
+      setLastReturn({
+        result: res,
+        reason: returnReason.trim() || undefined,
+        lines: returnLines.map((l) => ({
+          name: names.get(l.saleItemId) ?? 'Item',
+          quantity: l.quantity,
+          damaged: !!damaged[l.saleItemId],
+          serials: pickedSerials[l.saleItemId],
+        })),
+      });
+      resetReturn();
     },
     onError: (e) => show(apiError(e), 'error'),
   });
@@ -256,7 +314,7 @@ export default function SalesPage() {
             <option value="CARD">Card</option>
             <option value="MOBILE">Mobile</option>
             <option value="CREDIT">Credit</option>
-            <option value="MIXED">Cash + Credit</option>
+            <option value="MIXED">Part credit</option>
           </Select>
         </div>
       </div>
@@ -277,7 +335,7 @@ export default function SalesPage() {
                 {sales.map((s) => {
                   const v = viewStatus(s);
                   return (
-                    <TR key={s.id} className="cursor-pointer" onClick={() => { setOpenId(s.id); setReturnQty({}); }}>
+                    <TR key={s.id} className="cursor-pointer" onClick={() => { setOpenId(s.id); resetReturn(); setLastReturn(null); }}>
                       <TD className="font-medium">
                         {s.receiptNo}
                         {/* Phones hide the When and Status columns; they ride along with the receipt. */}
@@ -373,8 +431,34 @@ export default function SalesPage() {
               </div>
             </div>
 
-            {sale.status !== 'RETURNED' && (
-              <ReturnSection sale={sale} returnQty={returnQty} setReturnQty={setReturnQty} />
+            {lastReturn && (
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-success/30 bg-success/10 p-3 text-sm">
+                <span>
+                  Return done — {formatMoney(lastReturn.result.cashBack)} handed back
+                  {lastReturn.result.creditCancelled > 0 && `, ${formatMoney(lastReturn.result.creditCancelled)} off what they owe`}.
+                </span>
+                <Button size="sm" variant="outline" onClick={() => printReturnSlip(sale, lastReturn)}>
+                  <Printer className="h-4 w-4" /> Print return slip
+                </Button>
+              </div>
+            )}
+
+            {canReturn(sale) && (
+              <ReturnSection
+                sale={sale}
+                returnQty={returnQty}
+                setReturnQty={setReturnQty}
+                quote={returnLines.length > 0 ? quote.data : undefined}
+                quoteError={returnLines.length > 0 && quote.isError ? apiError(quote.error) : null}
+                refundMethod={refundMethod}
+                setRefundMethod={setRefundMethod}
+                damaged={damaged}
+                setDamaged={setDamaged}
+                pickedSerials={pickedSerials}
+                setPickedSerials={setPickedSerials}
+                reason={returnReason}
+                setReason={setReturnReason}
+              />
             )}
           </div>
           );
@@ -393,10 +477,10 @@ export default function SalesPage() {
               </Button>
             </>
           )}
-          {sale && sale.status !== 'RETURNED' && (
+          {sale && canReturn(sale) && (
             <Button
               variant="destructive"
-              disabled={Object.values(returnQty).every((q) => !q)}
+              disabled={returnLines.length === 0 || quote.isError}
               loading={doReturn.isPending}
               onClick={() => doReturn.mutate()}
             >
@@ -481,14 +565,36 @@ function RowMenu({
   );
 }
 
+const REFUND_TENDERS: SettleMethod[] = ['CASH', 'CARD', 'MOBILE'];
+
 function ReturnSection({
   sale,
   returnQty,
   setReturnQty,
+  quote,
+  quoteError,
+  refundMethod,
+  setRefundMethod,
+  damaged,
+  setDamaged,
+  pickedSerials,
+  setPickedSerials,
+  reason,
+  setReason,
 }: {
   sale: Sale;
   returnQty: Record<string, number>;
   setReturnQty: (v: Record<string, number>) => void;
+  quote?: ReturnQuote;
+  quoteError: string | null;
+  refundMethod: SettleMethod | null;
+  setRefundMethod: (m: SettleMethod | null) => void;
+  damaged: Record<string, boolean>;
+  setDamaged: (v: Record<string, boolean>) => void;
+  pickedSerials: Record<string, string[]>;
+  setPickedSerials: (v: Record<string, string[]>) => void;
+  reason: string;
+  setReason: (v: string) => void;
 }) {
   const returnable = sale.items.filter((it) => remainingQty(it) > 0);
   if (returnable.length === 0) return null;
@@ -498,19 +604,105 @@ function ReturnSection({
       <div className="mt-3 space-y-2">
         {returnable.map((it) => {
           const max = remainingQty(it);
+          // Serialised goods come back as specific units: pick them by
+          // serial rather than letting the server assume the oldest ones.
+          const units = (sale.serials ?? []).filter(
+            (u) => u.productId === it.productId && u.status === 'SOLD',
+          );
+          const picked = pickedSerials[it.id] ?? [];
+          const toggle = (serial: string, on: boolean) => {
+            const next = on ? [...picked, serial] : picked.filter((x) => x !== serial);
+            setPickedSerials({ ...pickedSerials, [it.id]: next });
+            setReturnQty({ ...returnQty, [it.id]: next.length });
+          };
           return (
-            <div key={it.id} className="flex items-center gap-2 text-sm">
-              <span className="flex-1 truncate">{it.name}</span>
-              <span className="text-xs text-muted-foreground">max {max}</span>
-              <Input type="number" step="0.001" min="0" max={max} className="h-8 w-20"
-                value={returnQty[it.id] ?? 0}
-                onChange={(e) =>
-                  setReturnQty({ ...returnQty, [it.id]: Math.min(max, Math.max(0, Number(e.target.value))) })
-                } />
+            <div key={it.id} className="space-y-1">
+              <div className="flex items-center gap-2 text-sm">
+                <span className="flex-1 truncate">{it.name}</span>
+                <span className="text-xs text-muted-foreground">max {max}</span>
+                {units.length > 0 ? (
+                  <span className="w-20 text-right tabular-nums">{picked.length}</span>
+                ) : (
+                  <Input type="number" step="0.001" min="0" max={max} className="h-8 w-20"
+                    value={returnQty[it.id] ?? 0}
+                    onChange={(e) =>
+                      setReturnQty({ ...returnQty, [it.id]: Math.min(max, Math.max(0, Number(e.target.value))) })
+                    } />
+                )}
+                <Tooltip content="Came back unfit to sell: refunded, but written off instead of going back on the shelf">
+                  <label className="flex items-center gap-1 text-xs text-muted-foreground">
+                    <input
+                      type="checkbox"
+                      checked={!!damaged[it.id]}
+                      onChange={(e) => setDamaged({ ...damaged, [it.id]: e.target.checked })}
+                    />
+                    Damaged
+                  </label>
+                </Tooltip>
+              </div>
+              {units.length > 0 && (
+                <div className="flex flex-wrap gap-x-3 gap-y-1 pl-1 text-xs">
+                  {units.map((u) => (
+                    <label key={u.serialNumber} className="flex items-center gap-1 font-mono">
+                      <input
+                        type="checkbox"
+                        checked={picked.includes(u.serialNumber)}
+                        disabled={!picked.includes(u.serialNumber) && picked.length >= max}
+                        onChange={(e) => toggle(u.serialNumber, e.target.checked)}
+                      />
+                      {u.serialNumber}
+                    </label>
+                  ))}
+                </div>
+              )}
             </div>
           );
         })}
+        <Input
+          className="h-8"
+          placeholder="Reason (optional), e.g. wrong size"
+          aria-label="Reason for return"
+          maxLength={200}
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+        />
       </div>
+
+      {quoteError && <p className="mt-3 text-sm text-destructive">{quoteError}</p>}
+      {quote && (
+        <div className="mt-3 space-y-1 rounded-md bg-muted/50 p-3 text-sm">
+          <div className="flex justify-between text-muted-foreground">
+            <span>Value of goods returned</span>
+            <span>{formatMoney(quote.refund)}</span>
+          </div>
+          {quote.creditCancelled > 0 && (
+            <div className="flex justify-between text-muted-foreground">
+              <span>Taken off what they owe</span>
+              <span>- {formatMoney(quote.creditCancelled)}</span>
+            </div>
+          )}
+          <div className="flex justify-between border-t border-border pt-1 font-semibold">
+            <span>Hand back</span>
+            <span>{formatMoney(quote.cashBack)}</span>
+          </div>
+          {quote.cashBack > 0 && (
+            <label className="flex items-center justify-between gap-2 pt-1">
+              <span className="text-muted-foreground">Refund as</span>
+              <Select
+                className="h-8 w-32"
+                value={refundMethod ?? quote.defaultMethod}
+                onChange={(e) => setRefundMethod(e.target.value as SettleMethod)}
+              >
+                {REFUND_TENDERS.map((m) => (
+                  <option key={m} value={m}>
+                    {PAYMENT_LABEL[m]}
+                  </option>
+                ))}
+              </Select>
+            </label>
+          )}
+        </div>
+      )}
     </details>
   );
 }

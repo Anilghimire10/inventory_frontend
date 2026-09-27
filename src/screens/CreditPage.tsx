@@ -9,10 +9,11 @@ import {
   Wallet,
   HandCoins,
   Search,
+  Undo2,
 } from 'lucide-react';
 import { CreditApi, CustomersApi, PurchasesApi, ReportsApi } from '@/api';
 import { useStoreScope } from '@/store/StoreContext';
-import type { CreditInvoice, Payable, PaymentMethod, Receivable } from '@/types';
+import type { CreditInvoice, Payable, PaymentMethod, Receivable, SupplierRefund } from '@/types';
 import { PageHeader, LoadingBlock, EmptyState, ErrorState } from '@/components/ui/misc';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -30,12 +31,14 @@ import { SETTLE_METHODS } from '@/lib/payment-methods';
 import { TillPicker, useTillChoice } from '@/components/TillPicker';
 import { cn } from '@/lib/utils';
 
-type Tab = 'receivables' | 'payables';
+type Tab = 'receivables' | 'payables' | 'refunds';
 
 // What the payment dialog is settling.
 type PayTarget =
   | { kind: 'customer'; id: string; name: string; max: number }
-  | { kind: 'purchase'; id: string; name: string; max: number };
+  | { kind: 'purchase'; id: string; name: string; max: number }
+  // A supplier paying back what they owe on goods returned to them.
+  | { kind: 'refund'; id: string; name: string; max: number };
 
 export default function CreditPage() {
   const qc = useQueryClient();
@@ -68,7 +71,16 @@ export default function CreditPage() {
     enabled: tab === 'payables',
   });
 
-  const refresh = () => qc.invalidateQueries({ queryKey: ['credit'] });
+  const refunds = useQuery({
+    queryKey: ['credit', 'supplier-refunds', storeId],
+    queryFn: () => CreditApi.supplierRefunds(storeId || undefined),
+    enabled: tab === 'refunds',
+  });
+
+  const refresh = () => {
+    qc.invalidateQueries({ queryKey: ['credit'] });
+    qc.invalidateQueries({ queryKey: ['purchases'] });
+  };
 
   const pay = useMutation({
     mutationFn: ({
@@ -90,9 +102,11 @@ export default function CreditPage() {
             storeId: storeId || undefined,
             shiftId: shiftId ?? undefined,
           })
-        : PurchasesApi.pay(target.id, amount, { method }),
-    onSuccess: () => {
-      show('Payment recorded');
+        : target.kind === 'refund'
+          ? PurchasesApi.refundReceived(target.id, amount, { method })
+          : PurchasesApi.pay(target.id, amount, { method }),
+    onSuccess: (_res, { target }) => {
+      show(target.kind === 'refund' ? 'Refund recorded' : 'Payment recorded');
       refresh();
       setPayTarget(null);
     },
@@ -106,6 +120,11 @@ export default function CreditPage() {
   const filteredPayables = (payables.data ?? []).filter(
     (p) => !q || p.name.toLowerCase().includes(q),
   );
+  const filteredRefunds = (refunds.data ?? []).filter(
+    (r) => !q || r.name.toLowerCase().includes(q),
+  );
+  const refundsDue = summary.data?.supplierRefundsDue ?? 0;
+  const netPosition = summary.data?.netPosition ?? 0;
 
   const receivablesTotal = summary.data?.receivablesTotal ?? 0;
   // Payables scope exactly to a branch; receivable balances cannot, because a
@@ -147,16 +166,29 @@ export default function CreditPage() {
           label="Payables"
           hint="Money you owe suppliers for purchases not yet paid in full."
           value={formatMoney(payablesTotal)}
-          sub={`${summary.data?.suppliersOwed ?? 0} suppliers to pay`}
+          sub={
+            refundsDue > 0
+              ? `${summary.data?.suppliersOwed ?? 0} suppliers to pay · ${formatMoney(refundsDue)} owed back to you`
+              : `${summary.data?.suppliersOwed ?? 0} suppliers to pay`
+          }
           icon={ArrowUpRight}
           tone="destructive"
         />
+        {/* Net, not a sum: adding what you owe to what you're owed made a
+            total that described nothing. */}
         <SummaryCard
-          label="Outstanding"
-          value={formatMoney(receivablesTotal + payablesTotal)}
-          sub="receivables + payables"
+          label="Net position"
+          hint="What customers (and suppliers, on returns) owe you, less what you owe suppliers."
+          value={formatMoney(Math.abs(netPosition))}
+          sub={
+            netPosition > 0
+              ? 'more owed to you than you owe'
+              : netPosition < 0
+                ? 'you owe more than you are owed'
+                : 'evenly balanced'
+          }
           icon={Scale}
-          tone="primary"
+          tone={netPosition < 0 ? 'destructive' : 'success'}
         />
       </div>
 
@@ -249,6 +281,9 @@ export default function CreditPage() {
           <TabButton active={tab === 'payables'} onClick={() => setTab('payables')} icon={HandCoins}>
             Payables
           </TabButton>
+          <TabButton active={tab === 'refunds'} onClick={() => setTab('refunds')} icon={Undo2}>
+            Supplier refunds
+          </TabButton>
         </div>
         <div className="relative w-full max-w-xs">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -263,7 +298,38 @@ export default function CreditPage() {
       </div>
 
       <div className="mt-4">
-        {tab === 'receivables' ? (
+        {tab === 'refunds' ? (
+          refunds.isError ? (
+            <ErrorState onRetry={() => refunds.refetch()} />
+          ) : refunds.isLoading ? (
+            <LoadingBlock />
+          ) : !refunds.data || refunds.data.length === 0 ? (
+            <EmptyState
+              title="No supplier refunds owed"
+              description="When you return paid-for goods to a supplier, what they owe you back shows up here until they pay it."
+              icon={Undo2}
+            />
+          ) : filteredRefunds.length === 0 ? (
+            <p className="py-8 text-center text-sm text-muted-foreground">No supplier matches your search.</p>
+          ) : (
+            <div className="space-y-3">
+              {filteredRefunds.map((r) => (
+                <SupplierRefundCard
+                  key={r.id ?? 'none'}
+                  r={r}
+                  onReceive={(p) =>
+                    setPayTarget({
+                      kind: 'refund',
+                      id: p.id,
+                      name: `${r.name} · ${p.reference ?? p.id.slice(0, 6)}`,
+                      max: p.refundDue,
+                    })
+                  }
+                />
+              ))}
+            </div>
+          )
+        ) : tab === 'receivables' ? (
           receivables.isError ? (
             <ErrorState onRetry={() => receivables.refetch()} />
           ) : receivables.isLoading ? (
@@ -418,6 +484,42 @@ function ReceivableRow({ r, onPay }: { r: Receivable; onPay: () => void }) {
   );
 }
 
+function SupplierRefundCard({
+  r,
+  onReceive,
+}: {
+  r: SupplierRefund;
+  onReceive: (p: SupplierRefund['purchases'][number]) => void;
+}) {
+  return (
+    <Card className="p-4">
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="font-medium">{r.name}</span>
+        <span className="font-semibold tabular-nums text-success">
+          owes you {formatMoney(r.due)}
+        </span>
+      </div>
+      <div className="mt-3 space-y-2">
+        {r.purchases.map((p) => (
+          <div
+            key={p.id}
+            className="flex items-center justify-between gap-3 rounded-md border border-border p-3"
+          >
+            <div className="min-w-0">
+              <div className="truncate text-sm font-medium">{p.reference ?? p.id.slice(0, 8)}</div>
+              <div className="text-xs text-muted-foreground">{formatDate(p.createdAt)}</div>
+            </div>
+            <span className="tabular-nums">{formatMoney(p.refundDue)}</span>
+            <Button size="sm" variant="outline" onClick={() => onReceive(p)}>
+              Record received
+            </Button>
+          </div>
+        ))}
+      </div>
+    </Card>
+  );
+}
+
 function PayableRow({
   p,
   onPayInvoice,
@@ -553,7 +655,7 @@ function PayDialog({
   // Only customer payments land in a till; a supplier is paid from elsewhere.
   const till = useTillChoice(storeId, method, target.kind === 'customer');
   return (
-    <Dialog open onClose={onClose} title="Record payment">
+    <Dialog open onClose={onClose} title={target.kind === 'refund' ? 'Record refund received' : 'Record payment'}>
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -562,8 +664,9 @@ function PayDialog({
         className="space-y-4"
       >
         <p className="text-sm text-muted-foreground">
-          {target.kind === 'customer' ? 'Payment from' : 'Payment to'}{' '}
-          <span className="font-medium text-foreground">{target.name}</span>. Outstanding{' '}
+          {target.kind === 'purchase' ? 'Payment to' : target.kind === 'refund' ? 'Refund from' : 'Payment from'}{' '}
+          <span className="font-medium text-foreground">{target.name}</span>.{' '}
+          {target.kind === 'refund' ? 'Owed back' : 'Outstanding'}{' '}
           <span className="font-medium text-foreground">{formatMoney(target.max)}</span>.
         </p>
         <Field label="Amount">
