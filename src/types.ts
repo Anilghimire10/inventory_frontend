@@ -163,7 +163,7 @@ export interface Product {
   stockItems?: { storeId: string; quantity: string }[];
 }
 
-export type SerialStatus = 'IN_STOCK' | 'SOLD' | 'RETURNED_TO_SUPPLIER';
+export type SerialStatus = 'IN_STOCK' | 'SOLD' | 'RETURNED_TO_SUPPLIER' | 'DAMAGED';
 
 /** One physical unit of a serialised product (phone IMEI, appliance serial). */
 export interface SerialRecord {
@@ -328,8 +328,37 @@ export interface Sale extends SaleListItem {
   // findOne returns the full customer record (phone/email/address), not just id+name.
   customer?: Customer | null;
   items: SaleItem[];
+  /** Serialised units that went out on this sale (GET /sales/:id). */
+  serials?: { productId: string; serialNumber: string; status: SerialStatus }[];
   store?: { id: string; name: string; address?: string | null; phone?: string | null };
   business?: { name: string; currency: string; taxId?: string | null; showTaxIdOnBill?: boolean };
+}
+
+/** Tenders a refund (or a balance payment) can move on. */
+export type SettleMethod = 'CASH' | 'CARD' | 'MOBILE';
+
+/** GET /sales/:id/return-quote — what a return would hand back, before it is made. */
+export interface ReturnQuote {
+  /** Everything the returned goods are worth, the bill discount taken off. */
+  refund: number;
+  /** The part that cancels what the customer still owes on this sale. */
+  creditCancelled: number;
+  /** The part actually handed back. */
+  cashBack: number;
+  /** Whether this return brings the last unit back. */
+  closesSale: boolean;
+  /** The tender the sale was paid on, which the refund goes back on by default. */
+  defaultMethod: SettleMethod;
+}
+
+/** POST /sales/:id/return */
+export interface ReturnResult {
+  sale: Sale;
+  refund: number;
+  creditCancelled: number;
+  cashBack: number;
+  /** The tender the money went back on; null when nothing was handed back. */
+  method: SettleMethod | null;
 }
 
 /** POST /sales/:id/resume — a parked cart, ready to repopulate the POS. */
@@ -351,6 +380,8 @@ export interface Purchase {
   total: string;
   amountPaid: string;
   outstanding?: number;
+  /** What the supplier owes back on goods returned to them, not yet refunded. */
+  refundDue?: string;
   receivedAt?: string | null;
   createdAt: string;
   supplier?: { id: string; name: string } | null;
@@ -384,12 +415,23 @@ export interface Payable {
   invoices: CreditInvoice[];
 }
 
+/** GET /credit/supplier-refunds — what a supplier owes back, per purchase. */
+export interface SupplierRefund {
+  id: string | null;
+  name: string;
+  due: number;
+  purchases: { id: string; reference: string | null; refundDue: number; createdAt: string }[];
+}
+
 export interface CreditSummary {
   receivablesTotal: number;
   payablesTotal: number;
+  /** Money suppliers owe back on goods returned to them. */
+  supplierRefundsDue: number;
   netPosition: number;
   customersOwing: number;
   suppliersOwed: number;
+  suppliersOwingRefunds: number;
   /**
    * True when a store filter is on: what a customer owes is owed to the
    * business, so the figure stays whole rather than being split per branch.
@@ -455,6 +497,8 @@ export interface ReorderSuggestionGroup {
 export interface ReturnPurchaseResult {
   purchase: Purchase;
   returnedValue: number;
+  /** Money already paid for the returned goods, which the supplier now owes back. */
+  refundDueFromSupplier: number;
 }
 
 export interface AppUser {

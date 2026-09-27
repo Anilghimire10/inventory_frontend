@@ -1,5 +1,8 @@
 import { api } from '@/lib/api';
 import type {
+  SupplierRefund,
+  ReturnQuote,
+  ReturnResult,
   Analytics,
   AppUser,
   AuthUserLite,
@@ -235,6 +238,9 @@ export const PurchasesApi = {
   ) => post<ReturnPurchaseResult>(`/purchases/${id}/return`, body),
   pay: (id: string, amount: number, opts: PaymentOpts = {}) =>
     post<Purchase>(`/purchases/${id}/pay`, { amount, ...opts }),
+  /** The supplier paid back (part of) what they owed on this purchase. */
+  refundReceived: (id: string, amount: number, opts: PaymentOpts = {}) =>
+    post<Purchase>(`/purchases/${id}/refund-received`, { amount, ...opts }),
   /** Low-stock items grouped into one suggested order per store + supplier. */
   reorderSuggestions: (storeId?: string) =>
     get<ReorderSuggestionGroup[]>(
@@ -279,6 +285,8 @@ export const CreditApi = {
     get<Receivable[]>('/credit/receivables', storeId ? { storeId } : undefined),
   payables: (storeId?: string) =>
     get<Payable[]>('/credit/payables', storeId ? { storeId } : undefined),
+  supplierRefunds: (storeId?: string) =>
+    get<SupplierRefund[]>('/credit/supplier-refunds', storeId ? { storeId } : undefined),
 };
 
 export const AuditApi = {
@@ -297,8 +305,12 @@ export const SalesApi = {
   hold: (body: object) => post<Sale>('/sales/hold', body),
   resume: (id: string) => post<HeldSaleCart>(`/sales/${id}/resume`, {}),
   discardHeld: (id: string) => del(`/sales/${id}`),
-  return: (id: string, body: object) =>
-    post<{ sale: Sale; refund: number }>(`/sales/${id}/return`, body),
+  return: (id: string, body: object) => post<ReturnResult>(`/sales/${id}/return`, body),
+  /** What returning these lines would hand back. Writes nothing. */
+  returnQuote: (id: string, items: { saleItemId: string; quantity: number }[]) =>
+    get<ReturnQuote>(`/sales/${id}/return-quote`, {
+      lines: items.map((i) => `${i.saleItemId}:${i.quantity}`).join(','),
+    }),
   emailReceipt: (id: string, email?: string) =>
     post<{ message: string }>(`/sales/${id}/email-receipt`, email ? { email } : {}),
 };

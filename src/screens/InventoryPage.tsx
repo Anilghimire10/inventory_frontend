@@ -583,6 +583,7 @@ export default function InventoryPage() {
               <option value="IN_STOCK">In stock</option>
               <option value="SOLD">Sold</option>
               <option value="RETURNED_TO_SUPPLIER">Returned to supplier</option>
+              <option value="DAMAGED">Damaged</option>
             </Select>
           </div>
 
@@ -601,7 +602,7 @@ export default function InventoryPage() {
                       <TD>{s.product.name}</TD>
                       <TD>
                         <Badge tone={s.status === 'IN_STOCK' ? 'success' : s.status === 'SOLD' ? 'muted' : 'destructive'}>
-                          {s.status === 'IN_STOCK' ? 'In stock' : s.status === 'SOLD' ? 'Sold' : 'Returned'}
+                          {s.status === 'IN_STOCK' ? 'In stock' : s.status === 'SOLD' ? 'Sold' : s.status === 'DAMAGED' ? 'Damaged' : 'Returned'}
                         </Badge>
                       </TD>
                       <TD className="text-muted-foreground">{s.store?.name ?? '—'}</TD>

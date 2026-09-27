@@ -1,4 +1,4 @@
-import type { Sale, ShiftReport } from '@/types';
+import type { ReturnResult, Sale, ShiftReport } from '@/types';
 import { renderBarcodeSvg } from './barcode';
 import { splitTax } from './tax';
 
@@ -108,6 +108,60 @@ function thermal(
       <div class="c muted">Thank you!</div>
     </div>`;
   return shell(`Receipt ${sale.receiptNo}`, 'size: 80mm auto; margin: 3mm;', body);
+}
+
+/** What a return slip lists: the lines that came back, and why. */
+export interface ReturnSlip {
+  result: ReturnResult;
+  lines: { name: string; quantity: number; damaged: boolean; serials?: string[] }[];
+  reason?: string;
+}
+
+const METHOD_LABEL: Record<string, string> = { CASH: 'cash', CARD: 'card', MOBILE: 'mobile' };
+
+/**
+ * A return slip (credit note) for the customer: which receipt the goods came
+ * back against, what came back, and where the money went -- off what they
+ * owe, back in their hand, or both.
+ */
+export function printReturnSlip(sale: Sale, slip: ReturnSlip) {
+  const m = (v: number | string) => money(sale.business?.currency ?? 'USD', v);
+  const w = window.open('', '_blank', 'width=420,height=640');
+  if (!w) {
+    alert('Please allow pop-ups to print receipts.');
+    return;
+  }
+  const { result } = slip;
+  const rows = slip.lines
+    .map(
+      (l) => `
+      <tr><td>${esc(l.name)}${l.damaged ? ' <span class="muted">(damaged)</span>' : ''}</td><td class="r">× ${esc(l.quantity)}</td></tr>
+      ${l.serials?.length ? `<tr class="muted"><td colspan="2">${l.serials.map(esc).join(', ')}</td></tr>` : ''}`,
+    )
+    .join('');
+  const body = `
+    <div style="width:72mm;padding:2mm;font-size:11px">
+      <div class="c" style="font-weight:700;font-size:14px">${esc(sale.business?.name ?? 'Return')}</div>
+      ${sale.store?.address ? `<div class="c muted">${esc(sale.store.address)}</div>` : ''}
+      <div class="c" style="font-weight:700;margin-top:2mm">RETURN / CREDIT NOTE</div>
+      <hr/>
+      <div>Against receipt: <b>${esc(sale.receiptNo)}</b></div>
+      <div class="muted">${new Date().toLocaleString()}</div>
+      <div class="muted">Customer: ${esc(sale.customer?.name ?? 'Walk-in')}</div>
+      ${slip.reason ? `<div class="muted">Reason: ${esc(slip.reason)}</div>` : ''}
+      <hr/>
+      <table>${rows}</table>
+      <hr/>
+      <table>
+        <tr class="muted"><td>Value returned</td><td class="r">${m(result.refund)}</td></tr>
+        ${result.creditCancelled > 0 ? `<tr class="muted"><td>Taken off balance owed</td><td class="r">- ${m(result.creditCancelled)}</td></tr>` : ''}
+        <tr><td style="font-weight:700">REFUNDED${result.cashBack > 0 && result.method ? ` (${esc(METHOD_LABEL[result.method] ?? result.method)})` : ''}</td><td class="r" style="font-weight:700">${m(result.cashBack)}</td></tr>
+      </table>
+      <hr/>
+      <div class="c muted">Keep this slip with your receipt.</div>
+    </div>`;
+  w.document.write(shell(`Return ${sale.receiptNo}`, 'size: 80mm auto; margin: 3mm;', body));
+  w.document.close();
 }
 
 /**
