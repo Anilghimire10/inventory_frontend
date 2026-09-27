@@ -134,8 +134,10 @@ export default function PurchasesPage() {
     mutationFn: () => {
       const body = {
         storeId: storeId || stores?.[0]?.id,
-        supplierId: supplierId || undefined,
-        reference: reference || undefined,
+        // On an edit, a field left out keeps its old value, so a cleared
+        // supplier or reference has to be sent as an explicit null.
+        supplierId: supplierId || (editingId ? null : undefined),
+        reference: reference || (editingId ? null : undefined),
         receiveNow: true,
         amountPaid: !canPay
           ? 0
