@@ -27,6 +27,10 @@ import type {
   Shift,
   ShiftReport,
   OpenShiftSummary,
+  CashMovement,
+  CashMovementReason,
+  CashMovementType,
+  SuggestedFloat,
   Tax,
   Sale,
   SaleListItem,
@@ -256,8 +260,17 @@ export const PurchasesApi = {
     post<Purchase[]>('/purchases/reorder-drafts', body),
 };
 
+export interface CloseShiftBody {
+  countedCash: number;
+  /** Of the counted cash, what stays in the drawer for the next shift. */
+  cashLeft?: number;
+  /** Notes and coins counted: denomination -> how many. */
+  cashCount?: Record<string, number>;
+  note?: string;
+}
+
 export const ShiftsApi = {
-  open: (body: { storeId?: string; openingFloat: number; note?: string }) =>
+  open: (body: { storeId?: string; openingFloat: number; note?: string; separateDrawer?: boolean }) =>
     post<Shift>('/shifts/open', body),
   /**
    * The till the caller is on. For an owner or manager with none of their own
@@ -273,8 +286,16 @@ export const ShiftsApi = {
   openAtStore: (storeId: string) =>
     get<OpenShiftSummary[]>('/shifts/open', { storeId }),
   report: (id: string) => get<ShiftReport>(`/shifts/${id}/report`),
-  close: (id: string, body: { countedCash: number; note?: string }) =>
+  close: (id: string, body: CloseShiftBody) =>
     post<ShiftReport>(`/shifts/${id}/close`, body),
+  /** Pay in / pay out on an open drawer. */
+  addMovement: (
+    id: string,
+    body: { type: CashMovementType; reason: CashMovementReason; amount: number; note?: string },
+  ) => post<CashMovement>(`/shifts/${id}/movements`, body),
+  /** What the last shift at this store left in the drawer, or null. */
+  suggestedFloat: (storeId: string) =>
+    get<SuggestedFloat | null>('/shifts/float', { storeId }),
   list: (params?: object) => get<Paginated<Shift>>('/shifts', params),
 };
 

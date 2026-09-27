@@ -107,6 +107,12 @@ api.interceptors.response.use(
   },
 );
 
+/** The machine-readable `code` an API error carries, e.g. `TILL_OPEN`. */
+export function apiErrorCode(err: unknown): string | undefined {
+  if (!axios.isAxiosError(err)) return undefined;
+  return (err.response?.data as { code?: string } | undefined)?.code;
+}
+
 /** Pull a human-readable message out of an Axios error. */
 export function apiError(err: unknown): string {
   if (axios.isAxiosError(err)) {
