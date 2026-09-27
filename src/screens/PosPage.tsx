@@ -1,8 +1,8 @@
 'use client';
 import { useEffect, useMemo, useState, useRef } from 'react';
 import { useMutation, useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
-import { Plus, Package, Barcode, ChevronUp, Printer, ShoppingCart, Wallet, Star, FileText } from 'lucide-react';
-import { CategoriesApi, CustomersApi, ProductsApi, SalesApi } from '@/api';
+import { Plus, Package, Barcode, ChevronUp, Printer, ShoppingCart, Wallet, Star, FileText, ArrowUpDown, Clock } from 'lucide-react';
+import { CategoriesApi, CustomersApi, ProductsApi, SalesApi, ShiftsApi, type CloseShiftBody } from '@/api';
 import type { Product, Paginated } from '@/types';
 import { useAuth } from '@/auth/AuthContext';
 import { useShift } from '@/shift/ShiftContext';
@@ -14,7 +14,7 @@ import { Input } from '@/components/ui/input';
 import { RxBadge } from '@/components/ui/RxBadge';
 import { useToast } from '@/components/ui/toast';
 import { apiError } from '@/lib/api';
-import { formatMoney } from '@/lib/format';
+import { formatDateTime, formatMoney } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { CartPanel, TENDERS, lineNet } from '@/components/pos/CartPanel';
 import { splitTax } from '@/lib/tax';
@@ -22,6 +22,8 @@ import type { CartLine, DiscountType, PayMode } from '@/components/pos/CartPanel
 import { OpenShiftModal } from '@/components/pos/OpenShiftModal';
 import { ChooseStoreModal } from '@/components/pos/ChooseStoreModal';
 import { CloseShiftModal } from '@/components/pos/CloseShiftModal';
+import { CashMovementModal } from '@/components/pos/CashMovementModal';
+import { isStaleShift } from '@/lib/cash';
 import { customerKey } from '@/components/pos/CustomerPicker';
 import { ErrorState, LoadingBlock } from '@/components/ui/misc';
 import { Tooltip } from '@/components/ui/tooltip';
@@ -36,8 +38,24 @@ export default function PosPage() {
   const qc = useQueryClient();
   const { show } = useToast();
   const { user } = useAuth();
-  const { shift, isLoading: shiftLoading, isOpening, isClosing, isReporting, openShift, closeShift, loadReport, joinable, joinShift } = useShift();
+  const {
+    shift,
+    isLoading: shiftLoading,
+    isError: shiftError,
+    retry: retryShift,
+    isOpening,
+    isClosing,
+    isReporting,
+    isMovingCash,
+    openShift,
+    closeShift,
+    moveCash,
+    loadReport,
+    joinable,
+    joinShift,
+  } = useShift();
   const [showCloseShift, setShowCloseShift] = useState(false);
+  const [showCashMove, setShowCashMove] = useState(false);
   // Which store this till sells from. Explicit on every request: the grid must
   // show the stock the cashier can actually hand over, and the sale must deduct
   // from that same store rather than whatever the server falls back to.
@@ -289,7 +307,7 @@ export default function PosPage() {
     }
   };
 
-  const handleOpenShift = async (openingFloat: number, note?: string) => {
+  const handleOpenShift = async (openingFloat: number, note?: string, separateDrawer?: boolean) => {
     if (!storeId) {
       show('Pick a store before opening a shift', 'error');
       return;
@@ -297,30 +315,56 @@ export default function PosPage() {
     try {
       // The shift opens against the same store the till sells from, so its
       // Z report reconciles the drawer that actually took the money.
-      await openShift(openingFloat, note, storeId);
+      await openShift(openingFloat, note, storeId, separateDrawer);
     } catch (e) {
       show(apiError(e), 'error');
     }
   };
 
-  const confirmCloseShift = async (countedCash: number, note?: string) => {
+  const confirmCloseShift = async (body: CloseShiftBody) => {
     try {
-      const closed = await closeShift(countedCash, note);
+      const closed = await closeShift(body);
       setShowCloseShift(false);
       if (!closed) return;
       printShiftReport(closed, {
         businessName: user?.business?.name ?? 'Shift report',
         currency: user?.business?.currency ?? 'USD',
       });
+      // A blind close comes back without the variance: the cashier is not
+      // told whether they balanced.
       show(
-        closed.variance === 0
-          ? 'Shift closed — drawer balances'
-          : `Shift closed — ${closed.variance! > 0 ? 'over' : 'short'} by ${formatMoney(Math.abs(closed.variance!))}`,
+        closed.variance === null
+          ? 'Shift closed'
+          : closed.variance === 0
+            ? 'Shift closed — drawer balances'
+            : `Shift closed — ${closed.variance > 0 ? 'over' : 'short'} by ${formatMoney(Math.abs(closed.variance))}`,
       );
     } catch (e) {
       show(apiError(e), 'error');
     }
   };
+
+  const recordCashMove = async (body: Parameters<typeof moveCash>[0]) => {
+    try {
+      await moveCash(body);
+      show(
+        `${body.type === 'PAY_IN' ? 'Paid in' : 'Paid out'} ${formatMoney(body.amount)}`,
+      );
+    } catch (e) {
+      show(apiError(e), 'error');
+      throw e; // keep the dialog's fields so the cashier can fix and retry
+    }
+  };
+
+  // What the last shift at this store left in the drawer, offered as the
+  // opening float. Only asked while there is a shift to open.
+  const { data: suggestedFloat } = useQuery({
+    queryKey: ['shift-float', storeId],
+    queryFn: () => ShiftsApi.suggestedFloat(storeId!),
+    enabled: !!storeId && !shiftLoading && !shift && !shiftError,
+    staleTime: 15_000,
+  });
+  const staleShift = !!shift && isStaleShift(shift.openedAt);
 
   // X report: a mid-shift read of the drawer that settles nothing, so it can
   // be taken as often as the cashier likes without closing the shift.
@@ -638,6 +682,14 @@ export default function PosPage() {
               <Button
                 variant="outline"
                 size="sm"
+                onClick={() => setShowCashMove(true)}
+                title="Pay in or pay out: cash into or out of the drawer that isn't a sale"
+              >
+                <ArrowUpDown className="h-4 w-4" /> Cash in/out
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
                 loading={isReporting}
                 onClick={printXReport}
                 title="Print an X report — mid-shift drawer reading, shift stays open"
@@ -667,6 +719,37 @@ export default function PosPage() {
         </div>
       </div>
 
+      {/* A shift left open across days mixes days' cash into one count, so a
+          shortage can't be pinned to a day or to a person. Say so, with the
+          way out right there. */}
+      {staleShift && (
+        <div className="mb-3 flex flex-wrap items-center gap-3 rounded-lg border border-warning/40 bg-warning/10 px-4 py-2.5 text-sm">
+          <Clock className="h-4 w-4 shrink-0 text-warning" />
+          <span className="min-w-0 flex-1">
+            This shift has been open since <b>{formatDateTime(shift!.openedAt)}</b>. Close
+            and count it so each day&apos;s cash is checked on its own.
+          </span>
+          <Button size="sm" variant="outline" onClick={() => setShowCloseShift(true)}>
+            Close shift now
+          </Button>
+        </div>
+      )}
+
+      {/* Couldn't load the shift: not the same as having none. Offering "open
+          shift" here is how a till with a shift already running got refused
+          with "close it first" -- so block the till and offer a retry. */}
+      {shiftError && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div role="alertdialog" aria-modal="true" className="w-full max-w-sm rounded-2xl border border-border bg-card p-2 shadow-lg">
+            <ErrorState
+              title="Couldn’t load your shift"
+              description="The till can’t tell whether a shift is already open, so it won’t open a new one. Check your connection and try again."
+              onRetry={retryShift}
+            />
+          </div>
+        </div>
+      )}
+
       {/* The store comes first: opening a shift needs one, and so does every
           sale. Held off until the stores and the shift have loaded so this
           doesn't flash when an open shift is about to pin the store. */}
@@ -676,8 +759,12 @@ export default function PosPage() {
         /* Blocks the till until the cashier counts a starting float. Held off
            while the current shift is still loading, so an already-open shift
            doesn't flash this modal before the fetch resolves. */
-        !shiftLoading && !shift && storesLoaded && (
+        !shiftLoading && !shift && !shiftError && storesLoaded && (
           <OpenShiftModal
+            // Remounted per store so a float typed for one branch never
+            // carries into another's.
+            key={storeId ?? 'none'}
+            suggested={suggestedFloat}
             onOpen={handleOpenShift}
             isPending={isOpening}
             // Only where there is a choice to make: a cashier sells from the
@@ -697,9 +784,20 @@ export default function PosPage() {
       {showCloseShift && shift && (
         <CloseShiftModal
           shift={shift}
+          currency={user?.business?.currency}
           onClose={() => setShowCloseShift(false)}
           onConfirm={confirmCloseShift}
           isPending={isClosing}
+        />
+      )}
+
+      {shift && (
+        <CashMovementModal
+          open={showCashMove}
+          onClose={() => setShowCashMove(false)}
+          onSubmit={recordCashMove}
+          isPending={isMovingCash}
+          movements={shift.movements ?? []}
         />
       )}
 

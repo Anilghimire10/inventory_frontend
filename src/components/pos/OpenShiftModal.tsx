@@ -5,9 +5,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Field } from '@/components/ui/label';
-import { formatMoney, formatTime } from '@/lib/format';
-import type { OpenShiftSummary, Store } from '@/types';
+import { formatDateTime, formatMoney, formatTime } from '@/lib/format';
+import type { OpenShiftSummary, Store, SuggestedFloat } from '@/types';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
+import { cn } from '@/lib/utils';
 
 /**
  * Blocks POS checkout until the cashier counts a starting float.
@@ -26,8 +27,10 @@ export function OpenShiftModal({
   onStoreChange,
   joinable,
   onJoin,
+  suggested,
 }: {
-  onOpen: (openingFloat: number, note?: string) => void;
+  /** `separateDrawer`: opened alongside tills already running here. */
+  onOpen: (openingFloat: number, note?: string, separateDrawer?: boolean) => void;
   isPending?: boolean;
   /** Stores that may be sold from. Omitted when the user has no say. */
   stores?: Store[];
@@ -35,16 +38,34 @@ export function OpenShiftModal({
   onStoreChange?: (storeId: string) => void;
   /**
    * Tills already open here that this user could work on instead of opening
-   * their own. Only ever non-empty for an owner or manager, and only when the
-   * server found more than one and would not guess between them.
+   * their own. Only ever non-empty for an owner or manager: with one till
+   * running the server puts them on it, so this is the case of several, or a
+   * screen that hasn't caught up yet.
    */
   joinable?: OpenShiftSummary[];
   onJoin?: (shiftId: string) => void;
+  /** What the last shift at this store left in the drawer, when it said. */
+  suggested?: SuggestedFloat | null;
 }) {
   const canJoin = !!onJoin && (joinable?.length ?? 0) > 0;
-  const [float, setFloat] = useState('');
+  // One drawer, one shift: with a till running here, joining it is the
+  // answer, and a second drawer is the exception someone has to ask for.
+  const [separate, setSeparate] = useState(false);
+  const showOpen = !canJoin || separate;
+  // What the last shift left is the float for *that* drawer. A second drawer
+  // starts from whatever is counted into it.
+  const carry = canJoin ? null : suggested;
+  // Null until the cashier types: until then the field shows what the last
+  // shift left, which usually arrives a moment after this dialog does.
+  const [typed, setTyped] = useState<string | null>(null);
+  const float = typed ?? (carry ? String(carry.amount) : '');
   const [note, setNote] = useState('');
   const value = Math.max(0, Number(float) || 0);
+  const carriedDiff =
+    carry && float.trim() !== ''
+      ? Math.round((value - carry.amount) * 100) / 100
+      : 0;
+  const submit = () => onOpen(value, note.trim() || undefined, canJoin || undefined);
   // Only the multi-store case shows the picker, and only then can the store be
   // missing -- a single-store till always knows where it is.
   const picksStore = !!onStoreChange && (stores?.length ?? 0) > 1;
@@ -72,11 +93,28 @@ export function OpenShiftModal({
             </h2>
             <p className="text-xs text-muted-foreground">
               {canJoin
-                ? 'Join a drawer that is already open, or count your own.'
+                ? 'Sell into the drawer that is already open at this counter.'
                 : 'Count the drawer before your first sale.'}
             </p>
           </div>
         </div>
+
+        {picksStore && (
+          <Field label="Store" className="mb-3">
+            <Select
+              aria-label="Store to sell from"
+              disabled={isPending}
+              value={storeId ?? ''}
+              onChange={(e) => onStoreChange(e.target.value)}
+            >
+              {(stores ?? []).map((st) => (
+                <option key={st.id} value={st.id}>
+                  {st.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        )}
 
         {/* Joining puts your sales in someone else's drawer, so it names whose
             and how the till is doing -- enough to recognise the one you are
@@ -105,63 +143,75 @@ export function OpenShiftModal({
                 </span>
               </button>
             ))}
-            <div className="flex items-center gap-3 pt-1">
-              <span className="h-px flex-1 bg-border" />
-              <span className="text-xs text-muted-foreground">or open your own</span>
-              <span className="h-px flex-1 bg-border" />
-            </div>
+            {separate ? (
+              <p className="rounded-md bg-warning/10 px-3 py-2 text-xs text-warning">
+                A separate drawer gets its own count and its own Z report. Only open one
+                if this counter has its own cash — sharing one drawer across two shifts
+                means neither will count out.
+              </p>
+            ) : (
+              <button
+                type="button"
+                className="w-full pt-1 text-center text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                onClick={() => setSeparate(true)}
+              >
+                This counter has its own cash drawer — open a separate shift
+              </button>
+            )}
           </div>
         )}
 
-        {picksStore && (
-          <Field label="Store" className="mb-3">
-            <Select
-              aria-label="Store to sell from"
-              disabled={isPending}
-              value={storeId ?? ''}
-              onChange={(e) => onStoreChange(e.target.value)}
+        {showOpen && (
+          <>
+            <Field label="Opening float">
+              <Input
+                type="number"
+                step="0.01"
+                min="0"
+                autoFocus
+                disabled={isPending}
+                value={float}
+                onChange={(e) => setTyped(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') submit();
+                }}
+                placeholder="0.00"
+              />
+            </Field>
+            {/* The count is checked against what was left, so a gap overnight is
+                caught at the start of the day instead of hiding inside the next
+                Z report and landing on whoever closes it. */}
+            {carry && (
+              <p
+                className={cn(
+                  'mt-1.5 text-xs',
+                  carriedDiff === 0 ? 'text-muted-foreground' : 'text-warning',
+                )}
+              >
+                {carriedDiff === 0
+                  ? `${carry.closedBy} left ${formatMoney(carry.amount)} in the drawer (${formatDateTime(carry.closedAt)}).`
+                  : `${formatMoney(Math.abs(carriedDiff))} ${carriedDiff < 0 ? 'less' : 'more'} than the ${formatMoney(carry.amount)} ${carry.closedBy} left. Count again, or say why in the note.`}
+              </p>
+            )}
+            <Field label="Note (optional)" className="mt-3">
+              <Input
+                disabled={isPending}
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                placeholder="e.g. till 2"
+              />
+            </Field>
+
+            <Button
+              className="mt-5 h-11 w-full"
+              loading={isPending}
+              disabled={picksStore && !storeId}
+              onClick={submit}
             >
-              {(stores ?? []).map((st) => (
-                <option key={st.id} value={st.id}>
-                  {st.name}
-                </option>
-              ))}
-            </Select>
-          </Field>
+              {canJoin ? 'Open separate drawer with' : 'Open shift with'} {formatMoney(value)}
+            </Button>
+          </>
         )}
-
-        <Field label="Opening float">
-          <Input
-            type="number"
-            step="0.01"
-            min="0"
-            autoFocus
-            disabled={isPending}
-            value={float}
-            onChange={(e) => setFloat(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') onOpen(value, note.trim() || undefined);
-            }}
-            placeholder="0.00"
-          />
-        </Field>
-        <Field label="Note (optional)" className="mt-3">
-          <Input
-            disabled={isPending}
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            placeholder="e.g. till 2"
-          />
-        </Field>
-
-        <Button
-          className="mt-5 h-11 w-full"
-          loading={isPending}
-          disabled={picksStore && !storeId}
-          onClick={() => onOpen(value, note.trim() || undefined)}
-        >
-          Open shift with {formatMoney(value)}
-        </Button>
       </div>
     </div>
   );

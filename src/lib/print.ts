@@ -1,6 +1,7 @@
 import type { ReturnResult, Sale, ShiftReport } from '@/types';
 import { renderBarcodeSvg } from './barcode';
 import { splitTax } from './tax';
+import { CASH_REASON_LABEL } from './cash';
 
 export type PrintFormat = 'thermal' | 'a4';
 
@@ -183,6 +184,22 @@ export function printShiftReport(
   const isX = shift.isOpen;
   const variance = shift.variance ?? 0;
   const varianceLabel = variance === 0 ? 'Balanced' : variance > 0 ? 'Over' : 'Short';
+  // Blind close: a cashier's copy carries no expected figure or variance.
+  const blind = shift.expectedCash === null;
+  const movementRows = (shift.movements ?? [])
+    .map(
+      (mv) =>
+        `<tr class="muted"><td>${mv.type === 'PAY_IN' ? 'In' : 'Out'}: ${esc(CASH_REASON_LABEL[mv.reason])}${mv.note ? ` — ${esc(mv.note)}` : ''}<br/><span style="font-size:9px">${new Date(mv.createdAt).toLocaleTimeString()} · ${esc(mv.user?.name ?? '')}</span></td><td class="r">${mv.type === 'PAY_IN' ? '+' : '-'}${m(mv.amount)}</td></tr>`,
+    )
+    .join('');
+  const openingDiff =
+    shift.carriedFloat === null ? 0 : Number(shift.openingFloat) - shift.carriedFloat;
+  const cashCountRows = shift.cashCount
+    ? Object.entries(shift.cashCount)
+        .sort(([a], [b]) => Number(b) - Number(a))
+        .map(([d, q]) => `<tr class="muted"><td>${esc(d)} × ${q}</td><td class="r">${m(Number(d) * q)}</td></tr>`)
+        .join('')
+    : '';
   const tenderRows = shift.byTender
     .map((t) => `<tr class="muted"><td>${esc(t.method)} (${t.count})</td><td class="r">${m(t.amount)}</td></tr>`)
     .join('');
@@ -202,26 +219,48 @@ export function printShiftReport(
       <hr/>
       <table>
         <tr class="muted"><td>Opening float</td><td class="r">${m(shift.openingFloat)}</td></tr>
+        ${
+          openingDiff !== 0
+            ? `<tr class="muted"><td>Last shift left ${m(shift.carriedFloat ?? 0)} — opened ${openingDiff < 0 ? 'short' : 'over'}</td><td class="r">${m(Math.abs(openingDiff))}</td></tr>`
+            : ''
+        }
         ${tenderRows}
         ${
           shift.creditCollected
             ? `<tr class="muted"><td>Credit collected (cash)</td><td class="r">${m(shift.creditCollected)}</td></tr>`
             : ''
         }
+        ${shift.payIns ? `<tr class="muted"><td>Paid in</td><td class="r">+${m(shift.payIns)}</td></tr>` : ''}
+        ${shift.payOuts ? `<tr class="muted"><td>Paid out</td><td class="r">-${m(shift.payOuts)}</td></tr>` : ''}
         <tr class="muted"><td>Discounts</td><td class="r">-${m(shift.discounts)}</td></tr>
         <tr class="muted"><td>Refunds</td><td class="r">-${m(shift.refunds)}</td></tr>
         <tr class="muted"><td>${shift.salesCount} sale${shift.salesCount !== 1 ? 's' : ''} · gross</td><td class="r">${m(shift.gross)}</td></tr>
+        ${
+          (shift.byUser?.length ?? 0) > 1
+            ? shift.byUser
+                .map((u) => `<tr class="muted"><td>&nbsp;&nbsp;${esc(u.name)} (${u.count})</td><td class="r">${m(u.amount)}</td></tr>`)
+                .join('')
+            : ''
+        }
       </table>
+      ${movementRows ? `<hr/><div style="font-weight:700">Cash in / out</div><table>${movementRows}</table>` : ''}
       <hr/>
       <table>
-        <tr style="font-weight:700"><td>Expected cash</td><td class="r">${m(shift.expectedCash)}</td></tr>
+        ${blind ? '' : `<tr style="font-weight:700"><td>Expected cash</td><td class="r">${m(shift.expectedCash ?? 0)}</td></tr>`}
         ${
           isX
             ? ''
             : `<tr style="font-weight:700"><td>Counted cash</td><td class="r">${m(shift.countedCash ?? 0)}</td></tr>
-        <tr style="font-weight:700"><td>${varianceLabel}</td><td class="r">${m(Math.abs(variance))}</td></tr>`
+        ${blind ? '' : `<tr style="font-weight:700"><td>${varianceLabel}</td><td class="r">${m(Math.abs(variance))}</td></tr>`}`
+        }
+        ${
+          !isX && shift.cashLeft !== null
+            ? `<tr class="muted"><td>Left for next shift</td><td class="r">${m(shift.cashLeft)}</td></tr>
+        <tr class="muted"><td>Taken out of drawer</td><td class="r">${m((shift.countedCash ?? 0) - shift.cashLeft)}</td></tr>`
+            : ''
         }
       </table>
+      ${cashCountRows ? `<hr/><div class="muted">Counted by notes</div><table>${cashCountRows}</table>` : ''}
       ${shift.note ? `<hr/><div class="muted">Note: ${esc(shift.note)}</div>` : ''}
       ${isX ? '<hr/><div class="c muted">Shift still open — drawer not counted.</div>' : ''}
     </div>`;

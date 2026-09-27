@@ -36,6 +36,10 @@ export interface Business {
   taxInclusive?: boolean;
   taxId?: string | null;
   showTaxIdOnBill?: boolean;
+  /** Cashiers close their drawer without seeing what it should hold. */
+  shiftBlindClose?: boolean;
+  /** A drawer off by more than this needs a note to close. Null: never. Decimal string. */
+  shiftVarianceNoteOver?: string | null;
 }
 
 /** Who a shop contacts to renew (the API's SUPPORT_EMAIL / SUPPORT_PHONE). */
@@ -666,10 +670,43 @@ export interface Shift {
   countedCash?: string | null;
   expectedCash?: string | null;
   variance?: string | null;
+  /** What the previous shift at this store said it left in the drawer. */
+  carriedFloat?: string | null;
+  /** Of the counted cash, what was left in the drawer for the next shift. */
+  cashLeft?: string | null;
+  /** Notes and coins counted at close: denomination -> how many. */
+  cashCount?: Record<string, number> | null;
   note?: string | null;
   user?: { id: string; name: string };
   store?: { id: string; name: string };
   _count?: { sales: number };
+}
+
+export type CashMovementType = 'PAY_IN' | 'PAY_OUT';
+export type CashMovementReason =
+  | 'FLOAT_TOPUP'
+  | 'EXPENSE'
+  | 'SUPPLIER'
+  | 'SAFE_DROP'
+  | 'OWNER_DRAW'
+  | 'OTHER';
+
+/** Cash put into or taken out of a drawer outside a sale. Never edited. */
+export interface CashMovement {
+  id: string;
+  type: CashMovementType;
+  reason: CashMovementReason;
+  amount: number;
+  note?: string | null;
+  createdAt: string;
+  user?: { id: string; name: string };
+}
+
+/** GET /shifts/float -- what the last shift at a store left for this one. */
+export interface SuggestedFloat {
+  amount: number;
+  closedAt: string;
+  closedBy: string;
 }
 
 /**
@@ -687,6 +724,14 @@ export interface OpenShiftSummary {
   isOwnShift: boolean;
 }
 
+/** Sales on a shift by the person who rang them. */
+export interface ShiftUserTotal {
+  userId: string | null;
+  name: string;
+  count: number;
+  amount: number;
+}
+
 export interface ShiftTenderTotal {
   method: PaymentMethod;
   count: number;
@@ -699,7 +744,8 @@ export interface ShiftTenderTotal {
  * Unlike `Shift`, these amounts are plain numbers: the API runs them through
  * Number()/round2() before responding.
  */
-export interface ShiftReport extends Omit<Shift, 'countedCash' | 'expectedCash' | 'variance'> {
+export interface ShiftReport
+  extends Omit<Shift, 'countedCash' | 'expectedCash' | 'variance' | 'carriedFloat' | 'cashLeft'> {
   isOpen: boolean;
   /**
    * False when an owner or manager has joined a till someone else opened.
@@ -707,23 +753,42 @@ export interface ShiftReport extends Omit<Shift, 'countedCash' | 'expectedCash' 
    * rather than calling it "your shift".
    */
   isOwnShift?: boolean;
-  expectedCash: number;
+  /**
+   * Blind close is on and the viewer is a cashier: `expectedCash`, `variance`,
+   * `cashIn`, `cashRefunds` and `creditCollected` come back null and
+   * `byTender` empty, so nothing on screen says what the drawer should hold.
+   */
+  blindClose: boolean;
+  /** A variance beyond this needs a note to close. Null: never required. */
+  varianceNoteOver: number | null;
+  expectedCash: number | null;
   countedCash: number | null;
   variance: number | null;
+  carriedFloat: number | null;
+  cashLeft: number | null;
   salesCount: number;
   gross: number;
   discounts: number;
   tax: number;
   refunds: number;
   net: number;
-  cashIn: number;
-  cashRefunds: number;
+  cashIn: number | null;
+  cashRefunds: number | null;
+  /** Cash put into / taken out of the drawer outside sales, and the rows. */
+  payIns: number;
+  payOuts: number;
+  movements: CashMovement[];
   /**
    * Cash taken at this till against customer credit. It is in the drawer and
    * in `expectedCash`, but no sale explains it, so it is shown as its own line.
    */
-  creditCollected?: number;
+  creditCollected?: number | null;
   byTender: ShiftTenderTotal[];
+  /**
+   * Whose sales are in this drawer, biggest first. More than one name means
+   * an owner or manager joined the till.
+   */
+  byUser: ShiftUserTotal[];
 }
 
 /**

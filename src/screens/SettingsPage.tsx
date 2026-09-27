@@ -1,7 +1,7 @@
 'use client';
 import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Pencil, Store as StoreIcon, Building2, Download, Percent, Power, RotateCcw } from 'lucide-react';
+import { Plus, Pencil, Store as StoreIcon, Building2, Download, Percent, Power, RotateCcw, Wallet } from 'lucide-react';
 import { BusinessApi, StoresApi } from '@/api';
 import type { Store } from '@/types';
 import { useStores } from '@/hooks/useStores';
@@ -118,6 +118,33 @@ export default function SettingsPage() {
     onSuccess: async (_data, next) => {
       await refresh();
       show(next ? 'PAN will show on bills' : 'PAN hidden on bills');
+    },
+    onError: (e) => show(apiError(e), 'error'),
+  });
+
+  // Cash-drawer rules. Blind close hides expected cash from cashiers; the
+  // limit makes a drawer that is off by more than it need a note to close.
+  const blindClose = user?.business?.shiftBlindClose ?? false;
+  const savedLimit = user?.business?.shiftVarianceNoteOver ?? null;
+  const [limit, setLimit] = useState<string | null>(null);
+  const limitText = limit ?? (savedLimit === null ? '' : String(Number(savedLimit)));
+  const saveBlind = useMutation({
+    mutationFn: (next: boolean) => BusinessApi.update({ shiftBlindClose: next }),
+    onSuccess: async (_data, next) => {
+      await refresh();
+      show(next ? 'Cashiers now close blind' : 'Cashiers see expected cash at close');
+    },
+    onError: (e) => show(apiError(e), 'error'),
+  });
+  const saveLimit = useMutation({
+    mutationFn: () =>
+      BusinessApi.update({
+        shiftVarianceNoteOver: limitText.trim() === '' ? null : Math.max(0, Number(limitText) || 0),
+      }),
+    onSuccess: async () => {
+      await refresh();
+      setLimit(null);
+      show(limitText.trim() === '' ? 'A note is never required' : 'Variance limit saved');
     },
     onError: (e) => show(apiError(e), 'error'),
   });
@@ -266,6 +293,71 @@ export default function SettingsPage() {
             : 'Your PAN/VAT number is hidden on receipts and invoices.'}
           {!hasPan && <span className="block pt-1">Add a PAN/VAT number with “Edit” above for it to appear.</span>}
           {!canManageBiz && <span className="block pt-1">Only an owner or manager can change this.</span>}
+        </CardContent>
+      </Card>
+
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><Wallet className="h-5 w-5 text-primary" /> Shifts &amp; cash drawer</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4 text-sm text-muted-foreground">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <div id="blind-close-label" className="font-medium text-foreground">Blind close for cashiers</div>
+              <div>
+                {blindClose
+                  ? 'Cashiers count the drawer without seeing what it should hold, and aren’t shown the difference. Owners and managers still see everything.'
+                  : 'Cashiers see the expected cash while they count. Turn this on so they count what is really there instead of typing the expected figure.'}
+              </div>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={blindClose}
+              aria-labelledby="blind-close-label"
+              disabled={!canManageBiz || saveBlind.isPending}
+              onClick={() => saveBlind.mutate(!blindClose)}
+              className={
+                'relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-50 ' +
+                (blindClose ? 'bg-primary' : 'bg-muted')
+              }
+            >
+              <span
+                className={
+                  'inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ' +
+                  (blindClose ? 'translate-x-5' : 'translate-x-0.5')
+                }
+              />
+            </button>
+          </div>
+          <div className="border-t border-border pt-4">
+            <div className="font-medium text-foreground">Ask for a note when the drawer is off by more than</div>
+            <div>
+              Closing a shift over or short by more than this needs a reason. Leave it empty to never ask.
+              {blindClose && ' Cashiers closing blind are never asked, because they can’t see the difference.'}
+            </div>
+            <div className="mt-2 flex max-w-xs gap-2">
+              <Input
+                type="number"
+                min="0"
+                step="0.01"
+                aria-label="Variance limit"
+                placeholder="e.g. 100"
+                disabled={!canManageBiz || saveLimit.isPending}
+                value={limitText}
+                onChange={(e) => setLimit(e.target.value)}
+              />
+              <Button
+                variant="outline"
+                disabled={!canManageBiz || limit === null}
+                loading={saveLimit.isPending}
+                onClick={() => saveLimit.mutate()}
+              >
+                Save
+              </Button>
+            </div>
+          </div>
+          {!canManageBiz && <span className="block">Only an owner or manager can change this.</span>}
         </CardContent>
       </Card>
 

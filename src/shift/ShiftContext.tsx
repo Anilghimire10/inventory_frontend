@@ -9,17 +9,41 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/auth/AuthContext';
 import { useStoreScope } from '@/store/StoreContext';
-import { ShiftsApi } from '@/api';
-import type { OpenShiftSummary, ShiftReport } from '@/types';
+import { ShiftsApi, type CloseShiftBody } from '@/api';
+import { apiErrorCode } from '@/lib/api';
+import type { CashMovementReason, CashMovementType, OpenShiftSummary, ShiftReport } from '@/types';
 
 interface ShiftState {
   shift: ShiftReport | null;
   isLoading: boolean;
+  /**
+   * The current shift couldn't be loaded. Not the same as "no shift": the
+   * till may well have one open, so the POS must not offer to open another.
+   */
+  isError: boolean;
+  retry: () => void;
   isOpening: boolean;
   isClosing: boolean;
   isReporting: boolean;
-  openShift: (openingFloat: number, note?: string, storeId?: string) => Promise<void>;
-  closeShift: (countedCash: number, note?: string) => Promise<ShiftReport | null>;
+  /**
+   * `separateDrawer`: an owner or manager opening a second shift where a
+   * till is already running -- only for a counter with its own cash.
+   */
+  openShift: (
+    openingFloat: number,
+    note?: string,
+    storeId?: string,
+    separateDrawer?: boolean,
+  ) => Promise<void>;
+  closeShift: (body: CloseShiftBody) => Promise<ShiftReport | null>;
+  /** Pay in / pay out on the till being worked on. */
+  moveCash: (body: {
+    type: CashMovementType;
+    reason: CashMovementReason;
+    amount: number;
+    note?: string;
+  }) => Promise<void>;
+  isMovingCash: boolean;
   /** Freshly computed totals for the open shift — the X report. */
   loadReport: () => Promise<ShiftReport | null>;
   /**
@@ -124,7 +148,7 @@ export function ShiftProvider({ children }: { children: React.ReactNode }) {
     () => ['shift-current', storeId, joinedId],
     [storeId, joinedId],
   );
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: shiftKey,
     // A remembered till goes stale on its own -- the cashier counts it and
     // closes it, and the id stops resolving. Rather than surfacing that as an
@@ -165,10 +189,21 @@ export function ShiftProvider({ children }: { children: React.ReactNode }) {
   );
 
   const openMutation = useMutation({
-    mutationFn: (vars: { openingFloat: number; note?: string; storeId?: string }) =>
-      ShiftsApi.open(vars),
+    mutationFn: (vars: {
+      openingFloat: number;
+      note?: string;
+      storeId?: string;
+      separateDrawer?: boolean;
+    }) => ShiftsApi.open(vars),
     onSuccess: () => {
       clearJoinedShift(storeId);
+      qc.invalidateQueries({ queryKey: ['shift-current'] });
+      qc.invalidateQueries({ queryKey: ['shift-open'] });
+    },
+    // A till opened here since this screen loaded. Ask again: with one
+    // running, the server puts an owner straight onto it.
+    onError: (e) => {
+      if (apiErrorCode(e) !== 'TILL_OPEN') return;
       qc.invalidateQueries({ queryKey: ['shift-current'] });
       qc.invalidateQueries({ queryKey: ['shift-open'] });
     },
@@ -177,8 +212,8 @@ export function ShiftProvider({ children }: { children: React.ReactNode }) {
   // the shift must open against the same store the till is selling from, or
   // its Z report reconciles one store's drawer against another's stock.
   const openShift = useCallback(
-    async (openingFloat: number, note?: string, storeId?: string) => {
-      await openMutation.mutateAsync({ openingFloat, note, storeId });
+    async (openingFloat: number, note?: string, storeId?: string, separateDrawer?: boolean) => {
+      await openMutation.mutateAsync({ openingFloat, note, storeId, separateDrawer });
     },
     [openMutation],
   );
@@ -206,29 +241,53 @@ export function ShiftProvider({ children }: { children: React.ReactNode }) {
   }, [shift, reportMutation, qc, shiftKey]);
 
   const closeMutation = useMutation({
-    mutationFn: (vars: { id: string; countedCash: number; note?: string }) =>
-      ShiftsApi.close(vars.id, { countedCash: vars.countedCash, note: vars.note }),
+    mutationFn: ({ id, ...body }: CloseShiftBody & { id: string }) =>
+      ShiftsApi.close(id, body),
     onSuccess: () => {
       qc.setQueryData(shiftKey, null);
       // The drawer we were working on is counted and gone; a remembered
       // pointer to it would only resolve to a closed shift.
       clearJoinedShift(storeId);
+      // Ask the server again rather than assume there is no till now: an
+      // owner who closed their own drawer while a cashier's is still running
+      // belongs on that one, and used to be offered a fresh shift instead.
+      qc.invalidateQueries({ queryKey: ['shift-current'] });
       qc.invalidateQueries({ queryKey: ['shift-history'] });
       qc.invalidateQueries({ queryKey: ['shift-open'] });
+      // What this close left in the drawer is the next shift's float.
+      qc.invalidateQueries({ queryKey: ['shift-float'] });
     },
   });
   const closeShift = useCallback(
-    async (countedCash: number, note?: string): Promise<ShiftReport | null> => {
+    async (body: CloseShiftBody): Promise<ShiftReport | null> => {
       if (!shift) return null;
-      return closeMutation.mutateAsync({ id: shift.id, countedCash, note });
+      return closeMutation.mutateAsync({ id: shift.id, ...body });
     },
     [shift, closeMutation],
   );
+
+  const moveMutation = useMutation({
+    mutationFn: ({ id, ...body }: Parameters<ShiftState['moveCash']>[0] & { id: string }) =>
+      ShiftsApi.addMovement(id, body),
+    // Expected cash moved with it; refetch rather than patch, so the figure
+    // on screen is the server's and never a client-side guess.
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['shift-current'] }),
+  });
+  const moveCash = useCallback<ShiftState['moveCash']>(
+    async (body) => {
+      if (!shift) return;
+      await moveMutation.mutateAsync({ id: shift.id, ...body });
+    },
+    [shift, moveMutation],
+  );
+  const retry = useCallback(() => void refetch(), [refetch]);
 
   const value = useMemo<ShiftState>(
     () => ({
       shift,
       isLoading: enabled && isLoading,
+      isError: enabled && isError && !data,
+      retry,
       isOpening: openMutation.isPending,
       isClosing: closeMutation.isPending,
       isReporting: reportMutation.isPending,
@@ -237,11 +296,18 @@ export function ShiftProvider({ children }: { children: React.ReactNode }) {
       loadReport,
       joinable,
       joinShift,
+      moveCash,
+      isMovingCash: moveMutation.isPending,
     }),
     [
       shift,
       enabled,
       isLoading,
+      isError,
+      data,
+      retry,
+      moveCash,
+      moveMutation.isPending,
       openMutation.isPending,
       closeMutation.isPending,
       reportMutation.isPending,

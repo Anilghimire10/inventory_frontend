@@ -1,6 +1,6 @@
 'use client';
 import { useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import {
   Banknote,
@@ -30,8 +30,14 @@ import {
   Tooltip,
   Legend,
 } from 'recharts';
-import { ReportsApi, ShiftsApi } from '@/api';
-import type { Analytics } from '@/types';
+import { ReportsApi, ShiftsApi, type CloseShiftBody } from '@/api';
+import type { Analytics, ShiftReport } from '@/types';
+import { useAuth } from '@/auth/AuthContext';
+import { useToast } from '@/components/ui/toast';
+import { apiError } from '@/lib/api';
+import { isStaleShift } from '@/lib/cash';
+import { printShiftReport } from '@/lib/print';
+import { CloseShiftModal } from '@/components/pos/CloseShiftModal';
 import { PageHeader, LoadingBlock, ErrorState } from '@/components/ui/misc';
 import { useStoreLabel } from '@/components/StorePicker';
 import { useStoreScope } from '@/store/StoreContext';
@@ -386,11 +392,52 @@ function ShiftHistory({
   storeId?: string;
   storeLabel: string | null;
 }) {
+  const qc = useQueryClient();
+  const { user } = useAuth();
+  const { show } = useToast();
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['shift-history', storeId],
     queryFn: () => ShiftsApi.list({ limit: 20, storeId }),
   });
   const history = data?.data ?? [];
+
+  // Closing a till from here: the one a cashier forgot, found the next
+  // morning. It still has to be counted -- the drawer is at the counter, and
+  // this is the same count the POS asks for.
+  const [closing, setClosing] = useState<ShiftReport | null>(null);
+  const [loadingId, setLoadingId] = useState<string | null>(null);
+  const startClose = async (id: string) => {
+    setLoadingId(id);
+    try {
+      const report = await ShiftsApi.report(id);
+      if (report.isOpen) setClosing(report);
+      else {
+        show('That shift was already closed.', 'info');
+        void refetch();
+      }
+    } catch (e) {
+      show(apiError(e), 'error');
+    } finally {
+      setLoadingId(null);
+    }
+  };
+  const closeMutation = useMutation({
+    mutationFn: ({ id, ...body }: CloseShiftBody & { id: string }) => ShiftsApi.close(id, body),
+    onSuccess: (closed) => {
+      setClosing(null);
+      qc.invalidateQueries({ queryKey: ['shift-history'] });
+      // The POS on this device may be showing that till as open.
+      qc.invalidateQueries({ queryKey: ['shift-current'] });
+      qc.invalidateQueries({ queryKey: ['shift-open'] });
+      qc.invalidateQueries({ queryKey: ['shift-float'] });
+      printShiftReport(closed, {
+        businessName: user?.business?.name ?? 'Shift report',
+        currency: user?.business?.currency ?? 'USD',
+      });
+      show(closed.user?.name ? `Closed ${closed.user.name}’s shift` : 'Shift closed');
+    },
+    onError: (e) => show(apiError(e), 'error'),
+  });
   return (
     <>
       <div className="border-b border-border p-5">
@@ -426,6 +473,7 @@ function ShiftHistory({
                 <th className="px-5 py-3 text-right font-medium"><Hint tip="What should be in the drawer: opening float + cash sales + credit collected in cash − cash refunds.">Expected</Hint></th>
                 <th className="px-5 py-3 text-right font-medium">Counted</th>
                 <th className="px-5 py-3 text-right font-medium"><Hint tip="Counted cash minus expected. Negative means the drawer is short.">Variance</Hint></th>
+                <th className="px-5 py-3 font-medium"><span className="sr-only">Actions</span></th>
               </tr>
             </thead>
             <tbody>
@@ -437,11 +485,36 @@ function ShiftHistory({
                     <td className="px-5 py-3 text-muted-foreground">{s.store?.name ?? '—'}</td>
                     <td className="px-5 py-3 text-muted-foreground">{formatDateTime(s.openedAt)}</td>
                     <td className="px-5 py-3 text-muted-foreground">
-                      {s.closedAt ? formatDateTime(s.closedAt) : '—'}
+                      {s.closedAt ? (
+                        formatDateTime(s.closedAt)
+                      ) : (
+                        <span
+                          className={cn(
+                            'rounded-full px-2 py-0.5 text-xs font-medium',
+                            isStaleShift(s.openedAt)
+                              ? 'bg-warning/15 text-warning'
+                              : 'bg-success/15 text-success',
+                          )}
+                          title={
+                            isStaleShift(s.openedAt)
+                              ? 'Open for over a day. Its count will mix days of cash together.'
+                              : undefined
+                          }
+                        >
+                          {isStaleShift(s.openedAt) ? 'Still open' : 'Open'}
+                        </span>
+                      )}
                     </td>
                     <td className="px-5 py-3 text-right">{s._count?.sales ?? 0}</td>
-                    <td className="px-5 py-3 text-right">{formatMoney(s.expectedCash)}</td>
-                    <td className="px-5 py-3 text-right">{formatMoney(s.countedCash)}</td>
+                    {/* Nothing is expected or counted until the drawer is
+                        closed; formatMoney would print a null as 0.00, which
+                        reads as an empty till rather than an open one. */}
+                    <td className="px-5 py-3 text-right">
+                      {s.expectedCash == null ? '—' : formatMoney(s.expectedCash)}
+                    </td>
+                    <td className="px-5 py-3 text-right">
+                      {s.countedCash == null ? '—' : formatMoney(s.countedCash)}
+                    </td>
                     <td
                       className={cn(
                         'px-5 py-3 text-right font-medium',
@@ -454,12 +527,33 @@ function ShiftHistory({
                     >
                       {variance == null ? '—' : variance === 0 ? '—' : `${variance > 0 ? '+' : ''}${formatMoney(variance)}`}
                     </td>
+                    <td className="px-5 py-3 text-right">
+                      {!s.closedAt && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          loading={loadingId === s.id}
+                          onClick={() => startClose(s.id)}
+                        >
+                          Close
+                        </Button>
+                      )}
+                    </td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
         </div>
+      )}
+      {closing && (
+        <CloseShiftModal
+          shift={closing}
+          currency={user?.business?.currency}
+          onClose={() => setClosing(null)}
+          onConfirm={(body) => closeMutation.mutate({ id: closing.id, ...body })}
+          isPending={closeMutation.isPending}
+        />
       )}
     </>
   );
