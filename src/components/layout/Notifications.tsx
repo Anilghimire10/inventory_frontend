@@ -24,6 +24,8 @@ const TONES: Record<NotificationType, string> = {
 /**
  * Notification bell. Backed by persistent server-side notifications, so the
  * unread badge clears once seen and items can be dismissed individually.
+ * Read and dismissed are per person: opening the bell or dismissing a notice
+ * only changes it for whoever is signed in, never for the rest of the shop.
  */
 export default function Notifications() {
   const qc = useQueryClient();
@@ -123,11 +125,16 @@ function NotificationRow({
     <div className="flex items-start gap-2.5">
       <Icon className={cn('mt-0.5 h-4 w-4 shrink-0', TONES[n.type])} />
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-1.5">
-          {!n.readAt && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />}
-          <span className="truncate text-sm font-medium">{n.title}</span>
+        {/* Wrapped, not truncated, and line breaks kept: an announcement from
+            the platform can have a 120-character title and a multi-line body,
+            and the bell is the only place a shop's staff read it. */}
+        <div className="flex items-start gap-1.5">
+          {!n.readAt && <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />}
+          <span className="min-w-0 break-words text-sm font-medium">{n.title}</span>
         </div>
-        {n.body && <div className="text-xs text-muted-foreground">{n.body}</div>}
+        {n.body && (
+          <div className="whitespace-pre-line break-words text-xs text-muted-foreground">{n.body}</div>
+        )}
         <div className="mt-0.5 text-[11px] text-muted-foreground/70">
           {formatDateTime(n.createdAt)}
         </div>
