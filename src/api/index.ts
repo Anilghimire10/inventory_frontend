@@ -46,6 +46,13 @@ import type {
   StockTakeResult,
   ReturnPurchaseResult,
   ReorderSuggestionGroup,
+  SerialLookup,
+  SupportCategory,
+  SupportStatus,
+  SupportThread,
+  SupportTicketListItem,
+  SubscriptionOverview,
+  SubscriptionReceipt,
 } from '@/types';
 
 /** How a credit or supplier payment was made. Omitted, the API assumes cash. */
@@ -162,10 +169,11 @@ export const ProductsApi = {
       .data;
   },
   exportAll: () => get<Record<string, unknown>[]>('/products/export'),
-  importProducts: (items: Record<string, unknown>[]) =>
+  /** `dryRun` checks the file and reports what would happen, saving nothing. */
+  importProducts: (items: Record<string, unknown>[], dryRun = false) =>
     post<{ created: number; updated: number; errors: { row: number; error: string }[] }>(
       '/products/import',
-      { items },
+      { items, dryRun },
     ),
   listVariants: (id: string) => get<ProductVariant[]>(`/products/${id}/variants`),
   generateVariants: (
@@ -189,15 +197,46 @@ export const NotificationsApi = {
   dismiss: (id: string) => del<{ ok: true }>(`/notifications/${id}`),
 };
 
+/** The shop's own subscription. Owners and managers; read-only. */
+export const SubscriptionApi = {
+  overview: () => get<SubscriptionOverview>('/subscription'),
+  receipt: (paymentId: string) => get<SubscriptionReceipt>(`/subscription/payments/${paymentId}/receipt`),
+};
+
+/** Help & support: questions to the platform team, answered from the admin panel. */
+export const SupportApi = {
+  list: (params?: { status?: SupportStatus; page?: number; limit?: number }) =>
+    get<Paginated<SupportTicketListItem>>('/support', params),
+  get: (id: string) => get<SupportThread>(`/support/${id}`),
+  create: (body: { category: SupportCategory; subject: string; body: string }) =>
+    post<SupportThread>('/support', body),
+  reply: (id: string, body: string) => post<SupportThread>(`/support/${id}/messages`, { body }),
+};
+
 export const InventoryApi = {
   stock: (params?: object) => get<Paginated<StockItem>>('/inventory/stock', params),
   lowStock: (storeId?: string) =>
     get<StockItem[]>('/inventory/low-stock', storeId ? { storeId } : undefined),
   expiring: (params?: object) => get<Batch[]>('/inventory/expiring', params),
+  /** Opening stock from a spreadsheet. `dryRun` checks it and saves nothing. */
+  importStock: (items: Record<string, unknown>[], opts: { storeId?: string; dryRun?: boolean }) =>
+    post<{ rows?: number; imported?: number; units: number; errors: { row: number; error: string }[] }>(
+      '/inventory/import-stock',
+      { items, ...opts },
+    ),
+  /** Remove expired stock: an EXPIRED adjustment, and the batch emptied. */
+  writeOffExpired: (body: { storeId: string; productId: string; batchId?: string }) =>
+    post<{ writtenOff: number }>('/inventory/expiring/write-off', body),
   movements: (params?: object) =>
     get<Paginated<StockMovement>>('/inventory/movements', params),
   serials: (params?: object) =>
     get<Paginated<SerialRecord>>('/inventory/serials', params),
+  /** In-stock serial numbers of one product at one store, oldest first. */
+  inStockSerials: (storeId: string, productId: string) =>
+    get<string[]>('/inventory/serials/in-stock', { storeId, productId }),
+  /** Where one serial is -- for scanning an IMEI at the till. 404 when unknown. */
+  lookupSerial: (serial: string) =>
+    get<SerialLookup>(`/inventory/serials/lookup/${encodeURIComponent(serial)}`),
   adjust: (body: object) => post('/inventory/adjust', body),
   setReorderLevel: (body: object) => post('/inventory/reorder-level', body),
   transfer: (body: {
@@ -320,6 +359,9 @@ export const NotificationsAdminApi = {
 };
 
 export const SalesApi = {
+  /** Every bill the filter matches, one row each (owner / manager). */
+  exportRows: (params?: object) =>
+    get<{ rows: Record<string, unknown>[]; total: number; truncated: boolean }>('/sales/export', params),
   list: (params?: object) => get<Paginated<SaleListItem>>('/sales', params),
   get: (id: string) => get<Sale>(`/sales/${id}`),
   create: (body: object) => post<Sale>('/sales', body),

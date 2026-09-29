@@ -13,6 +13,8 @@ import {
   ChevronDown,
   ChevronRight,
   KeyRound,
+  LifeBuoy,
+  CalendarClock,
 } from 'lucide-react';
 import { NAV_GROUPS, canSee } from './nav';
 import Notifications from './Notifications';
@@ -20,6 +22,7 @@ import ChangePasswordDialog from '@/components/ChangePasswordDialog';
 import { useAuth } from '@/auth/AuthContext';
 import { useTheme } from '@/theme/ThemeProvider';
 import { cn } from '@/lib/utils';
+import { can } from '@/lib/permissions';
 import { Tooltip } from '@/components/ui/tooltip';
 import { SubscriptionBanner } from './SubscriptionBanner';
 import { ImpersonationBanner } from './ImpersonationBanner';
@@ -48,14 +51,16 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex min-h-screen">
-      {/* Sidebar */}
+      {/* Sidebar. On desktop it sticks to the top at full screen height, so it
+          stays in view down a long page (Analytics, Stock); its menu scrolls
+          on its own if it's taller than the screen. */}
       <aside
         className={cn(
-          'fixed inset-y-0 left-0 z-40 w-64 transform border-r border-border bg-card transition-transform lg:static lg:translate-x-0',
+          'fixed inset-y-0 left-0 z-40 flex w-64 shrink-0 transform flex-col border-r border-border bg-card transition-transform lg:sticky lg:top-0 lg:h-screen lg:translate-x-0',
           mobileOpen ? 'translate-x-0' : '-translate-x-full',
         )}
       >
-        <div className="flex h-16 items-center gap-2 border-b border-border px-5">
+        <div className="flex h-16 shrink-0 items-center gap-2 border-b border-border px-5">
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
             <Package className="h-4 w-4" />
           </div>
@@ -68,7 +73,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             <X className="h-5 w-5" />
           </button>
         </div>
-        <nav className="flex flex-col gap-4 overflow-y-auto p-3">
+        <nav className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-3">
           {groups.map((group) => {
             const isOverview = group.label === 'Overview';
             // The active group stays expanded even if the user collapsed it.
@@ -192,6 +197,24 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                   >
                     <KeyRound className="h-4 w-4" /> Change password
                   </button>
+                  {can.viewSubscription(user.role) && (
+                    <Link
+                      href="/subscription"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => setMenuOpen(false)}
+                      className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent"
+                    >
+                      <CalendarClock className="h-4 w-4" /> Subscription
+                    </Link>
+                  )}
+                  <Link
+                    href="/support"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => setMenuOpen(false)}
+                    className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent"
+                  >
+                    <LifeBuoy className="h-4 w-4" /> Help &amp; support
+                  </Link>
                   <button
                     onClick={logout}
                     className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-destructive hover:bg-accent"

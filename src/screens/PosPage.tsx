@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useState, useRef } from 'react';
 import { useMutation, useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { Plus, Package, Barcode, ChevronUp, Printer, ShoppingCart, Wallet, Star, FileText, ArrowUpDown, Clock } from 'lucide-react';
-import { CategoriesApi, CustomersApi, ProductsApi, SalesApi, ShiftsApi, type CloseShiftBody } from '@/api';
+import { CategoriesApi, CustomersApi, InventoryApi, ProductsApi, SalesApi, ShiftsApi, type CloseShiftBody } from '@/api';
 import type { Product, Paginated } from '@/types';
 import { useAuth } from '@/auth/AuthContext';
 import { useShift } from '@/shift/ShiftContext';
@@ -14,7 +14,7 @@ import { Input } from '@/components/ui/input';
 import { RxBadge } from '@/components/ui/RxBadge';
 import { useToast } from '@/components/ui/toast';
 import { apiError } from '@/lib/api';
-import { formatDateTime, formatMoney } from '@/lib/format';
+import { formatDate, formatDateTime, formatMoney } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { CartPanel, TENDERS, lineNet } from '@/components/pos/CartPanel';
 import { splitTax } from '@/lib/tax';
@@ -26,6 +26,9 @@ import { CashMovementModal } from '@/components/pos/CashMovementModal';
 import { isStaleShift } from '@/lib/cash';
 import { customerKey } from '@/components/pos/CustomerPicker';
 import { ErrorState, LoadingBlock } from '@/components/ui/misc';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { productExpiry } from '@/lib/expiry';
+import { ExpiryBadge } from '@/components/ExpiryBadge';
 import { Tooltip } from '@/components/ui/tooltip';
 import { useActiveStores, useStores } from '@/hooks/useStores';
 import { resolvePosStore } from '@/lib/posStore';
@@ -91,6 +94,13 @@ export default function PosPage() {
   const multiStore = (allStores?.length ?? 0) > 1;
   // Master tax switch (from business settings). When off, nothing is taxed.
   const taxEnabled = user?.business?.taxEnabled ?? true;
+  // A pharmacy can't sell expired stock (the API refuses it too); other shops
+  // are warned and may go ahead.
+  const isPharmacy = user?.business?.type === 'PHARMACY';
+  const [expiredPrompt, setExpiredPrompt] = useState<{ product: Product; serial?: string } | null>(null);
+  // Expired products the cashier already said yes to in this sale, so the
+  // next + on the same line doesn't ask again.
+  const [okExpired, setOkExpired] = useState<Set<string>>(() => new Set());
   // Whether shelf prices already contain their tax.
   const taxInclusive = user?.business?.taxInclusive ?? false;
   const [search, setSearch] = useState('');
@@ -228,6 +238,14 @@ export default function PosPage() {
     return m;
   }, [products, cart]);
 
+  // Units in expired batches, by product -- same sources as `onHand`.
+  const expiredQty = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const l of cart) if (l.product.expiry) m.set(l.product.id, l.product.expiry.expiredQty);
+    for (const p of products?.data ?? []) m.set(p.id, p.expiry?.expiredQty ?? 0);
+    return m;
+  }, [products, cart]);
+
   const reorderLevels = useMemo(() => {
     const m = new Map<string, number>();
     for (const p of products?.data ?? []) {
@@ -284,7 +302,12 @@ export default function PosPage() {
   // page is still loading, or for a held sale resumed with items that never
   // appeared in this till's grid. The server's guarded SQL is what actually
   // prevents an oversell; this is the courtesy warning in front of it.
-  const maxOf = (id: string) => onHand.get(id) ?? Infinity;
+  // A pharmacy sells only what's in date: the shelf minus expired batches.
+  const maxOf = (id: string) => {
+    const stock = onHand.get(id) ?? Infinity;
+    const expired = isPharmacy ? (expiredQty.get(id) ?? 0) : 0;
+    return expired > 0 ? Math.max(stock - expired, 0) : stock;
+  };
 
   const resetSaleState = () => {
     setDiscount(0);
@@ -295,6 +318,7 @@ export default function PosPage() {
     setPayMode('full');
     setAmountPaid(0);
     setTendered(0);
+    setOkExpired(new Set());
   };
 
   const printLast = async () => {
@@ -538,13 +562,38 @@ export default function PosPage() {
     onError: (e) => show(apiError(e), 'error'),
   });
 
-  const add = (product: Product) => {
+  /**
+   * Put one unit in the cart. With `serial` (a scanned IMEI), that unit: it
+   * fills a line still short of serials, or adds a unit carrying it.
+   */
+  const add = (product: Product, confirmedExpired = false, serial?: string) => {
     const existing = cart.find((l) => l.product.id === product.id);
-    const next = (existing?.quantity ?? 0) + 1;
+    if (serial && existing?.serials?.includes(serial)) {
+      show(`${serial} is already in the cart`, 'error');
+      return;
+    }
+    const fillsSlot = !!serial && !!existing && (existing.serials?.length ?? 0) < existing.quantity;
+    const next = (existing?.quantity ?? 0) + (fillsSlot ? 0 : 1);
+    const expiry = productExpiry(product, onHand.get(product.id));
+    if (expiry?.kind === 'expired') {
+      if (isPharmacy) {
+        show(`${product.name} has expired and can't be sold. Write it off in Stock → Expiring.`, 'error');
+        return;
+      }
+      if (!confirmedExpired && !okExpired.has(product.id)) {
+        setExpiredPrompt({ product, serial });
+        return;
+      }
+    }
     const max = maxOf(product.id);
     if (next > max) {
       if (Number.isFinite(max)) {
-        show(`Only ${max} ${product.unit} of ${product.name} in stock`, 'error');
+        show(
+          isPharmacy && (expiredQty.get(product.id) ?? 0) > 0
+            ? `Only ${max} ${product.unit} of ${product.name} in date; the rest has expired`
+            : `Only ${max} ${product.unit} of ${product.name} in stock`,
+          'error',
+        );
       }
       return;
     }
@@ -552,8 +601,12 @@ export default function PosPage() {
     setLastChange(null);
     setCart((c) =>
       existing
-        ? c.map((l) => (l.product.id === product.id ? { ...l, quantity: l.quantity + 1 } : l))
-        : [...c, { product, quantity: 1 }],
+        ? c.map((l) =>
+            l.product.id === product.id
+              ? { ...l, quantity: next, ...(serial ? { serials: [...(l.serials ?? []), serial] } : {}) }
+              : l,
+          )
+        : [...c, { product, quantity: 1, ...(serial ? { serials: [serial] } : {}) }],
     );
   };
   const setQty = (id: string, qty: number) => {
@@ -635,8 +688,27 @@ export default function PosPage() {
       const product = await ProductsApi.byBarcode(code);
       add(product);
       setSearch('');
+      return;
     } catch {
-      // Not a known barcode — leave the text as a normal search filter.
+      // Not a product barcode -- maybe a unit's serial / IMEI.
+    }
+    try {
+      const unit = await InventoryApi.lookupSerial(code);
+      if (unit.status !== 'IN_STOCK' || unit.storeId !== storeId) {
+        show(`${code}: ${unit.product.name}, ${unit.where}`, 'error');
+        setSearch('');
+        return;
+      }
+      // The grid row carries this store's on-hand figure, which the till's
+      // stock ceiling reads -- fetch it rather than add a bare product.
+      const rows = await ProductsApi.list({ ids: [unit.productId], limit: 1, storeId: storeId ?? undefined });
+      const product = rows.data[0];
+      if (product) {
+        add(product, false, unit.serialNumber);
+        setSearch('');
+      }
+    } catch {
+      // Neither -- leave the text as a normal search filter.
     }
   };
 
@@ -719,22 +791,6 @@ export default function PosPage() {
         </div>
       </div>
 
-      {/* A shift left open across days mixes days' cash into one count, so a
-          shortage can't be pinned to a day or to a person. Say so, with the
-          way out right there. */}
-      {staleShift && (
-        <div className="mb-3 flex flex-wrap items-center gap-3 rounded-lg border border-warning/40 bg-warning/10 px-4 py-2.5 text-sm">
-          <Clock className="h-4 w-4 shrink-0 text-warning" />
-          <span className="min-w-0 flex-1">
-            This shift has been open since <b>{formatDateTime(shift!.openedAt)}</b>. Close
-            and count it so each day&apos;s cash is checked on its own.
-          </span>
-          <Button size="sm" variant="outline" onClick={() => setShowCloseShift(true)}>
-            Close shift now
-          </Button>
-        </div>
-      )}
-
       {/* Couldn't load the shift: not the same as having none. Offering "open
           shift" here is how a till with a shift already running got refused
           with "close it first" -- so block the till and offer a retry. */}
@@ -801,6 +857,31 @@ export default function PosPage() {
         />
       )}
 
+      {/* Expired item: other shops may sell it, after saying so. */}
+      <ConfirmDialog
+        open={!!expiredPrompt}
+        title="This item has expired"
+        description={
+          expiredPrompt
+            ? `${expiredPrompt.product.name} ${
+                expiredPrompt.product.expiryDate
+                  ? `expired on ${formatDate(expiredPrompt.product.expiryDate)}`
+                  : 'is from an expired batch'
+              }. Sell it anyway?`
+            : undefined
+        }
+        confirmLabel="Sell anyway"
+        destructive
+        onConfirm={() => {
+          if (!expiredPrompt) return;
+          const { product: p, serial } = expiredPrompt;
+          setOkExpired((s) => new Set(s).add(p.id));
+          setExpiredPrompt(null);
+          add(p, true, serial);
+        }}
+        onCancel={() => setExpiredPrompt(null)}
+      />
+
       {/* Help overlay */}
       {showHelp && (
         <div className="fixed inset-0 bg-black/60 z-40 flex items-center justify-center p-4">
@@ -829,6 +910,22 @@ export default function PosPage() {
       <div className="flex min-h-0 flex-1 flex-col gap-4 lg:flex-row">
         {/* Product picker */}
         <div className="flex min-h-0 flex-1 flex-col gap-3 lg:w-[60%]">
+          {/* A shift left open across days mixes days' cash into one count, so a
+              shortage can't be pinned to a day or to a person. Say so, with the
+              way out right there. It sits in the product column so the cart
+              keeps its full height. */}
+          {staleShift && (
+            <div className="flex flex-wrap items-center gap-3 rounded-lg border border-warning/40 bg-warning/10 px-4 py-2.5 text-sm">
+              <Clock className="h-4 w-4 shrink-0 text-warning" />
+              <span className="min-w-0 flex-1">
+                This shift has been open since <b>{formatDateTime(shift!.openedAt)}</b>. Close
+                and count it so each day&apos;s cash is checked on its own.
+              </span>
+              <Button size="sm" variant="outline" onClick={() => setShowCloseShift(true)}>
+                Close shift now
+              </Button>
+            </div>
+          )}
           <form onSubmit={scan} className="relative">
             <Input
               className="h-11 pr-10"
@@ -905,6 +1002,11 @@ export default function PosPage() {
                           <Package className="h-5 w-5" />
                         </div>
                       )}
+                      <ExpiryBadge
+                        product={p}
+                        onHand={stockLoaded ? available : undefined}
+                        className="absolute left-1.5 top-1.5 z-10 shadow-sm"
+                      />
                       {out && (
                         <div className="absolute inset-0 flex items-center justify-center bg-background/60">
                           <span className="rounded-full bg-background px-2 py-1 text-xs font-medium text-muted-foreground shadow-sm">
@@ -996,6 +1098,7 @@ export default function PosPage() {
           >
             <CartPanel
               cart={cart}
+              storeId={storeId ?? null}
               cartCount={cartCount}
               shiftOpen={!!shift}
               heldSales={heldSales}

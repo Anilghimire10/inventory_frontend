@@ -1,9 +1,40 @@
 'use client';
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Boxes, SlidersHorizontal, AlertTriangle, CalendarClock, History, ArrowLeftRight, Trash2, ClipboardCheck, Fingerprint, PackagePlus, Target } from 'lucide-react';
+import { Boxes, SlidersHorizontal, AlertTriangle, CalendarClock, History, ArrowLeftRight, Trash2, ClipboardCheck, Fingerprint, PackagePlus, Target, Upload } from 'lucide-react';
 import { InventoryApi, ProductsApi, PurchasesApi } from '@/api';
-import type { CountSheetLine, Product, ReorderSuggestionGroup, SerialStatus, StockItem, StockTakeResult } from '@/types';
+import type { Batch, CountSheetLine, Product, ReorderSuggestionGroup, SerialStatus, StockItem, StockTakeResult } from '@/types';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { daysToExpiry } from '@/lib/expiry';
+import { SerialPicker } from '@/components/SerialPicker';
+import { ImportDialog } from '@/components/ImportDialog';
+import { exportCsv } from '@/lib/csv';
+
+const STOCK_COLUMNS = [
+  { key: 'sku', label: 'SKU' },
+  { key: 'barcode', label: 'Barcode' },
+  { key: 'name', label: 'Name' },
+  { key: 'store', label: 'Store' },
+  { key: 'quantity', label: 'Quantity' },
+  { key: 'cost', label: 'Cost price' },
+  { key: 'batch', label: 'Batch' },
+  { key: 'expiry', label: 'Expiry date' },
+  { key: 'serials', label: 'Serials' },
+];
+
+const STOCK_TEMPLATE = [
+  { sku: 'RICE-1KG', barcode: '', name: 'Basmati rice 1kg', store: '', quantity: 40, cost: 180, batch: 'B-2409', expiry: '2027-06-30', serials: '' },
+  { sku: 'SAM-A15', barcode: '', name: 'Samsung Galaxy A15', store: '', quantity: 2, cost: 21000, batch: '', expiry: '', serials: '354900112233441|354900112233442' },
+];
+
+const STOCK_IMPORT_HELP = [
+  { name: 'SKU, Barcode or Name', required: true, note: 'which product; the first one filled in is used, and Name must match exactly' },
+  { name: 'Quantity', required: true, note: 'how many to add to what is already there' },
+  { name: 'Store', note: 'branch name; blank uses the branch picked at the top of the app' },
+  { name: 'Cost price', note: 'what each unit cost; fills in the product’s cost if it has none' },
+  { name: 'Batch, Expiry date', note: 'for batch-tracked products (expiry like 2027-06-30); for other products, Expiry date sets the product’s expiry' },
+  { name: 'Serials', note: 'for serial-tracked products: one per unit, separated by |' },
+];
 import { useActiveStores } from '@/hooks/useStores';
 import { useStoreScope } from '@/store/StoreContext';
 import { PageHeader, LoadingBlock, EmptyState, ErrorState } from '@/components/ui/misc';
@@ -22,6 +53,14 @@ import { apiError } from '@/lib/api';
 import { formatDate, formatDateTime, formatMoney } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
+const SERIAL_STATUS_LABEL: Record<SerialStatus, string> = {
+  IN_STOCK: 'In stock',
+  SOLD: 'Sold',
+  RETURNED_TO_SUPPLIER: 'Returned',
+  DAMAGED: 'Damaged',
+  LOST: 'Lost',
+};
+
 type Tab = 'stock' | 'low' | 'reorder' | 'expiring' | 'movements' | 'stockTake' | 'serials';
 
 /** Which suggestions a pending "create drafts" confirmation covers. */
@@ -38,15 +77,22 @@ export default function InventoryPage() {
   const [delta, setDelta] = useState(0);
   const [reason, setReason] = useState('COUNT_CORRECTION');
   const [note, setNote] = useState('');
+  // Serialised products: the units added or removed by this adjustment.
+  const [adjustSerials, setAdjustSerials] = useState<string[]>([]);
 
   const [transferOpen, setTransferOpen] = useState(false);
   const [fromStoreId, setFromStoreId] = useState('');
   const [toStoreId, setToStoreId] = useState('');
   const [transferNote, setTransferNote] = useState('');
-  const [transferLines, setTransferLines] = useState<{ productId: string; name: string; quantity: number }[]>([]);
+  const [transferLines, setTransferLines] = useState<
+    { productId: string; name: string; quantity: number; trackSerials?: boolean; serials?: string[]; pickUnits?: boolean }[]
+  >([]);
 
   const [countStoreIdOverride, setCountStoreIdOverride] = useState('');
   const [counts, setCounts] = useState<Record<string, number>>({});
+  // Serialised products are counted by ticking units: the units found, by product.
+  const [serialCounts, setSerialCounts] = useState<Record<string, string[]>>({});
+  const [countingSerials, setCountingSerials] = useState<CountSheetLine | null>(null);
   const [seededSheet, setSeededSheet] = useState<CountSheetLine[] | undefined>(undefined);
   const [countNote, setCountNote] = useState('');
   const [reviewOpen, setReviewOpen] = useState(false);
@@ -68,6 +114,7 @@ export default function InventoryPage() {
   // server scopes pinned staff on its own; this is what lets an owner review
   // one branch at a time.
   const { storeId } = useStoreScope();
+  const [importingStock, setImportingStock] = useState(false);
   const forStore = storeId || undefined;
   // Only when a row could be from any of several branches: with a store
   // selected every row is that store's, and one store is no ambiguity at all.
@@ -125,11 +172,13 @@ export default function InventoryPage() {
         delta,
         reason,
         note: note || undefined,
+        ...(serialAdjust ? { serials: adjustSerials } : {}),
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['stock'] });
       qc.invalidateQueries({ queryKey: ['low-stock'] });
       qc.invalidateQueries({ queryKey: ['movements'] });
+      qc.invalidateQueries({ queryKey: ['serials'] });
       show('Stock adjusted');
       setAdjusting(null);
     },
@@ -141,7 +190,14 @@ export default function InventoryPage() {
     setDelta(0);
     setReason('COUNT_CORRECTION');
     setNote('');
+    setAdjustSerials([]);
   };
+
+  // A serialised product names its units: whole numbers only, one serial each.
+  const serialAdjust = !!adjusting?.product.trackSerials;
+  const adjustReady =
+    delta !== 0 &&
+    (!serialAdjust || (Number.isInteger(delta) && adjustSerials.length === Math.abs(delta)));
 
   // 0 clears the per-store override and falls back to the product default.
   const openReorderLevel = (item: StockItem) => {
@@ -172,11 +228,17 @@ export default function InventoryPage() {
         fromStoreId,
         toStoreId,
         note: transferNote || undefined,
-        items: transferLines,
+        items: transferLines.map((l) => ({
+          productId: l.productId,
+          quantity: l.quantity,
+          // Chosen units, or none: the oldest on file go.
+          ...(l.pickUnits && l.serials?.length ? { serials: l.serials } : {}),
+        })),
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['stock'] });
       qc.invalidateQueries({ queryKey: ['movements'] });
+      qc.invalidateQueries({ queryKey: ['serials'] });
       show('Stock transferred');
       setTransferOpen(false);
     },
@@ -193,10 +255,17 @@ export default function InventoryPage() {
 
   const addTransferLine = (product: Product | null) => {
     if (!product || transferLines.some((l) => l.productId === product.id)) return;
-    setTransferLines((ls) => [...ls, { productId: product.id, name: product.name, quantity: 1 }]);
+    setTransferLines((ls) => [
+      ...ls,
+      { productId: product.id, name: product.name, quantity: 1, trackSerials: product.trackSerials },
+    ]);
   };
   const updateTransferLine = (i: number, quantity: number) =>
-    setTransferLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, quantity } : l)));
+    setTransferLines((ls) =>
+      ls.map((l, idx) => (idx === i ? { ...l, quantity, serials: l.serials?.slice(0, quantity) } : l)),
+    );
+  const setTransferSerials = (i: number, changes: { serials?: string[]; pickUnits?: boolean }) =>
+    setTransferLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, ...changes } : l)));
   const removeTransferLine = (i: number) =>
     setTransferLines((ls) => ls.filter((_, idx) => idx !== i));
 
@@ -207,7 +276,13 @@ export default function InventoryPage() {
     !!toStoreId &&
     !sameStore &&
     transferLines.length > 0 &&
-    transferLines.every((l) => l.quantity > 0);
+    transferLines.every((l) => l.quantity > 0) &&
+    // Serialised: whole units, and if units are being chosen, all of them.
+    transferLines.every(
+      (l) =>
+        !l.trackSerials ||
+        (Number.isInteger(l.quantity) && (!l.pickUnits || (l.serials?.length ?? 0) === l.quantity)),
+    );
 
   // Falls back to the first store until the user picks one explicitly.
   const countStoreId = countStoreIdOverride || stores?.[0]?.id || '';
@@ -223,12 +298,14 @@ export default function InventoryPage() {
   if (countSheet.data && countSheet.data !== seededSheet) {
     setSeededSheet(countSheet.data);
     setCounts(Object.fromEntries(countSheet.data.map((l) => [l.productId, l.system])));
+    setSerialCounts({});
   }
 
   const buildCounts = () =>
     (countSheet.data ?? []).map((l) => ({
       productId: l.productId,
       counted: counts[l.productId] ?? l.system,
+      ...(serialCounts[l.productId] ? { serials: serialCounts[l.productId] } : {}),
     }));
 
   const previewTake = useMutation({
@@ -258,6 +335,7 @@ export default function InventoryPage() {
       qc.invalidateQueries({ queryKey: ['low-stock'] });
       qc.invalidateQueries({ queryKey: ['movements'] });
       qc.invalidateQueries({ queryKey: ['count-sheet'] });
+      qc.invalidateQueries({ queryKey: ['serials'] });
       show('Stock take posted');
       setReviewOpen(false);
       setCountNote('');
@@ -313,12 +391,50 @@ export default function InventoryPage() {
         title="Inventory"
         description="Stock levels, alerts, and movement history."
         action={
-          stores && stores.length > 1 ? (
-            <Button variant="outline" onClick={openTransfer}>
-              <ArrowLeftRight className="h-4 w-4" /> Transfer stock
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={() => setImportingStock(true)}>
+              <Upload className="h-4 w-4" /> Import stock
             </Button>
-          ) : undefined
+            {stores && stores.length > 1 && (
+              <Button variant="outline" onClick={openTransfer}>
+                <ArrowLeftRight className="h-4 w-4" /> Transfer stock
+              </Button>
+            )}
+          </div>
         }
+      />
+
+      <ImportDialog
+        open={importingStock}
+        onClose={() => setImportingStock(false)}
+        title="Import stock"
+        intro={
+          'Add the stock you already have — for example on your first day — from a spreadsheet. Each row adds a quantity of one product at one branch. ' +
+          (storeId
+            ? 'Rows with no Store go to the branch picked at the top of the app.'
+            : (stores?.length ?? 0) > 1
+              ? 'You have more than one branch: fill in the Store column, or pick a branch at the top of the app first.'
+              : '')
+        }
+        columns={STOCK_IMPORT_HELP}
+        onTemplate={() => void exportCsv('stock-import-template', STOCK_COLUMNS, STOCK_TEMPLATE).catch((e) => show(apiError(e), 'error'))}
+        check={async (rows) => {
+          const r = await InventoryApi.importStock(rows, { storeId: storeId || undefined, dryRun: true });
+          return {
+            counts: [{ label: 'Rows to add', value: r.rows ?? 0 }, { label: 'Units in total', value: r.units }],
+            toImport: r.rows ?? 0,
+            errors: r.errors,
+          };
+        }}
+        run={async (rows) => {
+          const r = await InventoryApi.importStock(rows, { storeId: storeId || undefined });
+          qc.invalidateQueries({ queryKey: ['stock'] });
+          qc.invalidateQueries({ queryKey: ['movements'] });
+          qc.invalidateQueries({ queryKey: ['serials'] });
+          qc.invalidateQueries({ queryKey: ['expiring'] });
+          qc.invalidateQueries({ queryKey: ['products'] });
+          return { message: `Added ${r.imported ?? 0} rows — ${r.units} units in total.`, errors: r.errors };
+        }}
       />
 
       <div className="mb-5 flex flex-wrap gap-1 border-b border-border">
@@ -423,21 +539,9 @@ export default function InventoryPage() {
         expiring.isError ? <ErrorState onRetry={() => expiring.refetch()} /> :
         expiring.isLoading ? <LoadingBlock /> :
         !expiring.data || expiring.data.length === 0 ? (
-          <EmptyState title="Nothing expiring soon" description="No batches expire within 30 days." icon={CalendarClock} />
+          <EmptyState title="Nothing expiring soon" description="No stock expires within 30 days." icon={CalendarClock} />
         ) : (
-          <Table>
-            <THead><TR><TH>Product</TH><TH>Batch</TH><TH>Expires</TH><TH className="text-right">Qty</TH></TR></THead>
-            <TBody>
-              {expiring.data.map((b) => (
-                <TR key={b.id}>
-                  <TD className="font-medium">{b.product.name}</TD>
-                  <TD className="text-muted-foreground">{b.batchNumber || '—'}</TD>
-                  <TD><Badge tone="destructive">{formatDate(b.expiryDate)}</Badge></TD>
-                  <TD className="text-right">{b.quantity}</TD>
-                </TR>
-              ))}
-            </TBody>
-          </Table>
+          <ExpiringTab rows={expiring.data} showStore={showStoreColumn} />
         )
       )}
 
@@ -513,11 +617,19 @@ export default function InventoryPage() {
                           <TD className="text-muted-foreground">{l.sku || '—'}</TD>
                           <TD className="text-right text-muted-foreground">{l.system}</TD>
                           <TD className="text-right">
-                            <Input type="number" step="0.001" min="0" className="ml-auto h-8 w-24 text-right"
-                              value={counted}
-                              onChange={(e) =>
-                                setCounts((c) => ({ ...c, [l.productId]: Number(e.target.value) || 0 }))
-                              } />
+                            {l.trackSerials ? (
+                              // Serialised: counted by ticking units, so the serial list follows.
+                              <Button size="sm" variant="outline" className="ml-auto h-8"
+                                onClick={() => setCountingSerials(l)}>
+                                {serialCounts[l.productId] ? `${counted} ticked` : 'Tick units'}
+                              </Button>
+                            ) : (
+                              <Input type="number" step="0.001" min="0" className="ml-auto h-8 w-24 text-right"
+                                value={counted}
+                                onChange={(e) =>
+                                  setCounts((c) => ({ ...c, [l.productId]: Number(e.target.value) || 0 }))
+                                } />
+                            )}
                           </TD>
                           <TD className={cn(
                             'text-right font-medium',
@@ -584,6 +696,7 @@ export default function InventoryPage() {
               <option value="SOLD">Sold</option>
               <option value="RETURNED_TO_SUPPLIER">Returned to supplier</option>
               <option value="DAMAGED">Damaged</option>
+              <option value="LOST">Lost</option>
             </Select>
           </div>
 
@@ -602,7 +715,7 @@ export default function InventoryPage() {
                       <TD>{s.product.name}</TD>
                       <TD>
                         <Badge tone={s.status === 'IN_STOCK' ? 'success' : s.status === 'SOLD' ? 'muted' : 'destructive'}>
-                          {s.status === 'IN_STOCK' ? 'In stock' : s.status === 'SOLD' ? 'Sold' : s.status === 'DAMAGED' ? 'Damaged' : 'Returned'}
+                          {SERIAL_STATUS_LABEL[s.status]}
                         </Badge>
                       </TD>
                       <TD className="text-muted-foreground">{s.store?.name ?? '—'}</TD>
@@ -628,7 +741,14 @@ export default function InventoryPage() {
             {stores && stores.length > 1 && adjusting?.store && <> · {adjusting.store.name}</>}
           </p>
           <Field label="Change (use negative to remove)">
-            <Input type="number" value={delta} onChange={(e) => setDelta(Number(e.target.value))} autoFocus />
+            <Input type="number" value={delta} autoFocus
+              onChange={(e) => {
+                const next = Number(e.target.value);
+                // Adding and removing name different units; start over on a sign change.
+                if (Math.sign(next) !== Math.sign(delta)) setAdjustSerials([]);
+                else setAdjustSerials((sr) => sr.slice(0, Math.abs(next)));
+                setDelta(next);
+              }} />
           </Field>
           <Field label="Reason">
             <Select value={reason} onChange={(e) => setReason(e.target.value)}>
@@ -639,12 +759,35 @@ export default function InventoryPage() {
               <option value="OTHER">Other</option>
             </Select>
           </Field>
+          {serialAdjust && delta !== 0 && adjusting && (
+            <Field label={delta > 0 ? `Serial numbers of the ${delta} unit(s) added` : `Which ${-delta} unit(s) are leaving?`}>
+              <SerialPicker
+                key={delta > 0 ? 'in' : 'out'}
+                storeId={adjusting.storeId}
+                productId={adjusting.productId}
+                mode={delta > 0 ? 'enter' : 'pick'}
+                max={Math.abs(delta)}
+                value={adjustSerials}
+                onChange={setAdjustSerials}
+              />
+              {delta < 0 && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {reason === 'DAMAGE' || reason === 'EXPIRED'
+                    ? 'They’ll be marked Damaged in the serial register.'
+                    : 'They’ll be marked Lost in the serial register.'}
+                </p>
+              )}
+            </Field>
+          )}
+          {serialAdjust && !Number.isInteger(delta) && (
+            <p className="text-xs text-destructive">This product is counted in whole units.</p>
+          )}
           <Field label="Note (optional)">
             <Input value={note} onChange={(e) => setNote(e.target.value)} />
           </Field>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setAdjusting(null)}>Cancel</Button>
-            <Button type="submit" loading={adjust.isPending} disabled={delta === 0}>Apply</Button>
+            <Button type="submit" loading={adjust.isPending} disabled={!adjustReady}>Apply</Button>
           </DialogFooter>
         </form>
       </Dialog>
@@ -687,17 +830,38 @@ export default function InventoryPage() {
           {transferLines.length > 0 && (
             <div className="space-y-2">
               {transferLines.map((l, i) => (
-                <div key={l.productId} className="flex items-center gap-3 rounded-md border border-border p-3">
-                  <span className="flex-1 font-medium">{l.name}</span>
-                  <Input type="number" step="0.001" min="0.001" className="w-28"
-                    value={l.quantity}
-                    onChange={(e) => updateTransferLine(i, Number(e.target.value))} />
-                  <Tooltip content="Remove line">
-                    <Button size="icon" variant="ghost" onClick={() => removeTransferLine(i)}
-                      aria-label={`Remove ${l.name}`}>
-                      <Trash2 className="h-4 w-4 text-destructive" />
-                    </Button>
-                  </Tooltip>
+                <div key={l.productId} className="space-y-2 rounded-md border border-border p-3">
+                  <div className="flex items-center gap-3">
+                    <span className="flex-1 font-medium">{l.name}</span>
+                    <Input type="number" step={l.trackSerials ? 1 : 0.001} min={l.trackSerials ? 1 : 0.001} className="w-28"
+                      value={l.quantity}
+                      onChange={(e) => updateTransferLine(i, Number(e.target.value))} />
+                    <Tooltip content="Remove line">
+                      <Button size="icon" variant="ghost" onClick={() => removeTransferLine(i)}
+                        aria-label={`Remove ${l.name}`}>
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                      </Button>
+                    </Tooltip>
+                  </div>
+                  {l.trackSerials && (
+                    <div className="space-y-2 text-sm">
+                      <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <input type="checkbox" className="h-4 w-4" checked={!!l.pickUnits}
+                          onChange={(e) => setTransferSerials(i, { pickUnits: e.target.checked, serials: [] })} />
+                        Choose which units are moving (otherwise the oldest on file go)
+                      </label>
+                      {l.pickUnits && fromStoreId && (
+                        <SerialPicker
+                          key={fromStoreId}
+                          storeId={fromStoreId}
+                          productId={l.productId}
+                          max={l.quantity}
+                          value={l.serials ?? []}
+                          onChange={(serials) => setTransferSerials(i, { serials })}
+                        />
+                      )}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -712,6 +876,39 @@ export default function InventoryPage() {
           <Button loading={transfer.isPending} disabled={!canTransfer} onClick={() => transfer.mutate()}>
             Transfer {transferLines.length} item{transferLines.length !== 1 ? 's' : ''}
           </Button>
+        </DialogFooter>
+      </Dialog>
+
+      <Dialog open={!!countingSerials} onClose={() => setCountingSerials(null)} title="Count by serial number"
+        description={countingSerials ? `${countingSerials.name}: untick units that aren’t here, scan any extra ones you find.` : undefined}>
+        {countingSerials && (
+          <div className="space-y-4">
+            <SerialPicker
+              storeId={countStoreId}
+              productId={countingSerials.productId}
+              allowExtra
+              value={serialCounts[countingSerials.productId] ?? countingSerials.serials ?? []}
+              onChange={(serials) => {
+                setSerialCounts((c) => ({ ...c, [countingSerials.productId]: serials }));
+                setCounts((c) => ({ ...c, [countingSerials.productId]: serials.length }));
+              }}
+            />
+            <p className="text-xs text-muted-foreground">
+              System quantity {countingSerials.system}. Units not ticked are marked Lost when the stock take is posted;
+              extra ones you scan go into stock.
+            </p>
+          </div>
+        )}
+        <DialogFooter>
+          <Button onClick={() => {
+            // Opening the list counts it: ticked-as-on-file is still a count.
+            if (countingSerials && !serialCounts[countingSerials.productId]) {
+              const all = countingSerials.serials ?? [];
+              setSerialCounts((c) => ({ ...c, [countingSerials.productId]: all }));
+              setCounts((c) => ({ ...c, [countingSerials.productId]: all.length }));
+            }
+            setCountingSerials(null);
+          }}>Done</Button>
         </DialogFooter>
       </Dialog>
 
@@ -734,7 +931,12 @@ export default function InventoryPage() {
                 <TBody>
                   {review.lines.filter((l) => l.variance !== 0).map((l) => (
                     <TR key={l.productId}>
-                      <TD className="font-medium">{l.name}</TD>
+                      <TD className="font-medium">
+                        {l.name}
+                        {l.needsSerials && (
+                          <span className="block text-xs text-destructive">Tick its units before posting</span>
+                        )}
+                      </TD>
                       <TD className="text-right text-muted-foreground">{l.system}</TD>
                       <TD className="text-right">{l.counted}</TD>
                       <TD className={cn('text-right font-medium', l.variance > 0 ? 'text-success' : 'text-destructive')}>
@@ -749,7 +951,8 @@ export default function InventoryPage() {
         )}
         <DialogFooter>
           <Button variant="outline" onClick={() => setReviewOpen(false)}>Back</Button>
-          <Button loading={postTake.isPending} disabled={!review || review.adjusted === 0}
+          <Button loading={postTake.isPending}
+            disabled={!review || review.adjusted === 0 || review.lines.some((l) => l.needsSerials)}
             onClick={() => postTake.mutate()}>
             Post stock take
           </Button>
@@ -989,5 +1192,124 @@ function StockTable({
         })}
       </TBody>
     </Table>
+  );
+}
+
+/**
+ * Stock → Expiring: what has already expired (to take off the shelf) apart
+ * from what expires in the next 30 days (to sell first or discount). Expired
+ * rows can be written off in one step -- an EXPIRED adjustment that also
+ * empties the batch, so it leaves this list.
+ */
+function ExpiringTab({ rows, showStore }: { rows: Batch[]; showStore: boolean }) {
+  const qc = useQueryClient();
+  const { show } = useToast();
+  const [target, setTarget] = useState<Batch | null>(null);
+  const expired = rows.filter((r) => r.expired);
+  const soon = rows.filter((r) => !r.expired);
+
+  const writeOff = useMutation({
+    mutationFn: (b: Batch) =>
+      InventoryApi.writeOffExpired({
+        storeId: b.storeId ?? b.store!.id,
+        productId: b.productId ?? b.product.id,
+        batchId: b.source === 'product' ? undefined : b.id,
+      }),
+    onSuccess: (res, b) => {
+      show(`Wrote off ${res.writtenOff} of ${b.product.name}`);
+      setTarget(null);
+      qc.invalidateQueries({ queryKey: ['expiring'] });
+      qc.invalidateQueries({ queryKey: ['stock'] });
+      qc.invalidateQueries({ queryKey: ['products'] });
+    },
+    onError: (e) => show(apiError(e), 'error'),
+  });
+
+  const table = (list: Batch[], isExpired: boolean) => (
+    <Table>
+      <THead>
+        <TR>
+          <TH>Product</TH>
+          {showStore && <TH>Store</TH>}
+          <TH>Batch</TH>
+          <TH>{isExpired ? 'Expired' : 'Expires'}</TH>
+          <TH className="text-right">Qty</TH>
+          {isExpired && <TH />}
+        </TR>
+      </THead>
+      <TBody>
+        {list.map((b) => {
+          const days = b.expiryDate ? daysToExpiry(b.expiryDate) : null;
+          return (
+            <TR key={b.id}>
+              <TD className="font-medium">{b.product.name}</TD>
+              {showStore && <TD className="text-muted-foreground">{b.store?.name ?? '—'}</TD>}
+              <TD className="text-muted-foreground">
+                {b.source === 'product' ? <span className="italic">Product date</span> : b.batchNumber || '—'}
+              </TD>
+              <TD>
+                <Badge tone={isExpired ? 'destructive' : days != null && days <= 7 ? 'warning' : 'muted'}>
+                  {formatDate(b.expiryDate)}
+                </Badge>
+                {!isExpired && days != null && (
+                  <span className="ml-2 text-xs text-muted-foreground">
+                    {days === 0 ? 'today' : `in ${days} day${days === 1 ? '' : 's'}`}
+                  </span>
+                )}
+              </TD>
+              <TD className="text-right">{b.quantity}</TD>
+              {isExpired && (
+                <TD className="text-right">
+                  <Button size="sm" variant="outline" onClick={() => setTarget(b)}>
+                    <Trash2 className="h-4 w-4" /> Write off
+                  </Button>
+                </TD>
+              )}
+            </TR>
+          );
+        })}
+      </TBody>
+    </Table>
+  );
+
+  return (
+    <div className="space-y-6">
+      {expired.length > 0 && (
+        <section>
+          <h2 className="mb-1 flex items-center gap-2 text-sm font-semibold text-destructive">
+            <AlertTriangle className="h-4 w-4" /> Expired ({expired.length})
+          </h2>
+          <p className="mb-3 text-xs text-muted-foreground">
+            Past their date. Take them off the shelf and write them off so they stop counting as stock.
+          </p>
+          {table(expired, true)}
+        </section>
+      )}
+      {soon.length > 0 && (
+        <section>
+          <h2 className="mb-1 flex items-center gap-2 text-sm font-semibold">
+            <CalendarClock className="h-4 w-4 text-warning" /> Expiring in the next 30 days ({soon.length})
+          </h2>
+          <p className="mb-3 text-xs text-muted-foreground">Sell these first. The till already takes the oldest batch.</p>
+          {table(soon, false)}
+        </section>
+      )}
+      <ConfirmDialog
+        open={!!target}
+        title="Write off expired stock?"
+        description={
+          target
+            ? `${target.quantity} of ${target.product.name}${
+                target.batchNumber ? ` (batch ${target.batchNumber})` : ''
+              } will be removed from stock as Expired. This is recorded in stock movements.`
+            : undefined
+        }
+        confirmLabel="Write off"
+        destructive
+        loading={writeOff.isPending}
+        onConfirm={() => target && writeOff.mutate(target)}
+        onCancel={() => setTarget(null)}
+      />
+    </div>
   );
 }

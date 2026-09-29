@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseCsv } from './csv';
+import { csvCell, parseCsv, toCsv } from './csv';
 
 describe('parseCsv', () => {
   it('keys rows by the header row', () => {
@@ -38,5 +38,35 @@ describe('parseCsv', () => {
 
   it('trims fields and headers', () => {
     expect(parseCsv(' name , qty \n Rice , 5 ')).toEqual([{ name: 'Rice', qty: '5' }]);
+  });
+});
+
+describe('toCsv', () => {
+  const cols = [
+    { key: 'name', label: 'Name' },
+    { key: 'sku', label: 'SKU' },
+    { key: 'price', label: 'Price' },
+  ];
+
+  it('starts with a byte-order mark so Excel reads Nepali text', () => {
+    expect(toCsv(cols, []).charCodeAt(0)).toBe(0xfeff);
+  });
+
+  it('neutralises text that would run as a formula, but not numbers', () => {
+    expect(csvCell('=HYPERLINK("x")')).toBe(`"'=HYPERLINK(""x"")"`);
+    expect(csvCell('+977')).toBe("'+977");
+    expect(csvCell(-5)).toBe('-5');
+    expect(csvCell('Rice')).toBe('Rice');
+  });
+
+  it('parses back to what was exported', () => {
+    const rows = [
+      { name: 'चामल, basmati', sku: 'R-1', price: 1200 },
+      { name: 'He said "hi"', sku: '', price: 0 },
+    ];
+    expect(parseCsv(toCsv(cols, rows))).toEqual([
+      { Name: 'चामल, basmati', SKU: 'R-1', Price: '1200' },
+      { Name: 'He said "hi"', SKU: '', Price: '0' },
+    ]);
   });
 });

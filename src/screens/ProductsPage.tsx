@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/input';
 import { Field } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { RxBadge } from '@/components/ui/RxBadge';
+import { ExpiryBadge } from '@/components/ExpiryBadge';
 import { Dialog, DialogFooter } from '@/components/ui/dialog';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
@@ -19,7 +20,8 @@ import { Pagination } from '@/components/ui/pagination';
 import { useStoreScope } from '@/store/StoreContext';
 import { useToast } from '@/components/ui/toast';
 import { apiError } from '@/lib/api';
-import { exportCsv, parseCsv } from '@/lib/csv';
+import { exportCsv } from '@/lib/csv';
+import { ImportDialog } from '@/components/ImportDialog';
 import { printLabelSheet } from '@/lib/print';
 import { generateBarcodeValue } from '@/lib/barcode';
 import { Select } from '@/components/ui/select';
@@ -51,17 +53,55 @@ const empty = {
 };
 type Form = typeof empty;
 
-const EXPORT_COLUMNS = [
-  { key: 'name', label: 'name' },
-  { key: 'sku', label: 'sku' },
-  { key: 'barcode', label: 'barcode' },
-  { key: 'brand', label: 'brand' },
-  { key: 'unit', label: 'unit' },
-  { key: 'costPrice', label: 'costPrice' },
-  { key: 'sellingPrice', label: 'sellingPrice' },
-  { key: 'taxRate', label: 'taxRate' },
-  { key: 'reorderLevel', label: 'reorderLevel' },
-  { key: 'categories', label: 'categories' },
+/**
+ * The product file's columns, export and import alike: export, edit in
+ * Excel, import back, and only what was edited changes. The headings are the
+ * ones the import reads.
+ */
+const PRODUCT_COLUMNS = [
+  { key: 'name', label: 'Name' },
+  { key: 'sku', label: 'SKU' },
+  { key: 'barcode', label: 'Barcode' },
+  { key: 'brand', label: 'Brand' },
+  { key: 'description', label: 'Description' },
+  { key: 'unit', label: 'Unit' },
+  { key: 'costPrice', label: 'Cost price' },
+  { key: 'sellingPrice', label: 'Selling price' },
+  { key: 'taxRate', label: 'Tax rate' },
+  { key: 'isTaxable', label: 'Taxable' },
+  { key: 'reorderLevel', label: 'Minimum stock' },
+  { key: 'categories', label: 'Categories' },
+  { key: 'isRxRequired', label: 'Prescription' },
+  { key: 'expiryDate', label: 'Expiry date' },
+  { key: 'trackBatches', label: 'Track batches' },
+  { key: 'trackSerials', label: 'Track serials' },
+];
+
+const PRODUCT_TEMPLATE = [
+  {
+    name: 'Basmati rice 1kg', sku: 'RICE-1KG', barcode: '8901234567890', brand: 'Daawat', description: '',
+    unit: 'pcs', costPrice: 180, sellingPrice: 220, taxRate: 13, isTaxable: 'yes', reorderLevel: 10,
+    categories: 'Grocery|Rice', isRxRequired: 'no', expiryDate: '2027-06-30', trackBatches: 'no', trackSerials: 'no',
+  },
+  {
+    name: 'Samsung Galaxy A15', sku: 'SAM-A15', barcode: '', brand: 'Samsung', description: '4GB/128GB',
+    unit: 'pcs', costPrice: 21000, sellingPrice: 24999, taxRate: 13, isTaxable: 'yes', reorderLevel: 2,
+    categories: 'Mobiles', isRxRequired: 'no', expiryDate: '', trackBatches: 'no', trackSerials: 'yes',
+  },
+];
+
+const PRODUCT_IMPORT_HELP = [
+  { name: 'Name', required: true, note: 'required for new products' },
+  { name: 'SKU', note: 'your product code; a row whose SKU (or, without one, barcode) already exists updates that product' },
+  { name: 'Barcode, Brand, Description', note: 'text' },
+  { name: 'Unit', note: 'pcs, kg, g, l, ml, box, pack … (blank = pcs for a new product)' },
+  { name: 'Cost price, Selling price', note: 'amounts; "1,200" and "Rs 1,200" are fine' },
+  { name: 'Tax rate', note: 'percent, e.g. 13' },
+  { name: 'Taxable, Prescription', note: 'yes or no' },
+  { name: 'Minimum stock', note: 'the low-stock warning level' },
+  { name: 'Categories', note: 'one or more, separated by | (created if new)' },
+  { name: 'Expiry date', note: 'like 2027-06-30' },
+  { name: 'Track batches, Track serials', note: 'yes or no; only used for new products' },
 ];
 
 export default function ProductsPage() {
@@ -88,8 +128,10 @@ export default function ProductsPage() {
     setSelected(new Set());
   }
 
+  const [expiry, setExpiry] = useState<'' | 'expired' | 'soon'>('');
+
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['products', search, page, storeId],
+    queryKey: ['products', search, page, storeId, expiry],
     queryFn: () =>
       ProductsApi.list({
         search: search || undefined,
@@ -97,6 +139,7 @@ export default function ProductsPage() {
         limit: 20,
         excludeVariants: true,
         storeId: storeId || undefined,
+        expiry: expiry || undefined,
       }),
   });
   const { data: categories } = useQuery({
@@ -233,33 +276,17 @@ export default function ProductsPage() {
   };
 
   // ---- Import / export ----
-  const importRef = useRef<HTMLInputElement>(null);
+  const [importing, setImporting] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const doExport = async () => {
-    const rows = await ProductsApi.exportAll();
-    exportCsv('products', EXPORT_COLUMNS, rows);
-  };
-  const importMut = useMutation({
-    mutationFn: (items: Record<string, unknown>[]) => ProductsApi.importProducts(items),
-    onSuccess: (res) => {
-      qc.invalidateQueries({ queryKey: ['products'] });
-      qc.invalidateQueries({ queryKey: ['stock'] });
-      const errs = res.errors.length ? `, ${res.errors.length} skipped` : '';
-      show(`Imported: ${res.created} new, ${res.updated} updated${errs}`, res.errors.length ? 'error' : 'success');
-    },
-    onError: (e) => show(apiError(e), 'error'),
-  });
-  const onPickImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    setExporting(true);
     try {
-      const text = await file.text();
-      const rows = parseCsv(text);
-      if (rows.length === 0) { show('No rows found in that file', 'error'); return; }
-      importMut.mutate(rows);
-    } catch (err) {
-      show(apiError(err), 'error');
+      const rows = await ProductsApi.exportAll();
+      await exportCsv(`products_${new Date().toISOString().slice(0, 10)}`, PRODUCT_COLUMNS, rows);
+    } catch (e) {
+      show(apiError(e), 'error');
     } finally {
-      e.target.value = '';
+      setExporting(false);
     }
   };
 
@@ -306,13 +333,12 @@ export default function ProductsPage() {
                 <BarcodeIcon className="h-4 w-4" /> Print labels ({selected.size})
               </Button>
             )}
-            <Button variant="outline" onClick={doExport}>
+            <Button variant="outline" loading={exporting} onClick={doExport}>
               <Download className="h-4 w-4" /> Export
             </Button>
-            <Button variant="outline" loading={importMut.isPending} onClick={() => importRef.current?.click()}>
+            <Button variant="outline" onClick={() => setImporting(true)}>
               <Upload className="h-4 w-4" /> Import
             </Button>
-            <input ref={importRef} type="file" accept=".csv,text/csv" className="hidden" onChange={onPickImport} />
             <Button onClick={openCreate}>
               <Plus className="h-4 w-4" /> Add product
             </Button>
@@ -334,12 +360,33 @@ export default function ProductsPage() {
             }}
           />
         </div>
+        <div className="w-44">
+          <Select
+            aria-label="Expiry"
+            value={expiry}
+            onChange={(e) => {
+              setExpiry(e.target.value as '' | 'expired' | 'soon');
+              setPage(1);
+              setSelected(new Set());
+            }}
+          >
+            <option value="">Any expiry</option>
+            <option value="expired">Expired</option>
+            <option value="soon">Expiring in 30 days</option>
+          </Select>
+        </div>
       </div>
 
       {isError ? (
         <ErrorState onRetry={() => refetch()} />
       ) : isLoading ? (
         <LoadingBlock />
+      ) : (!data || data.data.length === 0) && expiry ? (
+        <EmptyState
+          title={expiry === 'expired' ? 'Nothing has expired' : 'Nothing expires in the next 30 days'}
+          description={search ? 'Nothing matches the search, either.' : undefined}
+          icon={Package}
+        />
       ) : !data || data.data.length === 0 ? (
         <EmptyState
           title="No products yet"
@@ -402,6 +449,10 @@ export default function ProductsPage() {
                         <div className="flex items-center gap-1.5">
                           <span className="font-medium">{p.name}</span>
                           {p.isRxRequired && <RxBadge />}
+                          <ExpiryBadge
+                            product={p}
+                            onHand={storeId && p.onHandQty != null ? Number(p.onHandQty) : undefined}
+                          />
                         </div>
                         <div className="flex gap-1 pt-1">
                           {p.trackBatches && <Badge tone="warning">Batch</Badge>}
@@ -617,6 +668,30 @@ export default function ProductsPage() {
           </DialogFooter>
         </form>
       </Dialog>
+
+      <ImportDialog
+        open={importing}
+        onClose={() => setImporting(false)}
+        title="Import products"
+        intro="Add new products or update existing ones from a spreadsheet. Tip: Export first, edit that file in Excel, and import it back — only what you change is updated."
+        columns={PRODUCT_IMPORT_HELP}
+        onTemplate={() => void exportCsv('product-import-template', PRODUCT_COLUMNS, PRODUCT_TEMPLATE).catch((e) => show(apiError(e), 'error'))}
+        check={async (rows) => {
+          const r = await ProductsApi.importProducts(rows, true);
+          return {
+            counts: [{ label: 'New products', value: r.created }, { label: 'Updated', value: r.updated }],
+            toImport: r.created + r.updated,
+            errors: r.errors,
+          };
+        }}
+        run={async (rows) => {
+          const r = await ProductsApi.importProducts(rows);
+          qc.invalidateQueries({ queryKey: ['products'] });
+          qc.invalidateQueries({ queryKey: ['stock'] });
+          qc.invalidateQueries({ queryKey: ['categories'] });
+          return { message: `Imported: ${r.created} new, ${r.updated} updated.`, errors: r.errors };
+        }}
+      />
 
       <ConfirmDialog
         open={!!removeTarget}

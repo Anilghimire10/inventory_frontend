@@ -163,11 +163,30 @@ export interface Product {
    * Returned alongside `onHandQty` under the same `storeId` condition.
    */
   effectiveReorderLevel?: number;
+  /**
+   * Batch expiry, on list rows: units sitting in batches already past their
+   * date, and when the next in-date batch expires. At the list's `storeId`
+   * when given, else across stores. Absent on single-product reads.
+   */
+  expiry?: { expiredQty: number; nextBatchExpiry: string | null };
   /** Only returned by GET /products/:id — one row per store that carries it. */
   stockItems?: { storeId: string; quantity: string }[];
 }
 
-export type SerialStatus = 'IN_STOCK' | 'SOLD' | 'RETURNED_TO_SUPPLIER' | 'DAMAGED';
+export type SerialStatus = 'IN_STOCK' | 'SOLD' | 'RETURNED_TO_SUPPLIER' | 'DAMAGED' | 'LOST';
+
+/** GET /inventory/serials/lookup/:serial -- one unit, wherever it is. */
+export interface SerialLookup {
+  serialNumber: string;
+  status: SerialStatus;
+  productId: string;
+  storeId: string | null;
+  store: { id: string; name: string } | null;
+  sale: { id: string; receiptNo: string } | null;
+  product: { id: string; name: string };
+  /** In words: "in stock at Main", "sold on INV-000123". */
+  where: string;
+}
 
 /** One physical unit of a serialised product (phone IMEI, appliance serial). */
 export interface SerialRecord {
@@ -207,7 +226,7 @@ export interface StockItem {
   /** Decimal(12,3) — arrives as a string, so `Number()` it before any arithmetic. */
   quantity: string;
   reorderLevel: number;
-  product: { id: string; name: string; sku?: string | null; unit?: string; reorderLevel?: number };
+  product: { id: string; name: string; sku?: string | null; unit?: string; reorderLevel?: number; trackSerials?: boolean };
   store?: { id: string; name: string };
   effectiveReorderLevel?: number;
 }
@@ -243,6 +262,9 @@ export interface CountSheetLine {
   unit: string;
   system: number;
   counted: string;
+  trackSerials?: boolean;
+  /** Serialised products: the units on file at this store. */
+  serials?: string[];
 }
 
 export interface StockTakeVarianceLine {
@@ -253,6 +275,8 @@ export interface StockTakeVarianceLine {
   system: number;
   counted: number;
   variance: number;
+  /** Serialised, count changed, and no units ticked yet: can't be posted. */
+  needsSerials?: boolean;
 }
 
 export interface StockTakeResult {
@@ -266,6 +290,12 @@ export interface StockTakeResult {
 
 export interface Batch {
   id: string;
+  /** On the Expiring list: a real batch, or a product's own expiry date. */
+  source?: 'batch' | 'product';
+  /** On the Expiring list: already past its date. */
+  expired?: boolean;
+  storeId?: string;
+  productId?: string;
   batchNumber?: string | null;
   expiryDate?: string | null;
   /** Decimal(12,3) — arrives as a string, so `Number()` it before any arithmetic. */
@@ -631,8 +661,42 @@ export interface Analytics {
     profit: number;
     margin: number;
     units: number;
+    /** Tax collected on the period's sales: grossSales less netRevenue. */
+    tax: number;
+    /** Gross profit less till expenses and stock written off. */
+    netProfit: number;
   };
   comparison: { revenue: number; orders: number; netRevenue: number; profit: number } | null;
+  /** Where money went other than into profit. */
+  money: {
+    discounts: {
+      total: number;
+      salesWithDiscount: number;
+      /** Of what would have been charged without them. */
+      pct: number;
+      byStaff: { userId: string | null; name: string; amount: number; discounted: number; sales: number; pct: number }[];
+    };
+    refunds: { total: number; count: number; unitsReturned: number; returnRate: number };
+    writeOffs: {
+      value: number;
+      units: number;
+      byReason: { reason: string; units: number; value: number }[];
+    };
+    expenses: { total: number; count: number };
+    ownerDrawings: number;
+  };
+  /** Branches side by side; empty for one store or when a store is picked. */
+  byStore: {
+    storeId: string;
+    name: string;
+    sales: number;
+    netRevenue: number;
+    profit: number;
+    margin: number;
+    orders: number;
+    averageBill: number;
+    share: number;
+  }[];
   byProduct: ProductAnalytics[];
   byDay: { date: string; total: number; count: number; units: number }[];
   byCategory: { category: string; revenue: number; units: number; share: number }[];
@@ -645,6 +709,8 @@ export interface Analytics {
   inventory: {
     value: number;
     stockTurnover: number;
+    /** Days the stock lasts at this period's selling pace; null when nothing sold. */
+    daysOfCover: number | null;
     sellThrough: number;
     deadStockValue: number;
     deadStockPct: number;
@@ -816,4 +882,91 @@ export interface CustomerStatement {
   totals: { openingBalance: number; charged: number; paid: number; closing: number; stored: number };
   /** True when every rupee owed is explained by a recorded sale or payment. */
   reconciles: boolean;
+}
+
+// ---------- Help & support ----------
+
+/** What a question is about. Picked when asking; support can correct it. */
+export type SupportCategory = 'BILLING' | 'PROBLEM' | 'HOW_TO' | 'FEATURE' | 'OTHER';
+export type SupportStatus = 'OPEN' | 'CLOSED';
+
+/** A ticket as the Help & support list shows it, without the thread. */
+export interface SupportTicketListItem {
+  id: string;
+  subject: string;
+  status: SupportStatus;
+  category: SupportCategory;
+  userName: string;
+  userEmail: string;
+  lastMessageAt: string;
+  createdAt: string;
+  messageCount: number;
+  lastMessage: { body: string; fromAdmin: boolean } | null;
+  /** Open, and the shop spoke last: waiting on support. */
+  awaitingReply: boolean;
+}
+
+export interface SupportMessage {
+  id: string;
+  fromAdmin: boolean;
+  authorName: string;
+  body: string;
+  createdAt: string;
+}
+
+export interface SupportThread {
+  id: string;
+  subject: string;
+  status: SupportStatus;
+  category: SupportCategory;
+  userId: string | null;
+  userName: string;
+  lastMessageAt: string;
+  createdAt: string;
+  messages: SupportMessage[];
+}
+
+// ---------- Subscription (owners and managers) ----------
+
+/** GET /subscription: where the subscription stands, and what's been paid. */
+export interface SubscriptionOverview {
+  status: SubscriptionInfo['status'];
+  endsAt: string | null;
+  accessEndsAt: string | null;
+  daysLeft: number | null;
+  contact: SupportContact;
+  /** False: no end date, nothing to renew. */
+  hasEndDate: boolean;
+  /** On the free trial: has an end date and has never paid. */
+  trial: boolean;
+  /** Start of the current period: the latest payment's cover, or signup. */
+  periodStart: string;
+  graceDays: number;
+  payments: SubscriptionPaymentRow[];
+}
+
+export interface SubscriptionPaymentRow {
+  id: string;
+  receiptNo: string;
+  paidAt: string;
+  amount: number;
+  currency: string;
+  method: string;
+  reference: string | null;
+  periodFrom: string;
+  periodTo: string;
+}
+
+/** Everything a printed subscription receipt shows. */
+export interface SubscriptionReceipt {
+  receiptNo: string;
+  issuedAt: string;
+  seller: { name: string | null; taxId: string | null; address: string | null; phone: string | null; email: string | null };
+  buyer: { businessId: string; name: string; taxId: string | null };
+  amount: number;
+  currency: string;
+  methodLabel: string;
+  reference: string | null;
+  periodFrom: string;
+  periodTo: string;
 }
