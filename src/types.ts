@@ -661,8 +661,42 @@ export interface Analytics {
     profit: number;
     margin: number;
     units: number;
+    /** Tax collected on the period's sales: grossSales less netRevenue. */
+    tax: number;
+    /** Gross profit less till expenses and stock written off. */
+    netProfit: number;
   };
   comparison: { revenue: number; orders: number; netRevenue: number; profit: number } | null;
+  /** Where money went other than into profit. */
+  money: {
+    discounts: {
+      total: number;
+      salesWithDiscount: number;
+      /** Of what would have been charged without them. */
+      pct: number;
+      byStaff: { userId: string | null; name: string; amount: number; discounted: number; sales: number; pct: number }[];
+    };
+    refunds: { total: number; count: number; unitsReturned: number; returnRate: number };
+    writeOffs: {
+      value: number;
+      units: number;
+      byReason: { reason: string; units: number; value: number }[];
+    };
+    expenses: { total: number; count: number };
+    ownerDrawings: number;
+  };
+  /** Branches side by side; empty for one store or when a store is picked. */
+  byStore: {
+    storeId: string;
+    name: string;
+    sales: number;
+    netRevenue: number;
+    profit: number;
+    margin: number;
+    orders: number;
+    averageBill: number;
+    share: number;
+  }[];
   byProduct: ProductAnalytics[];
   byDay: { date: string; total: number; count: number; units: number }[];
   byCategory: { category: string; revenue: number; units: number; share: number }[];
@@ -675,6 +709,8 @@ export interface Analytics {
   inventory: {
     value: number;
     stockTurnover: number;
+    /** Days the stock lasts at this period's selling pace; null when nothing sold. */
+    daysOfCover: number | null;
     sellThrough: number;
     deadStockValue: number;
     deadStockPct: number;
