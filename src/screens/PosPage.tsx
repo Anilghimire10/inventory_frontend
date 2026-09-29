@@ -719,22 +719,6 @@ export default function PosPage() {
         </div>
       </div>
 
-      {/* A shift left open across days mixes days' cash into one count, so a
-          shortage can't be pinned to a day or to a person. Say so, with the
-          way out right there. */}
-      {staleShift && (
-        <div className="mb-3 flex flex-wrap items-center gap-3 rounded-lg border border-warning/40 bg-warning/10 px-4 py-2.5 text-sm">
-          <Clock className="h-4 w-4 shrink-0 text-warning" />
-          <span className="min-w-0 flex-1">
-            This shift has been open since <b>{formatDateTime(shift!.openedAt)}</b>. Close
-            and count it so each day&apos;s cash is checked on its own.
-          </span>
-          <Button size="sm" variant="outline" onClick={() => setShowCloseShift(true)}>
-            Close shift now
-          </Button>
-        </div>
-      )}
-
       {/* Couldn't load the shift: not the same as having none. Offering "open
           shift" here is how a till with a shift already running got refused
           with "close it first" -- so block the till and offer a retry. */}
@@ -829,6 +813,22 @@ export default function PosPage() {
       <div className="flex min-h-0 flex-1 flex-col gap-4 lg:flex-row">
         {/* Product picker */}
         <div className="flex min-h-0 flex-1 flex-col gap-3 lg:w-[60%]">
+          {/* A shift left open across days mixes days' cash into one count, so a
+              shortage can't be pinned to a day or to a person. Say so, with the
+              way out right there. It sits in the product column so the cart
+              keeps its full height. */}
+          {staleShift && (
+            <div className="flex flex-wrap items-center gap-3 rounded-lg border border-warning/40 bg-warning/10 px-4 py-2.5 text-sm">
+              <Clock className="h-4 w-4 shrink-0 text-warning" />
+              <span className="min-w-0 flex-1">
+                This shift has been open since <b>{formatDateTime(shift!.openedAt)}</b>. Close
+                and count it so each day&apos;s cash is checked on its own.
+              </span>
+              <Button size="sm" variant="outline" onClick={() => setShowCloseShift(true)}>
+                Close shift now
+              </Button>
+            </div>
+          )}
           <form onSubmit={scan} className="relative">
             <Input
               className="h-11 pr-10"
