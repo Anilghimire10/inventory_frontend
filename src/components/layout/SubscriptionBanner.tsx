@@ -1,5 +1,6 @@
 'use client';
 import { useSyncExternalStore } from 'react';
+import Link from 'next/link';
 import { AlertTriangle, Clock, Sparkles, X } from 'lucide-react';
 import { useAuth } from '@/auth/AuthContext';
 import { formatDate } from '@/lib/format';
@@ -112,7 +113,10 @@ export function SubscriptionBanner() {
           ) : (
             'Contact us to renew.'
           )}
-        </span>
+        </span>{' '}
+        <Link href="/subscription" className="whitespace-nowrap font-medium underline underline-offset-2">
+          View subscription
+        </Link>
       </p>
       {!grace && (
         <button

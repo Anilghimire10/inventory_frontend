@@ -13,6 +13,8 @@ import {
   ChevronDown,
   ChevronRight,
   KeyRound,
+  LifeBuoy,
+  CalendarClock,
 } from 'lucide-react';
 import { NAV_GROUPS, canSee } from './nav';
 import Notifications from './Notifications';
@@ -20,6 +22,7 @@ import ChangePasswordDialog from '@/components/ChangePasswordDialog';
 import { useAuth } from '@/auth/AuthContext';
 import { useTheme } from '@/theme/ThemeProvider';
 import { cn } from '@/lib/utils';
+import { can } from '@/lib/permissions';
 import { Tooltip } from '@/components/ui/tooltip';
 import { SubscriptionBanner } from './SubscriptionBanner';
 import { ImpersonationBanner } from './ImpersonationBanner';
@@ -194,6 +197,24 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                   >
                     <KeyRound className="h-4 w-4" /> Change password
                   </button>
+                  {can.viewSubscription(user.role) && (
+                    <Link
+                      href="/subscription"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => setMenuOpen(false)}
+                      className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent"
+                    >
+                      <CalendarClock className="h-4 w-4" /> Subscription
+                    </Link>
+                  )}
+                  <Link
+                    href="/support"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => setMenuOpen(false)}
+                    className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent"
+                  >
+                    <LifeBuoy className="h-4 w-4" /> Help &amp; support
+                  </Link>
                   <button
                     onClick={logout}
                     className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-destructive hover:bg-accent"

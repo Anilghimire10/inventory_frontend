@@ -26,4 +26,6 @@ export const can = {
   viewAnalytics: (r: UserRole) => isAdmin(r),
   viewActivityLog: (r: UserRole) => isAdmin(r),
   viewFinancials: (r: UserRole) => isAdmin(r),
+  // The shop's own subscription and its receipts.
+  viewSubscription: (r: UserRole) => isAdmin(r),
 };
