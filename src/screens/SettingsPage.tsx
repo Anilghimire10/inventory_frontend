@@ -20,6 +20,7 @@ import { useToast } from '@/components/ui/toast';
 import { Tooltip } from '@/components/ui/tooltip';
 import { apiError } from '@/lib/api';
 import { CURRENCIES } from '@/lib/currencies';
+import { saveFile } from '@/lib/save-file';
 import { TIMEZONES, DEFAULT_TIMEZONE } from '@/lib/timezones';
 
 const empty = { name: '', address: '', phone: '' };
@@ -48,14 +49,12 @@ export default function SettingsPage() {
       // NDJSON, written through as the server streams it -- one line per row.
       // It arrives as text already, so there is nothing to re-serialise.
       const data = await BusinessApi.exportData();
-      const blob = new Blob([data], { type: 'application/x-ndjson' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${(user?.business?.name ?? 'business').replace(/\s+/g, '-').toLowerCase()}-export-${new Date().toISOString().slice(0, 10)}.ndjson`;
-      a.click();
-      URL.revokeObjectURL(url);
-      show('Data exported');
+      await saveFile(
+        `${(user?.business?.name ?? 'business').replace(/\s+/g, '-').toLowerCase()}-backup-${new Date().toISOString().slice(0, 10)}.ndjson`,
+        data,
+        'application/x-ndjson',
+      );
+      show('Backup saved');
     } catch (e) {
       show(apiError(e), 'error');
     } finally {

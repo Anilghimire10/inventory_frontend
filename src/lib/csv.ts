@@ -1,32 +1,39 @@
-/** Download an array of rows as a CSV file. */
+import { saveFile } from './save-file';
+
+/**
+ * One CSV cell. Quoted when it has to be. Text starting with = + - @ gets an
+ * apostrophe in front, so a product or customer named "=HYPERLINK(...)"
+ * can't run as a formula when the file is opened in Excel; real numbers
+ * (a negative amount) are left alone. The product import takes the
+ * apostrophe back off.
+ */
+export function csvCell(v: unknown): string {
+  if (v === null || v === undefined) return '';
+  if (typeof v === 'number') return Number.isFinite(v) ? String(v) : '';
+  let s = v instanceof Date ? v.toISOString() : String(v);
+  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
+  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+/**
+ * The file's text: a byte-order mark first, so Excel reads Nepali and other
+ * non-English text as UTF-8 instead of showing garbage, then CRLF rows.
+ */
+export function toCsv(columns: { key: string; label: string }[], rows: readonly object[]) {
+  const lines = [
+    columns.map((c) => csvCell(c.label)).join(','),
+    ...rows.map((row) => columns.map((c) => csvCell((row as Record<string, unknown>)[c.key])).join(',')),
+  ];
+  return '\uFEFF' + lines.join('\r\n');
+}
+
+/** Save rows as a CSV file: a download, or the share sheet in the Android app. */
 export function exportCsv(
   filename: string,
   columns: { key: string; label: string }[],
   rows: readonly object[],
 ) {
-  const escape = (val: unknown) => {
-    const s = val == null ? '' : String(val);
-    // Wrap in quotes if it contains a comma, quote, or newline.
-    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-  };
-
-  const header = columns.map((c) => escape(c.label)).join(',');
-  const body = rows
-    .map((row) =>
-      columns
-        .map((c) => escape((row as Record<string, unknown>)[c.key]))
-        .join(','),
-    )
-    .join('\n');
-  const csv = `${header}\n${body}`;
-
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = filename.endsWith('.csv') ? filename : `${filename}.csv`;
-  link.click();
-  URL.revokeObjectURL(url);
+  return saveFile(filename.endsWith('.csv') ? filename : `${filename}.csv`, toCsv(columns, rows), 'text/csv;charset=utf-8');
 }
 
 /**

@@ -12,6 +12,7 @@ import {
   MoreVertical,
   Banknote,
   TrendingUp,
+  Download,
 } from 'lucide-react';
 import { SalesApi } from '@/api';
 import { useStoreLabel } from '@/components/StorePicker';
@@ -33,6 +34,32 @@ import { remainingQty } from '@/lib/decimal';
 import { Card } from '@/components/ui/card';
 import { Tooltip } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
+import { exportCsv } from '@/lib/csv';
+import { useAuth } from '@/auth/AuthContext';
+import { can } from '@/lib/permissions';
+
+/** The accountant's sales file: one row per bill. */
+const SALES_EXPORT_COLUMNS = [
+  { key: 'date', label: 'Date' },
+  { key: 'receiptNo', label: 'Receipt' },
+  { key: 'store', label: 'Branch' },
+  { key: 'cashier', label: 'Cashier' },
+  { key: 'customer', label: 'Customer' },
+  { key: 'customerPhone', label: 'Customer phone' },
+  { key: 'items', label: 'Items' },
+  { key: 'units', label: 'Units' },
+  { key: 'subtotal', label: 'Subtotal' },
+  { key: 'discount', label: 'Discount' },
+  { key: 'tax', label: 'Tax' },
+  { key: 'total', label: 'Total' },
+  { key: 'refunded', label: 'Refunded' },
+  { key: 'netTotal', label: 'Net total' },
+  { key: 'paid', label: 'Paid' },
+  { key: 'due', label: 'Still owed' },
+  { key: 'paymentMethod', label: 'Payment' },
+  { key: 'status', label: 'Status' },
+  { key: 'prescriptionRef', label: 'Prescription ref.' },
+];
 
 type DateFilter = 'all' | 'today' | '7d' | '30d';
 type StatusFilter = 'all' | 'paid' | 'due' | 'partial' | 'return' | 'held';
@@ -104,6 +131,9 @@ function viewStatus(s: SaleListItem): StatusView {
 export default function SalesPage() {
   const qc = useQueryClient();
   const { show } = useToast();
+  const { user } = useAuth();
+  const canExport = !!user && can.viewFinancials(user.role);
+  const [exporting, setExporting] = useState(false);
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [dateFilter, setDateFilter] = useState<DateFilter>('all');
@@ -243,6 +273,35 @@ export default function SalesPage() {
   // exception: the server holds revenue steady across it on purpose, so that
   // picking "Held" can't make revenue jump. Say so when one is set, otherwise
   // the figures look unrelated to the two rows on screen.
+  // The bills the filters on screen match, all of them -- not just this page.
+  const exportSales = async () => {
+    setExporting(true);
+    try {
+      const res = await SalesApi.exportRows({
+        search: search || undefined,
+        ...dateRange(dateFilter),
+        status: statusFilter === 'all' ? undefined : statusFilter,
+        paymentMethod: payFilter === 'all' ? undefined : payFilter,
+        storeId: storeId || undefined,
+      });
+      if (!res.rows.length) {
+        show('No sales match these filters', 'error');
+        return;
+      }
+      await exportCsv(`sales_${dateFilter}_${new Date().toISOString().slice(0, 10)}`, SALES_EXPORT_COLUMNS, res.rows);
+      show(
+        res.truncated
+          ? `Saved the first ${res.rows.length.toLocaleString()} of ${res.total.toLocaleString()} bills. Pick a shorter date range for the rest.`
+          : `Saved ${res.rows.length.toLocaleString()} bills`,
+        res.truncated ? 'error' : 'success',
+      );
+    } catch (e) {
+      show(apiError(e), 'error');
+    } finally {
+      setExporting(false);
+    }
+  };
+
   const revenue = data?.meta.revenue ?? 0;
   const revenueCount = data?.meta.revenueCount ?? 0;
   const summaryLabel = storeLabel && storeLabel !== 'all stores'
@@ -252,7 +311,17 @@ export default function SalesPage() {
 
   return (
     <div>
-      <PageHeader title="Sales" description="Transaction history and returns." />
+      <PageHeader
+        title="Sales"
+        description="Transaction history and returns."
+        action={
+          canExport && (
+            <Button variant="outline" loading={exporting} onClick={exportSales}>
+              <Download className="h-4 w-4" /> Export
+            </Button>
+          )
+        }
+      />
 
       {/* Summary cards — the completed sales the current filters match */}
       <div className="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
