@@ -409,6 +409,24 @@ export default function SalesPage() {
                     <TD>
                       {it.name}
                       {Number(it.returnedQty) > 0 && <Badge tone="warning" className="ml-2">{it.returnedQty} returned</Badge>}
+                      {(sale.serials ?? []).some((u) => u.productId === it.productId) && (
+                        <div className="mt-1 flex flex-wrap gap-1">
+                          {(sale.serials ?? [])
+                            .filter((u) => u.productId === it.productId)
+                            .map((u) => (
+                              <span
+                                key={u.serialNumber}
+                                title={u.status === 'SOLD' ? 'Sold' : 'Returned'}
+                                className={cn(
+                                  'rounded bg-muted px-1.5 py-0.5 font-mono text-[11px]',
+                                  u.status !== 'SOLD' && 'text-muted-foreground line-through',
+                                )}
+                              >
+                                {u.serialNumber}
+                              </span>
+                            ))}
+                        </div>
+                      )}
                     </TD>
                     <TD className="text-right">{it.quantity}</TD>
                     <TD className="text-right">{formatMoney(it.unitPrice)}</TD>

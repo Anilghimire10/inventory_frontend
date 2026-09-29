@@ -163,6 +163,12 @@ export interface Product {
    * Returned alongside `onHandQty` under the same `storeId` condition.
    */
   effectiveReorderLevel?: number;
+  /**
+   * Batch expiry, on list rows: units sitting in batches already past their
+   * date, and when the next in-date batch expires. At the list's `storeId`
+   * when given, else across stores. Absent on single-product reads.
+   */
+  expiry?: { expiredQty: number; nextBatchExpiry: string | null };
   /** Only returned by GET /products/:id — one row per store that carries it. */
   stockItems?: { storeId: string; quantity: string }[];
 }
@@ -220,7 +226,7 @@ export interface StockItem {
   /** Decimal(12,3) — arrives as a string, so `Number()` it before any arithmetic. */
   quantity: string;
   reorderLevel: number;
-  product: { id: string; name: string; sku?: string | null; unit?: string; reorderLevel?: number };
+  product: { id: string; name: string; sku?: string | null; unit?: string; reorderLevel?: number; trackSerials?: boolean };
   store?: { id: string; name: string };
   effectiveReorderLevel?: number;
 }
@@ -256,6 +262,9 @@ export interface CountSheetLine {
   unit: string;
   system: number;
   counted: string;
+  trackSerials?: boolean;
+  /** Serialised products: the units on file at this store. */
+  serials?: string[];
 }
 
 export interface StockTakeVarianceLine {
@@ -266,6 +275,8 @@ export interface StockTakeVarianceLine {
   system: number;
   counted: number;
   variance: number;
+  /** Serialised, count changed, and no units ticked yet: can't be posted. */
+  needsSerials?: boolean;
 }
 
 export interface StockTakeResult {
@@ -279,6 +290,12 @@ export interface StockTakeResult {
 
 export interface Batch {
   id: string;
+  /** On the Expiring list: a real batch, or a product's own expiry date. */
+  source?: 'batch' | 'product';
+  /** On the Expiring list: already past its date. */
+  expired?: boolean;
+  storeId?: string;
+  productId?: string;
   batchNumber?: string | null;
   expiryDate?: string | null;
   /** Decimal(12,3) — arrives as a string, so `Number()` it before any arithmetic. */

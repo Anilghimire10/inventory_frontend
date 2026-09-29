@@ -19,6 +19,14 @@ const esc = (s: unknown) =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c] as string,
   );
 
+/**
+ * The serial / IMEI numbers that went out on a line, for the customer's
+ * warranty. All units of the product on the sale, returned ones included:
+ * the receipt is a record of what was sold.
+ */
+const serialsOf = (sale: Sale, productId: string) =>
+  (sale.serials ?? []).filter((u) => u.productId === productId).map((u) => u.serialNumber);
+
 /** Label suffix for a tax row when the prices already contained it. */
 const inclSuffix = (sale: Sale) => (sale.taxInclusive ? ' incl.' : '');
 
@@ -79,7 +87,11 @@ function thermal(
     .map(
       (it) => `
       <tr><td colspan="2">${esc(it.name)}</td></tr>
-      <tr class="muted"><td>${it.quantity} × ${m(it.unitPrice)}</td><td class="r">${m(it.lineTotal)}</td></tr>`,
+      <tr class="muted"><td>${it.quantity} × ${m(it.unitPrice)}</td><td class="r">${m(it.lineTotal)}</td></tr>${
+        serialsOf(sale, it.productId).length
+          ? `<tr class="muted"><td colspan="2" style="font-size:10px">S/N: ${serialsOf(sale, it.productId).map(esc).join(', ')}</td></tr>`
+          : ''
+      }`,
     )
     .join('');
   const taxLines = taxes
@@ -316,7 +328,11 @@ function invoiceA4(
       (it, i) => `
       <tr>
         <td>${i + 1}</td>
-        <td>${esc(it.name)}</td>
+        <td>${esc(it.name)}${
+          serialsOf(sale, it.productId).length
+            ? `<div class="muted" style="font-size:11px">S/N: ${serialsOf(sale, it.productId).map(esc).join(', ')}</div>`
+            : ''
+        }</td>
         <td class="r">${it.quantity}</td>
         <td class="r">${m(it.unitPrice)}</td>
         <td class="r">${Number(it.discount) > 0 ? m(it.discount) : '—'}</td>
