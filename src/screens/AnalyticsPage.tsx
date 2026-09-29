@@ -12,6 +12,12 @@ import {
   AlertTriangle,
   PackageSearch,
   Users,
+  Wallet,
+  Store as StoreIcon,
+  TicketPercent,
+  Undo2,
+  PackageX,
+  HandCoins,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -19,8 +25,6 @@ import {
   Area,
   BarChart,
   Bar,
-  LineChart,
-  Line,
   PieChart,
   Pie,
   Cell,
@@ -28,7 +32,6 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip,
-  Legend,
 } from 'recharts';
 import { ReportsApi, ShiftsApi, type CloseShiftBody } from '@/api';
 import type { Analytics, ShiftReport } from '@/types';
@@ -45,7 +48,7 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Hint } from '@/components/ui/tooltip';
-import { formatMoney, formatNumber, formatDateTime, currencySymbol } from '@/lib/format';
+import { formatMoney, formatNumber, formatDateTime } from '@/lib/format';
 import { exportCsv } from '@/lib/csv';
 import { cn } from '@/lib/utils';
 
@@ -85,24 +88,6 @@ function monthStart(): string {
   return localDay(new Date(d.getFullYear(), d.getMonth(), 1));
 }
 
-/**
- * The instant a local day opens and closes, as the API wants them.
- *
- * The page used to send `${day}T00:00:00.000Z` -- UTC midnight, asked for as
- * though it were the shop's. The range was therefore shifted against the
- * buckets inside it: a "Today" report on a Nepali till began at 05:45 that
- * morning and ran to 05:45 the next. Constructing the `Date` from local parts
- * and letting `toISOString()` convert is what makes the bound mean local
- * midnight, whatever the offset.
- */
-function startOfLocalDay(day: string): string {
-  const [y, m, d] = day.split('-').map(Number);
-  return new Date(y, m - 1, d, 0, 0, 0, 0).toISOString();
-}
-function endOfLocalDay(day: string): string {
-  const [y, m, d] = day.split('-').map(Number);
-  return new Date(y, m - 1, d, 23, 59, 59, 999).toISOString();
-}
 
 const PRESETS: { key: RangeKey; label: string }[] = [
   { key: 'today', label: 'Today' },
@@ -139,9 +124,12 @@ export default function AnalyticsPage() {
     }
   }, [range, customFrom, customTo]);
 
+  // Calendar days: the API cuts them on the shop's own clock, the same one
+  // its per-day and per-hour figures use, so the range and the buckets agree
+  // even when the owner looks from a device in another time zone.
   const rangeParams = {
-    from: from ? startOfLocalDay(from) : undefined,
-    to: to ? endOfLocalDay(to) : undefined,
+    fromDay: from,
+    toDay: to,
     storeId: storeId || undefined,
   };
 
@@ -157,22 +145,32 @@ export default function AnalyticsPage() {
       ? `_${storeLabel.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}`
       : '';
 
-  const exportAll = () => {
-    if (!data) return;
-    exportCsv(`analytics_${from ?? 'all'}_${to ?? 'all'}${storeSuffix}`, [
-      { key: 'category', label: 'Category' },
-      { key: 'revenue', label: 'Revenue' },
-      { key: 'units', label: 'Units' },
-      { key: 'share', label: 'Share %' },
-    ], data.byCategory);
-    exportCsv(`top-products_${from ?? 'all'}_${to ?? 'all'}${storeSuffix}`, [
-      { key: 'name', label: 'Product' },
-      { key: 'quantitySold', label: 'Qty sold' },
-      { key: 'revenue', label: 'Revenue' },
-      { key: 'cost', label: 'Cost' },
-      { key: 'profit', label: 'Profit' },
-    ], data.byProduct);
-  };
+  // One file per button: a click that saves two files at once gets the
+  // second one blocked by most browsers.
+  const { show } = useToast();
+  const period = `${from ?? 'all'}_${to ?? 'all'}${storeSuffix}`;
+  const save = (p: Promise<void>) => p.catch((e) => show(apiError(e), 'error'));
+  const exportProducts = () =>
+    data &&
+    save(
+      exportCsv(`sales-by-product_${period}`, [
+        { key: 'name', label: 'Product' },
+        { key: 'quantitySold', label: 'Units sold' },
+        { key: 'revenue', label: 'Sales (excl. tax)' },
+        { key: 'cost', label: 'Cost' },
+        { key: 'profit', label: 'Profit' },
+      ], [...data.byProduct].sort((a, b) => b.revenue - a.revenue)),
+    );
+  const exportCategories = () =>
+    data &&
+    save(
+      exportCsv(`sales-by-category_${period}`, [
+        { key: 'category', label: 'Category' },
+        { key: 'units', label: 'Units sold' },
+        { key: 'revenue', label: 'Sales (excl. tax)' },
+        { key: 'share', label: 'Share %' },
+      ], data.byCategory),
+    );
 
   // Either custom date input can be cleared, which drops that bound from the
   // query -- so derive the label from the bounds themselves, not from `range`,
@@ -196,7 +194,7 @@ export default function AnalyticsPage() {
     <div>
       <PageHeader
         title="Analytics"
-        description="Understand sales, product and inventory performance."
+        description="How the shop is doing: what sold, what you kept as profit, where money leaked, and what needs doing."
       />
 
       {/* Range selector */}
@@ -218,10 +216,14 @@ export default function AnalyticsPage() {
           <Input type="date" className="h-8 w-auto" aria-label="Custom range end date" value={customTo}
             onChange={(e) => { setCustomTo(e.target.value); setRange('custom'); }} />
         </div>
-        <Button size="sm" variant="outline" className="sm:ml-auto" onClick={exportAll}
-          disabled={!data}>
-          <Download className="h-4 w-4" /> Export
-        </Button>
+        <div className="flex gap-2 sm:ml-auto">
+          <Button size="sm" variant="outline" onClick={exportProducts} disabled={!data}>
+            <Download className="h-4 w-4" /> Sales by product
+          </Button>
+          <Button size="sm" variant="outline" onClick={exportCategories} disabled={!data}>
+            <Download className="h-4 w-4" /> Sales by category
+          </Button>
+        </div>
       </div>
 
       {isError ? (
@@ -234,8 +236,8 @@ export default function AnalyticsPage() {
 
       <Card className="mt-6">
         <TaxReportCard
-          from={rangeParams.from}
-          to={rangeParams.to}
+          fromDay={rangeParams.fromDay}
+          toDay={rangeParams.toDay}
           storeId={rangeParams.storeId}
           label={rangeLabel}
           fileSuffix={storeSuffix}
@@ -256,21 +258,21 @@ export default function AnalyticsPage() {
  * `taxableAmount`; the summary row is the authority, not the sum of the table.
  */
 function TaxReportCard({
-  from,
-  to,
+  fromDay,
+  toDay,
   storeId,
   label,
   fileSuffix,
 }: {
-  from?: string;
-  to?: string;
+  fromDay?: string;
+  toDay?: string;
   storeId?: string;
   label: string;
   fileSuffix: string;
 }) {
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['tax-report', from, to, storeId],
-    queryFn: () => ReportsApi.taxReport({ from, to, storeId }),
+    queryKey: ['tax-report', fromDay, toDay, storeId],
+    queryFn: () => ReportsApi.taxReport({ fromDay, toDay, storeId }),
   });
 
   // Lines taxed at 0% never reach `byRate`, so the table would otherwise not
@@ -297,7 +299,7 @@ function TaxReportCard({
           onClick={() =>
             data &&
             exportCsv(
-              `tax-report_${from?.slice(0, 10) ?? 'all'}_${to?.slice(0, 10) ?? 'all'}${fileSuffix}`,
+              `tax-report_${fromDay ?? 'all'}_${toDay ?? 'all'}${fileSuffix}`,
               [
                 { key: 'rate', label: 'Rate %' },
                 { key: 'taxableAmount', label: 'Taxable amount' },
@@ -559,16 +561,19 @@ function ShiftHistory({
   );
 }
 
+const REASON_LABEL: Record<string, string> = {
+  DAMAGE: 'Damaged',
+  EXPIRED: 'Expired',
+  THEFT: 'Stolen or lost',
+  COUNT_CORRECTION: 'Missing at a count',
+  OTHER: 'Other',
+};
+
+const HOUR_LABEL = (h: number) => (h === 0 ? '12 AM' : h === 12 ? '12 PM' : `${h % 12} ${h < 12 ? 'AM' : 'PM'}`);
+
 function AnalyticsBody({ data, orderValue }: { data: Analytics; orderValue: number }) {
-  const cmp = data.comparison;
-  const pct = (cur: number, prev: number | undefined) => {
-    if (prev == null || prev <= 0) return null;
-    return Math.round(((cur - prev) / prev) * 100 * 10) / 10;
-  };
-  const revDelta = pct(data.totals.grossSales, cmp?.revenue);
-  const profitDelta = pct(data.totals.profit, cmp?.profit);
-  const ordersDelta = pct(data.totals.transactions, cmp?.orders);
-  const aovDelta = pct(orderValue, cmp?.revenue && cmp.orders ? cmp.revenue / cmp.orders : undefined);
+  const t = data.totals;
+  const m = data.money;
 
   const chartData = data.byDay.map((d) => ({
     date: d.date.slice(5),
@@ -579,21 +584,44 @@ function AnalyticsBody({ data, orderValue }: { data: Analytics; orderValue: numb
 
   const hourlyData = data.hourly
     .filter((h) => h.count > 0 || h.total > 0)
-    .map((h) => ({ ...h, label: h.hour === 12 ? '12 PM' : h.hour === 0 ? '12 AM' : `${h.hour % 12} ${h.hour < 12 ? 'AM' : 'PM'}` }));
+    .map((h) => ({ ...h, label: HOUR_LABEL(h.hour) }));
 
   return (
     <>
-      {/* KPI cards */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <KpiCard icon={Banknote} tone="primary" label="Revenue"
-          value={formatMoney(data.totals.grossSales)} delta={revDelta} money />
-        <KpiCard icon={TrendingUp} tone="primary" label="Gross Profit" hint="Revenue minus what the goods sold cost you."
-          value={formatMoney(data.totals.profit)} delta={profitDelta} money />
-        <KpiCard icon={Receipt} tone="primary" label="Orders"
-          value={formatNumber(data.totals.transactions)} delta={ordersDelta} />
-        <KpiCard icon={ShoppingBag} tone="primary" label="Avg. Order Value" hint="Revenue ÷ number of orders."
-          value={formatMoney(orderValue)} delta={aovDelta} money />
+      {/* KPI cards: what came in, what you kept */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+        <KpiCard icon={Banknote} label="Sales (incl. tax)"
+          hint="Everything customers paid on their bills in this period, after discounts and less refunds. It includes the tax you collected, which isn't yours to keep."
+          value={formatMoney(t.grossSales)}
+          sub={t.tax > 0 ? `Includes ${formatMoney(t.tax)} tax collected` : 'No tax charged'} />
+        <KpiCard icon={TrendingUp} label="Gross profit"
+          hint="What you sold the goods for (without tax) minus what they cost you to buy. Margin is how much of every sale is profit."
+          value={formatMoney(t.profit)}
+          sub={`${t.margin}% margin`} />
+        <KpiCard icon={Wallet} label="Net profit"
+          hint="Gross profit, less expenses paid from the till and the cost of stock written off (damaged, expired, stolen or missing). What the shop actually made. Rent, salaries and bills paid outside the till aren't included."
+          value={formatMoney(t.netProfit)}
+          sub={
+            m.expenses.total > 0 || m.writeOffs.value > 0
+              ? `After ${formatMoney(m.expenses.total)} expenses and ${formatMoney(m.writeOffs.value)} write-offs`
+              : 'No expenses or write-offs recorded'
+          } />
+        <KpiCard icon={Receipt} label="Bills"
+          hint="How many sales were rung up. Held carts don't count until they're completed."
+          value={formatNumber(t.transactions)}
+          sub={`${formatNumber(t.units)} items sold`} />
+        <KpiCard icon={ShoppingBag} label="Average bill"
+          hint="Sales ÷ bills. Suggesting an add-on or a bundle at the counter is the usual way to raise it."
+          value={formatMoney(orderValue)}
+          sub="Per customer visit" />
       </div>
+
+      {/* Branches */}
+      {data.byStore.length > 1 && (
+        <Card className="mt-6">
+          <StoreComparison data={data.byStore} />
+        </Card>
+      )}
 
       {/* Sales performance + category donut */}
       <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-3">
@@ -605,13 +633,18 @@ function AnalyticsBody({ data, orderValue }: { data: Analytics; orderValue: numb
         </Card>
       </div>
 
+      {/* Where money leaks */}
+      <Card className="mt-6">
+        <MoneyLeaks data={m} grossSales={t.grossSales} />
+      </Card>
+
       {/* Hourly + payment methods */}
       <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-3">
         <Card className="lg:col-span-2">
           <HourlySales data={hourlyData} />
         </Card>
         <Card>
-          <PaymentMethods data={data.byPaymentMethod} orders={data.totals.transactions} />
+          <PaymentMethods data={data.byPaymentMethod} orders={t.transactions} />
         </Card>
       </div>
 
@@ -630,11 +663,6 @@ function AnalyticsBody({ data, orderValue }: { data: Analytics; orderValue: numb
         <StaffPerformance data={data.byStaff} unattributed={data.unattributed} />
       </Card>
 
-      {/* Stock movement */}
-      <Card className="mt-6">
-        <StockMovement data={data.stockMovement} />
-      </Card>
-
       {/* Needs attention */}
       <Card className="mt-6">
         <NeedsAttention data={data.needsAttention} />
@@ -643,44 +671,229 @@ function AnalyticsBody({ data, orderValue }: { data: Analytics; orderValue: numb
   );
 }
 
+/**
+ * A section's title, a plain sentence on what it shows and what to do about
+ * it, and optional controls on the right.
+ */
+function SectionHeader({
+  icon: Icon,
+  title,
+  description,
+  children,
+}: {
+  icon?: React.ComponentType<{ className?: string }>;
+  title: string;
+  description: string;
+  children?: React.ReactNode;
+}) {
+  return (
+    <div className="flex flex-wrap items-start gap-x-3 gap-y-2 border-b border-border p-5">
+      <div className="min-w-0 flex-1 basis-64">
+        <h2 className="flex items-center gap-2 font-semibold">
+          {Icon && <Icon className="h-5 w-5 text-primary" />}
+          {title}
+        </h2>
+        <p className="mt-1 text-xs text-muted-foreground">{description}</p>
+      </div>
+      {children && <div className="flex items-center gap-2">{children}</div>}
+    </div>
+  );
+}
+
 function KpiCard({
-  icon: Icon, label, hint, value, delta, tone, money: isMoney,
+  icon: Icon, label, hint, value, sub,
 }: {
   icon: React.ComponentType<{ className?: string }>;
-  label: string; hint?: string; value: string; delta: number | null;
-  tone: 'primary' | 'success' | 'default';
-  money?: boolean;
+  label: string;
+  /** What the figure means, in plain words: shown on hover of the label. */
+  hint: string;
+  value: string;
+  /** A line of context under the figure. */
+  sub?: string;
 }) {
-  const toneClasses = {
-    primary: 'bg-primary/10 text-primary',
-    success: 'bg-success/15 text-success',
-    default: 'bg-secondary text-secondary-foreground',
-  }[tone];
   return (
     <Card className="p-5">
-      <div className="flex items-start justify-between">
-        <div>
-          <p className="text-sm text-muted-foreground">{hint ? <Hint tip={hint}>{label}</Hint> : label}</p>
-          <p className={cn('mt-1 text-2xl font-semibold tracking-tight', isMoney && 'text-primary')}>
-            {value}
-          </p>
-          <div className="mt-1.5 flex items-center gap-1.5 text-xs">
-            {delta != null && (
-              <span className={cn(
-                'inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 font-medium',
-                delta >= 0 ? 'bg-success/15 text-success' : 'bg-destructive/10 text-destructive',
-              )}>
-                {delta >= 0 ? '↑' : '↓'} {Math.abs(delta)}%
-              </span>
-            )}
-            <span className="text-muted-foreground">vs prev. period</span>
-          </div>
-        </div>
-        <div className={cn('flex h-10 w-10 items-center justify-center rounded-lg', toneClasses)}>
-          <Icon className="h-5 w-5" />
+      {/* Icon on the title row, so a long amount has the card's full width. */}
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-sm text-muted-foreground"><Hint tip={hint}>{label}</Hint></p>
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+          <Icon className="h-4 w-4" />
         </div>
       </div>
+      <p className="mt-2 text-2xl font-semibold tracking-tight tabular-nums text-primary xl:text-xl 2xl:text-2xl">
+        {value}
+      </p>
+      {sub && <p className="mt-1 text-xs text-muted-foreground">{sub}</p>}
     </Card>
+  );
+}
+
+/**
+ * Money that left without becoming profit: discounts, refunds, stock written
+ * off, and till expenses -- plus who gave the discounts, which is where a
+ * problem usually shows first.
+ */
+function MoneyLeaks({ data, grossSales }: { data: Analytics['money']; grossSales: number }) {
+  const avgPct = data.discounts.pct;
+  const tiles: {
+    icon: React.ComponentType<{ className?: string }>;
+    label: string;
+    hint: string;
+    value: string;
+    sub: string;
+  }[] = [
+    {
+      icon: TicketPercent,
+      label: 'Discounts given',
+      hint: 'Line and bill discounts taken off at the till. Already out of your sales figure.',
+      value: formatMoney(data.discounts.total),
+      sub: `${data.discounts.pct}% off · on ${formatNumber(data.discounts.salesWithDiscount)} bills`,
+    },
+    {
+      icon: Undo2,
+      label: 'Refunds paid',
+      hint: 'Cash handed back to customers on returns in this period. Returns on credit sales cancel what the customer owed instead, so they aren’t counted here.',
+      value: formatMoney(data.refunds.total),
+      sub: `${formatNumber(data.refunds.count)} refunds · ${formatNumber(data.refunds.unitsReturned)} units back · ${data.refunds.returnRate}% of bills`,
+    },
+    {
+      icon: PackageX,
+      label: 'Stock written off',
+      hint: 'Stock removed by hand as damaged, expired, stolen or missing at a count, valued at today’s cost price. It is taken off net profit.',
+      value: formatMoney(data.writeOffs.value),
+      sub: `${formatNumber(data.writeOffs.units)} units`,
+    },
+    {
+      icon: HandCoins,
+      label: 'Expenses from the till',
+      hint: 'Cash paid out of the drawer as an expense (Cash in/out → Expense). Taken off net profit. Owner drawings aren’t a cost, so they are shown separately.',
+      value: formatMoney(data.expenses.total),
+      sub:
+        `${formatNumber(data.expenses.count)} payouts` +
+        (data.ownerDrawings > 0 ? ` · owner took ${formatMoney(data.ownerDrawings)}` : ''),
+    },
+  ];
+  const leaked = data.discounts.total + data.refunds.total + data.writeOffs.value + data.expenses.total;
+
+  return (
+    <>
+      <SectionHeader icon={AlertTriangle} title="Where money leaks"
+        description="Money that left without becoming profit. Some is normal; look into anything that jumps from one period to the next.">
+        {grossSales > 0 && (
+          <span className="text-xs text-muted-foreground">
+            {formatMoney(leaked)} in total, {Math.round((leaked / grossSales) * 1000) / 10}% of sales
+          </span>
+        )}
+      </SectionHeader>
+      <div className="grid grid-cols-1 gap-4 p-5 sm:grid-cols-2 lg:grid-cols-4">
+        {tiles.map((tile) => (
+          <div key={tile.label} className="rounded-lg border border-border p-4">
+            <p className="flex items-center gap-2 text-sm text-muted-foreground">
+              <tile.icon className="h-4 w-4" />
+              <Hint tip={tile.hint}>{tile.label}</Hint>
+            </p>
+            <p className="mt-1 text-xl font-semibold">{tile.value}</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">{tile.sub}</p>
+          </div>
+        ))}
+      </div>
+
+      {data.writeOffs.byReason.length > 0 && (
+        <div className="flex flex-wrap gap-2 px-5 pb-4 text-xs">
+          <span className="text-muted-foreground">Written off as:</span>
+          {data.writeOffs.byReason.map((r) => (
+            <span key={r.reason} className="rounded-full bg-muted px-2 py-0.5">
+              {REASON_LABEL[r.reason] ?? r.reason} · {formatNumber(r.units)} units · {formatMoney(r.value)}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {data.discounts.byStaff.length > 0 && (
+        <div className="overflow-x-auto border-t border-border">
+          <p className="px-5 pt-4 text-sm font-medium">Discounts by staff</p>
+          <p className="px-5 text-xs text-muted-foreground">
+            Someone discounting far more than the rest may need a word, or a clearer discount rule.
+          </p>
+          <table className="mt-2 w-full text-sm">
+            <thead>
+              <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted-foreground">
+                <th className="px-5 py-2 font-medium">Staff</th>
+                <th className="px-5 py-2 text-right font-medium">Discounts</th>
+                <th className="px-5 py-2 text-right font-medium">Bills discounted</th>
+                <th className="px-5 py-2 text-right font-medium">
+                  <Hint tip="Discounts as a share of what their bills would have been without them.">Share</Hint>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.discounts.byStaff.map((r) => (
+                <tr key={r.userId ?? 'none'} className="border-b border-border/60 last:border-0">
+                  <td className="px-5 py-2.5 font-medium">{r.name}</td>
+                  <td className="px-5 py-2.5 text-right">{formatMoney(r.amount)}</td>
+                  <td className="px-5 py-2.5 text-right text-muted-foreground">
+                    {formatNumber(r.discounted)} of {formatNumber(r.sales)}
+                  </td>
+                  <td className="px-5 py-2.5 text-right">
+                    <span className={cn(r.pct > avgPct * 1.5 && r.pct >= 3 && 'font-semibold text-warning')}>
+                      {r.pct}%
+                    </span>
+                    {r.pct > avgPct * 1.5 && r.pct >= 3 && (
+                      <span className="ml-1.5 text-xs text-warning">above shop average</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </>
+  );
+}
+
+/** Each branch side by side, for a shop with more than one. */
+function StoreComparison({ data }: { data: Analytics['byStore'] }) {
+  return (
+    <>
+      <SectionHeader icon={StoreIcon} title="Branches compared"
+        description="How each branch did in this period. A branch with good sales but a low margin may be discounting or selling mostly low-margin goods. Pick a branch at the top of the app to see its full detail." />
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted-foreground">
+              <th className="px-5 py-3 font-medium">Branch</th>
+              <th className="px-5 py-3 text-right font-medium">Sales</th>
+              <th className="px-5 py-3 font-medium">Share</th>
+              <th className="px-5 py-3 text-right font-medium">Gross profit</th>
+              <th className="px-5 py-3 text-right font-medium">Margin</th>
+              <th className="px-5 py-3 text-right font-medium">Bills</th>
+              <th className="px-5 py-3 text-right font-medium">Avg. bill</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.map((b) => (
+              <tr key={b.storeId} className="border-b border-border/60 last:border-0">
+                <td className="px-5 py-3 font-medium">{b.name}</td>
+                <td className="px-5 py-3 text-right font-medium">{formatMoney(b.sales)}</td>
+                <td className="px-5 py-3">
+                  <div className="flex items-center gap-2">
+                    <div className="h-2 w-24 overflow-hidden rounded-full bg-muted">
+                      <div className="h-full rounded-full bg-primary" style={{ width: `${b.share}%` }} />
+                    </div>
+                    <span className="text-xs text-muted-foreground">{b.share}%</span>
+                  </div>
+                </td>
+                <td className="px-5 py-3 text-right">{formatMoney(b.profit)}</td>
+                <td className="px-5 py-3 text-right">{b.margin}%</td>
+                <td className="px-5 py-3 text-right">{formatNumber(b.orders)}</td>
+                <td className="px-5 py-3 text-right">{formatMoney(b.averageBill)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
   );
 }
 
@@ -689,9 +902,9 @@ function SalesPerformance({ data }: { data: { date: string; revenue: number; ord
   const keyMap = { revenue: 'revenue', orders: 'orders', units: 'units' } as const;
   return (
     <>
-      <div className="flex items-center gap-2 border-b border-border p-5">
-        <h2 className="font-semibold">Sales Performance</h2>
-        <div className="ml-auto flex gap-1">
+      <SectionHeader title="Sales trend"
+        description="Day by day for the period. Look for your slow days (a good time for an offer) and your busy ones (have enough staff and stock).">
+        <div className="flex gap-1">
           {(['revenue', 'orders', 'units'] as const).map((m) => (
             <button key={m}
               onClick={() => setMetric(m)}
@@ -700,11 +913,11 @@ function SalesPerformance({ data }: { data: { date: string; revenue: number; ord
                 metric === m ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:text-foreground',
               )}
             >
-              {m}
+              {m === 'revenue' ? 'sales' : m === 'orders' ? 'bills' : 'units'}
             </button>
           ))}
         </div>
-      </div>
+      </SectionHeader>
       <div className="p-4">
         <ResponsiveContainer width="100%" height={260}>
           <AreaChart data={data} margin={{ top: 8, right: 8, left: -8, bottom: 0 }}>
@@ -731,7 +944,8 @@ function CategoryDonut({ data }: { data: Analytics['byCategory'] }) {
   const [active, setActive] = useState<number | null>(null);
   return (
     <>
-      <div className="border-b border-border p-5"><h2 className="font-semibold">Sales by Category</h2></div>
+      <SectionHeader title="Sales by category"
+        description="Which kinds of goods your net sales come from. A big slice is a category you depend on: never let it run out." />
       <div className="p-5">
         {data.length === 0 ? (
           <p className="py-8 text-center text-sm text-muted-foreground">No sales in this period.</p>
@@ -771,10 +985,8 @@ function CategoryDonut({ data }: { data: Analytics['byCategory'] }) {
 function HourlySales({ data }: { data: { hour: number; label: string; total: number; count: number; units: number }[] }) {
   return (
     <>
-      <div className="flex items-center gap-2 border-b border-border p-5">
-        <h2 className="font-semibold">Sales by hour of day</h2>
-        <span className="ml-auto text-xs text-muted-foreground">Across the selected range</span>
-      </div>
+      <SectionHeader title="Busy hours"
+        description="Sales by hour of the day, all days in the period added together. Put more staff on at the peak; restock and clean in the quiet hours." />
       <div className="p-4">
         {data.length === 0 ? (
           <p className="py-8 text-center text-sm text-muted-foreground">No sales in this period.</p>
@@ -797,7 +1009,8 @@ function HourlySales({ data }: { data: { hour: number; label: string; total: num
 function PaymentMethods({ data, orders }: { data: Analytics['byPaymentMethod']; orders: number }) {
   return (
     <>
-      <div className="border-b border-border p-5"><h2 className="font-semibold">Payment Methods</h2></div>
+      <SectionHeader title="How customers pay"
+        description="A big 'On credit' share is money you still have to collect: follow it up on the Credit page." />
       <div className="space-y-4 p-5">
         {data.length === 0 ? (
           <p className="py-8 text-center text-sm text-muted-foreground">No data.</p>
@@ -813,12 +1026,12 @@ function PaymentMethods({ data, orders }: { data: Analytics['byPaymentMethod']; 
                   <div className="h-full rounded-full bg-primary" style={{ width: `${m.share}%` }} />
                 </div>
                 <p className="mt-0.5 text-xs text-muted-foreground">
-                  {formatMoney(m.total)} · {m.count} sales
+                  {formatMoney(m.total)} · {m.count} bills
                 </p>
               </div>
             ))}
             <p className="border-t border-border pt-3 text-xs text-muted-foreground">
-              Total: {orders} orders
+              Total: {orders} bills
             </p>
           </>
         )}
@@ -827,74 +1040,30 @@ function PaymentMethods({ data, orders }: { data: Analytics['byPaymentMethod']; 
   );
 }
 
-type ProductSort = 'revenue' | 'gmroi';
-
 function TopProducts({ data }: { data: Analytics['byProduct'] }) {
-  const [sort, setSort] = useState<ProductSort>('revenue');
-
-  const top = useMemo(() => {
-    const rows = [...data];
-    if (sort === 'revenue') rows.sort((a, b) => b.revenue - a.revenue);
-    // Products with nothing left in stock have no GMROI -- there is no
-    // investment to return on -- so they sort to the bottom rather than
-    // ranking as zero, which would read as "earns nothing" instead of
-    // "not measurable".
-    else
-      rows.sort((a, b) =>
-        a.gmroi === null ? 1 : b.gmroi === null ? -1 : b.gmroi - a.gmroi,
-      );
-    return rows.slice(0, 5);
-  }, [data, sort]);
+  const top = useMemo(() => [...data].sort((a, b) => b.revenue - a.revenue).slice(0, 5), [data]);
 
   return (
     <>
-      <div className="flex flex-wrap items-center gap-2 border-b border-border p-5">
-        <PackageSearch className="h-5 w-5 text-primary" />
-        <h2 className="font-semibold">Top Selling Products</h2>
-        <div className="ml-auto flex items-center gap-2">
-          <div className="flex rounded-md border border-border p-0.5">
-            {(['revenue', 'gmroi'] as const).map((key) => (
-              <button
-                key={key}
-                type="button"
-                onClick={() => setSort(key)}
-                aria-pressed={sort === key}
-                className={cn(
-                  'rounded px-2 py-1 text-xs font-medium transition-colors',
-                  sort === key
-                    ? 'bg-primary text-primary-foreground'
-                    : 'text-muted-foreground hover:text-foreground',
-                )}
-              >
-                {key === 'revenue' ? 'By revenue' : 'By GMROI'}
-              </button>
-            ))}
-          </div>
-          {data.length > 5 && (
-            <Link href="/products" className="text-sm font-medium text-primary hover:underline">
-              View all →
-            </Link>
-          )}
-        </div>
-      </div>
-      {sort === 'gmroi' && (
-        <p className="border-b border-border bg-muted/30 px-5 py-2 text-xs text-muted-foreground">
-          Gross profit per {currencySymbol()}1 of stock held. Margin says what is
-          profitable; this says what earns its shelf space — a low-margin item that
-          sells daily beats a high-margin one that moves twice a month.
-        </p>
-      )}
+      <SectionHeader icon={PackageSearch} title="Best products"
+        description="Your five biggest sellers in this period, and the profit each one made. Keep these in stock.">
+        {data.length > 5 && (
+          <Link href="/products" className="text-sm font-medium text-primary hover:underline">
+            View all →
+          </Link>
+        )}
+      </SectionHeader>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted-foreground">
               <th className="px-5 py-3 font-medium">Product</th>
               <th className="px-5 py-3 text-right font-medium">Units</th>
-              <th className="px-5 py-3 text-right font-medium">Revenue</th>
               <th className="px-5 py-3 text-right font-medium">
-                <Hint tip="Gross margin return on inventory: gross profit ÷ stock value at cost. 3.0 means every rupee of stock earned three in profit. Higher means the product earns its shelf space.">
-                  GMROI
-                </Hint>
+                <Hint tip="What these units sold for, without tax.">Sales</Hint>
+              </th>
+              <th className="px-5 py-3 text-right font-medium">
+                <Hint tip="Sales minus what the units cost you to buy.">Profit</Hint>
               </th>
             </tr>
           </thead>
@@ -910,16 +1079,10 @@ function TopProducts({ data }: { data: Analytics['byProduct'] }) {
                   </span>
                   <span className="font-medium">{p.name}</span>
                 </td>
-                <td className="px-5 py-3 text-right">{p.quantitySold}</td>
+                <td className="px-5 py-3 text-right">{formatNumber(p.quantitySold)}</td>
                 <td className="px-5 py-3 text-right font-medium">{formatMoney(p.revenue)}</td>
-                <td className="px-5 py-3 text-right tabular-nums">
-                  {p.gmroi === null ? (
-                    <span className="text-muted-foreground" title="Nothing left in stock, so there is no inventory to measure a return against">
-                      —
-                    </span>
-                  ) : (
-                    `${p.gmroi.toFixed(2)}x`
-                  )}
+                <td className={cn('px-5 py-3 text-right', p.profit < 0 ? 'text-destructive' : 'text-success')}>
+                  {formatMoney(p.profit)}
                 </td>
               </tr>
             ))}
@@ -947,20 +1110,22 @@ function StaffPerformance({
 }) {
   return (
     <>
-      <div className="flex items-center gap-2 border-b border-border p-5">
-        <Users className="h-5 w-5 text-primary" />
-        <h2 className="font-semibold">Staff Performance</h2>
-      </div>
+      <SectionHeader icon={Users} title="Staff"
+        description="Sales rung up by each person, and whether their cash drawer matched at closing. A negative drawer figure means cash was short — check those shifts in Shift history below." />
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted-foreground">
-              <th className="px-5 py-3 font-medium">Cashier</th>
+              <th className="px-5 py-3 font-medium">Staff</th>
+              <th className="px-5 py-3 text-right font-medium">Bills</th>
               <th className="px-5 py-3 text-right font-medium">Sales</th>
-              <th className="px-5 py-3 text-right font-medium">Revenue</th>
-              <th className="px-5 py-3 text-right font-medium">Avg. basket</th>
-              <th className="px-5 py-3 text-right font-medium">Shifts</th>
-              <th className="px-5 py-3 text-right font-medium">Drawer variance</th>
+              <th className="px-5 py-3 text-right font-medium">Avg. bill</th>
+              <th className="px-5 py-3 text-right font-medium">Shifts closed</th>
+              <th className="px-5 py-3 text-right font-medium">
+                <Hint tip="Counted cash minus what the drawer should have held, added up over their closed shifts. Negative: short. Positive: over. Hover a figure for their worst single count.">
+                  Drawer +/−
+                </Hint>
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -1011,78 +1176,49 @@ function StaffPerformance({
 }
 
 function InventoryPerformance({ data }: { data: Analytics['inventory'] }) {
-  const rows: { label: string; hint?: string; value: string; sub: string }[] = [
+  const cover = data.daysOfCover;
+  const coverNote =
+    cover == null
+      ? 'Nothing sold in this period, so there is no pace to measure.'
+      : cover < 7
+        ? 'Running low: reorder your fast sellers now.'
+        : cover > 90
+          ? 'More than three months of stock: money is sitting on the shelf.'
+          : 'A healthy amount of stock for your pace of sales.';
+  const rows: { label: string; hint: string; value: string; sub: string; warn?: boolean }[] = [
     {
-      label: 'Stock Turnover',
-      hint: 'How many times the stock sold through in this period: cost of goods sold ÷ inventory value. Higher means stock moves faster.',
-      value: `${data.stockTurnover}x`,
-      sub: 'COGS ÷ inventory value',
+      label: 'Days of stock left',
+      hint: 'How long the stock you hold would last if you keep selling at this period’s pace: stock value at cost ÷ cost of goods sold per day. Under a week is tight; over three months is a lot of cash tied up.',
+      value: cover == null ? '—' : `${formatNumber(cover)} days`,
+      sub: coverNote,
+      warn: cover != null && (cover < 7 || cover > 90),
     },
     {
-      label: 'Sell-through',
-      hint: 'Units sold as a share of units available to sell: sold ÷ (sold + still on hand).',
-      value: `${data.sellThrough}%`,
-      sub: 'units sold vs. on hand',
+      label: 'Stock value',
+      hint: 'What everything on the shelf cost you to buy, right now.',
+      value: formatMoney(data.value),
+      sub: 'At cost, as of now',
     },
     {
-      label: 'Dead Stock',
-      hint: "Stock that hasn't sold at all in the last 30 days, as a share of inventory value.",
-      value: `${data.deadStockPct}%`,
-      sub: formatMoney(data.deadStockValue),
+      label: 'Dead stock',
+      hint: 'Stock that hasn’t sold at all in the last 30 days, and its share of your stock value. Consider a discount, a bundle, or returning it to the supplier.',
+      value: formatMoney(data.deadStockValue),
+      sub: `${data.deadStockPct}% of stock value has not sold in 30 days`,
+      warn: data.deadStockPct >= 25,
     },
-    { label: 'Inventory Value', value: formatMoney(data.value), sub: 'at cost' },
   ];
   return (
     <>
-      <div className="flex items-center gap-2 border-b border-border p-5">
-        <Boxes className="h-5 w-5 text-primary" />
-        <h2 className="font-semibold">Inventory Performance</h2>
-      </div>
+      <SectionHeader icon={Boxes} title="Stock health"
+        description="Whether you hold the right amount of stock: too little loses sales, too much ties up cash." />
       <div className="space-y-4 p-5">
         {rows.map((r) => (
           <div key={r.label}>
-            <p className="text-sm text-muted-foreground">
-              {r.hint ? <Hint tip={r.hint}>{r.label}</Hint> : r.label}
-            </p>
-            <p className="mt-0.5 text-xl font-semibold">{r.value}</p>
+            <p className="text-sm text-muted-foreground"><Hint tip={r.hint}>{r.label}</Hint></p>
+            <p className={cn('mt-0.5 text-xl font-semibold', r.warn && 'text-warning')}>{r.value}</p>
             <p className="text-xs text-muted-foreground">{r.sub}</p>
           </div>
         ))}
-      </div>
-    </>
-  );
-}
-
-function StockMovement({ data }: { data: Analytics['stockMovement'] }) {
-  const chartData = useMemo(
-    () => data.map((d) => ({ ...d, date: d.date.slice(5) })),
-    [data],
-  );
-  return (
-    <>
-      <div className="border-b border-border p-5">
-        <h2 className="font-semibold">Stock Movement</h2>
-        <p className="text-xs text-muted-foreground">Purchases vs. sales vs. adjustments, with running closing stock.</p>
-      </div>
-      <div className="p-4">
-        {data.length === 0 ? (
-          <p className="py-8 text-center text-sm text-muted-foreground">No stock movements in this period.</p>
-        ) : (
-          <ResponsiveContainer width="100%" height={260}>
-            <LineChart data={chartData}
-              margin={{ top: 8, right: 8, left: -8, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
-              <XAxis dataKey="date" tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} />
-              <YAxis tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} width={48} />
-              <Tooltip content={<ChartTooltip />} />
-              <Legend wrapperStyle={{ fontSize: 12 }} />
-              <Line type="monotone" dataKey="purchases" name="Purchases" stroke={PRIMARY} strokeWidth={2} dot={false} />
-              <Line type="monotone" dataKey="sales" name="Sales" stroke="hsl(var(--destructive))" strokeWidth={2} dot={false} />
-              <Line type="monotone" dataKey="adjustments" name="Adjustments" stroke="hsl(var(--chart-2, 142 70% 45%))" strokeWidth={2} dot={false} />
-              <Line type="monotone" dataKey="closing" name="Closing Stock" stroke="hsl(var(--chart-3, 25 95% 53%))" strokeWidth={2} strokeDasharray="4 4" dot={false} />
-            </LineChart>
-          </ResponsiveContainer>
-        )}
       </div>
     </>
   );
@@ -1096,10 +1232,8 @@ function NeedsAttention({ data }: { data: Analytics['needsAttention'] }) {
   ];
   return (
     <>
-      <div className="flex items-center gap-2 border-b border-border p-5">
-        <AlertTriangle className="h-5 w-5 text-warning" />
-        <h2 className="font-semibold">Needs Attention</h2>
-      </div>
+      <SectionHeader icon={AlertTriangle} title="Needs attention"
+        description="Quick jobs that protect sales and cash. These are as of now, not for the period picked." />
       <div className="divide-y divide-border">
         {items.map((it) => (
           <div key={it.label} className="flex items-center gap-3 px-5 py-3.5">
