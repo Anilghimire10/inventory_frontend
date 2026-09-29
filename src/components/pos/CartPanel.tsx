@@ -65,6 +65,8 @@ const QUICK_NOTES = [100, 500, 1000];
 
 interface CartPanelProps {
   cart: CartLine[];
+  /** The till's store: the serial picker lists units in stock there. */
+  storeId: string | null;
   cartCount: number;
   /** Whether a shift is currently open -- checkout is blocked without one. */
   shiftOpen: boolean;
@@ -117,6 +119,7 @@ interface CartPanelProps {
 
 export function CartPanel({
   cart,
+  storeId,
   cartCount,
   shiftOpen,
   heldSales,
@@ -373,6 +376,7 @@ export function CartPanel({
                 }}
                 onSetQty={onSetQty}
                 onUpdateLine={onUpdateLine}
+                storeId={storeId}
               />
             ))}
           </ul>

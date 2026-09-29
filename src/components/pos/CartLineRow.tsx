@@ -11,13 +11,14 @@ import {
   Trash2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Input, Textarea } from '@/components/ui/input';
+import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Field } from '@/components/ui/label';
 import { RxBadge } from '@/components/ui/RxBadge';
+import { ExpiryBadge } from '@/components/ExpiryBadge';
 import { Tooltip } from '@/components/ui/tooltip';
 import { formatMoney, currencySymbol } from '@/lib/format';
-import { parseSerials } from '@/lib/serials';
+import { SerialPicker } from '@/components/SerialPicker';
 import { allowsFraction } from '@/lib/units';
 import { lineNet, type CartLine, type DiscountType } from '@/components/pos/CartPanel';
 
@@ -39,6 +40,8 @@ interface CartLineRowProps {
   editor: LineEditor | null;
   onEditorChange: (editor: LineEditor | null) => void;
   onSetQty: (id: string, qty: number) => void;
+  /** The till's store, for the serial picker. */
+  storeId: string | null;
   onUpdateLine: (
     id: string,
     updates: { unitPrice?: number; discount?: number; serials?: string[] },
@@ -75,13 +78,14 @@ function CartLineRowInner({
   onEditorChange,
   onSetQty,
   onUpdateLine,
+  storeId,
 }: CartLineRowProps) {
   // Drafts, seeded when the editor opens so they always start from the line as
   // it stands rather than from whatever was typed last time.
   const [editUnitPrice, setEditUnitPrice] = useState('');
   const [editDiscount, setEditDiscount] = useState('');
   const [editDiscountType, setEditDiscountType] = useState<DiscountType>('amount');
-  const [editSerialsText, setEditSerialsText] = useState('');
+  const [editSerials, setEditSerials] = useState<string[]>([]);
 
   const openPriceEditor = () => {
     setEditUnitPrice(l.unitPrice != null ? String(l.unitPrice) : '');
@@ -92,7 +96,7 @@ function CartLineRowInner({
   };
 
   const openSerialsEditor = () => {
-    setEditSerialsText((l.serials ?? []).join('\n'));
+    setEditSerials(l.serials ?? []);
     onMenuOpenChange(false);
     onEditorChange('serials');
   };
@@ -122,6 +126,10 @@ function CartLineRowInner({
               {l.product.name}
             </span>
             {l.product.isRxRequired && <RxBadge />}
+            <ExpiryBadge
+              product={l.product}
+              onHand={l.product.onHandQty != null ? Number(l.product.onHandQty) : undefined}
+            />
           </div>
           <div className="mt-0.5 truncate text-xs text-muted-foreground">
             {l.product.sku || l.product.unit}
@@ -227,12 +235,17 @@ function CartLineRowInner({
 
       {editor === 'serials' && (
         <div className="space-y-2 rounded-md border border-dashed border-border bg-muted/30 p-2.5">
-          <Field label={`Serial / IMEI numbers (one per line, ${l.quantity} needed)`}>
-            <Textarea
-              rows={3}
-              value={editSerialsText}
-              onChange={(e) => setEditSerialsText(e.target.value)}
-            />
+          <Field label="Serial / IMEI of each unit sold — tick or scan them">
+            {storeId ? (
+              <SerialPicker
+                storeId={storeId}
+                productId={l.product.id}
+                value={editSerials}
+                onChange={setEditSerials}
+              />
+            ) : (
+              <p className="text-xs text-muted-foreground">Open a shift to pick units.</p>
+            )}
           </Field>
           <div className="flex justify-end gap-2">
             <Button size="sm" variant="outline" onClick={() => onEditorChange(null)}>
@@ -241,7 +254,11 @@ function CartLineRowInner({
             <Button
               size="sm"
               onClick={() => {
-                onUpdateLine(l.product.id, { serials: parseSerials(editSerialsText) });
+                onUpdateLine(l.product.id, { serials: editSerials });
+                // The units picked are the quantity sold.
+                if (editSerials.length > 0 && editSerials.length !== l.quantity) {
+                  onSetQty(l.product.id, editSerials.length);
+                }
                 onEditorChange(null);
               }}
             >

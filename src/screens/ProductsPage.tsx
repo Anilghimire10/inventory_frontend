@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/input';
 import { Field } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { RxBadge } from '@/components/ui/RxBadge';
+import { ExpiryBadge } from '@/components/ExpiryBadge';
 import { Dialog, DialogFooter } from '@/components/ui/dialog';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
@@ -88,8 +89,10 @@ export default function ProductsPage() {
     setSelected(new Set());
   }
 
+  const [expiry, setExpiry] = useState<'' | 'expired' | 'soon'>('');
+
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['products', search, page, storeId],
+    queryKey: ['products', search, page, storeId, expiry],
     queryFn: () =>
       ProductsApi.list({
         search: search || undefined,
@@ -97,6 +100,7 @@ export default function ProductsPage() {
         limit: 20,
         excludeVariants: true,
         storeId: storeId || undefined,
+        expiry: expiry || undefined,
       }),
   });
   const { data: categories } = useQuery({
@@ -334,12 +338,33 @@ export default function ProductsPage() {
             }}
           />
         </div>
+        <div className="w-44">
+          <Select
+            aria-label="Expiry"
+            value={expiry}
+            onChange={(e) => {
+              setExpiry(e.target.value as '' | 'expired' | 'soon');
+              setPage(1);
+              setSelected(new Set());
+            }}
+          >
+            <option value="">Any expiry</option>
+            <option value="expired">Expired</option>
+            <option value="soon">Expiring in 30 days</option>
+          </Select>
+        </div>
       </div>
 
       {isError ? (
         <ErrorState onRetry={() => refetch()} />
       ) : isLoading ? (
         <LoadingBlock />
+      ) : (!data || data.data.length === 0) && expiry ? (
+        <EmptyState
+          title={expiry === 'expired' ? 'Nothing has expired' : 'Nothing expires in the next 30 days'}
+          description={search ? 'Nothing matches the search, either.' : undefined}
+          icon={Package}
+        />
       ) : !data || data.data.length === 0 ? (
         <EmptyState
           title="No products yet"
@@ -402,6 +427,10 @@ export default function ProductsPage() {
                         <div className="flex items-center gap-1.5">
                           <span className="font-medium">{p.name}</span>
                           {p.isRxRequired && <RxBadge />}
+                          <ExpiryBadge
+                            product={p}
+                            onHand={storeId && p.onHandQty != null ? Number(p.onHandQty) : undefined}
+                          />
                         </div>
                         <div className="flex gap-1 pt-1">
                           {p.trackBatches && <Badge tone="warning">Batch</Badge>}
