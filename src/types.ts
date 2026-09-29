@@ -167,7 +167,20 @@ export interface Product {
   stockItems?: { storeId: string; quantity: string }[];
 }
 
-export type SerialStatus = 'IN_STOCK' | 'SOLD' | 'RETURNED_TO_SUPPLIER' | 'DAMAGED';
+export type SerialStatus = 'IN_STOCK' | 'SOLD' | 'RETURNED_TO_SUPPLIER' | 'DAMAGED' | 'LOST';
+
+/** GET /inventory/serials/lookup/:serial -- one unit, wherever it is. */
+export interface SerialLookup {
+  serialNumber: string;
+  status: SerialStatus;
+  productId: string;
+  storeId: string | null;
+  store: { id: string; name: string } | null;
+  sale: { id: string; receiptNo: string } | null;
+  product: { id: string; name: string };
+  /** In words: "in stock at Main", "sold on INV-000123". */
+  where: string;
+}
 
 /** One physical unit of a serialised product (phone IMEI, appliance serial). */
 export interface SerialRecord {
@@ -816,4 +829,91 @@ export interface CustomerStatement {
   totals: { openingBalance: number; charged: number; paid: number; closing: number; stored: number };
   /** True when every rupee owed is explained by a recorded sale or payment. */
   reconciles: boolean;
+}
+
+// ---------- Help & support ----------
+
+/** What a question is about. Picked when asking; support can correct it. */
+export type SupportCategory = 'BILLING' | 'PROBLEM' | 'HOW_TO' | 'FEATURE' | 'OTHER';
+export type SupportStatus = 'OPEN' | 'CLOSED';
+
+/** A ticket as the Help & support list shows it, without the thread. */
+export interface SupportTicketListItem {
+  id: string;
+  subject: string;
+  status: SupportStatus;
+  category: SupportCategory;
+  userName: string;
+  userEmail: string;
+  lastMessageAt: string;
+  createdAt: string;
+  messageCount: number;
+  lastMessage: { body: string; fromAdmin: boolean } | null;
+  /** Open, and the shop spoke last: waiting on support. */
+  awaitingReply: boolean;
+}
+
+export interface SupportMessage {
+  id: string;
+  fromAdmin: boolean;
+  authorName: string;
+  body: string;
+  createdAt: string;
+}
+
+export interface SupportThread {
+  id: string;
+  subject: string;
+  status: SupportStatus;
+  category: SupportCategory;
+  userId: string | null;
+  userName: string;
+  lastMessageAt: string;
+  createdAt: string;
+  messages: SupportMessage[];
+}
+
+// ---------- Subscription (owners and managers) ----------
+
+/** GET /subscription: where the subscription stands, and what's been paid. */
+export interface SubscriptionOverview {
+  status: SubscriptionInfo['status'];
+  endsAt: string | null;
+  accessEndsAt: string | null;
+  daysLeft: number | null;
+  contact: SupportContact;
+  /** False: no end date, nothing to renew. */
+  hasEndDate: boolean;
+  /** On the free trial: has an end date and has never paid. */
+  trial: boolean;
+  /** Start of the current period: the latest payment's cover, or signup. */
+  periodStart: string;
+  graceDays: number;
+  payments: SubscriptionPaymentRow[];
+}
+
+export interface SubscriptionPaymentRow {
+  id: string;
+  receiptNo: string;
+  paidAt: string;
+  amount: number;
+  currency: string;
+  method: string;
+  reference: string | null;
+  periodFrom: string;
+  periodTo: string;
+}
+
+/** Everything a printed subscription receipt shows. */
+export interface SubscriptionReceipt {
+  receiptNo: string;
+  issuedAt: string;
+  seller: { name: string | null; taxId: string | null; address: string | null; phone: string | null; email: string | null };
+  buyer: { businessId: string; name: string; taxId: string | null };
+  amount: number;
+  currency: string;
+  methodLabel: string;
+  reference: string | null;
+  periodFrom: string;
+  periodTo: string;
 }

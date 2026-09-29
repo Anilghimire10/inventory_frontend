@@ -1,4 +1,4 @@
-import type { ReturnResult, Sale, ShiftReport } from '@/types';
+import type { ReturnResult, Sale, ShiftReport, SubscriptionReceipt } from '@/types';
 import { renderBarcodeSvg } from './barcode';
 import { splitTax } from './tax';
 import { CASH_REASON_LABEL } from './cash';
@@ -377,4 +377,73 @@ function invoiceA4(
       <p class="muted" style="margin-top:24px;text-align:center">Thank you for your business.</p>
     </div>`;
   return shell(`Invoice ${sale.receiptNo}`, 'size: A4; margin: 16mm;', body);
+}
+
+/**
+ * A subscription receipt, A4: who was paid (the platform), who paid, for
+ * which period, how much. The same layout the admin panel prints, so a shop
+ * and the platform hold identical copies.
+ *
+ * Takes a loader, not the receipt: the window opens on the click itself, then
+ * fills in. Opened after awaiting the fetch, browsers count it as an
+ * unrequested pop-up and block it.
+ */
+export async function printSubscriptionReceipt(load: () => Promise<SubscriptionReceipt>) {
+  const w = window.open('', '_blank', 'width=720,height=900');
+  if (!w) {
+    alert('Please allow pop-ups to print the receipt.');
+    return;
+  }
+  w.document.write('<p style="font-family:system-ui,sans-serif;color:#555;padding:24px">Loading receipt…</p>');
+  let r: SubscriptionReceipt;
+  try {
+    r = await load();
+  } catch (e) {
+    w.close();
+    throw e;
+  }
+  w.document.open();
+  const day = (iso: string) => new Date(iso).toISOString().slice(0, 10);
+  const contact = [r.seller.phone, r.seller.email].filter(Boolean).map(esc).join(' · ');
+  const seller = [
+    r.seller.name && `<div style="font-size:18px;font-weight:700;color:#0f172a">${esc(r.seller.name)}</div>`,
+    r.seller.address && `<div>${esc(r.seller.address)}</div>`,
+    contact && `<div>${contact}</div>`,
+    r.seller.taxId && `<div>PAN/VAT: ${esc(r.seller.taxId)}</div>`,
+  ]
+    .filter(Boolean)
+    .join('');
+  const row = (label: string, value: string) =>
+    `<tr><td style="padding:8px 0;color:#475569">${label}</td><td style="padding:8px 0;text-align:right">${value}</td></tr>`;
+  const amount = `${esc(r.currency)} ${r.amount.toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+  const body = `<div style="padding:4mm;font-size:14px;color:#0f172a">
+  <div style="display:flex;justify-content:space-between;gap:24px;align-items:flex-start">
+    <div style="color:#475569;line-height:1.5">${seller}</div>
+    <div style="text-align:right">
+      <div style="font-size:22px;font-weight:700">RECEIPT</div>
+      <div style="color:#475569">${esc(r.receiptNo)}</div>
+      <div style="color:#475569">${day(r.issuedAt)}</div>
+    </div>
+  </div>
+  <hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0"/>
+  <div style="color:#475569">Received from</div>
+  <div style="font-size:16px;font-weight:600">${esc(r.buyer.name)}</div>
+  ${r.buyer.taxId ? `<div style="color:#475569">PAN/VAT: ${esc(r.buyer.taxId)}</div>` : ''}
+  <table style="margin-top:20px">
+    ${row('For', 'Subscription')}
+    ${row('Period', `${day(r.periodFrom)} to ${day(r.periodTo)}`)}
+    ${row('Paid by', esc(r.methodLabel))}
+    ${r.reference ? row('Reference', esc(r.reference)) : ''}
+    <tr>
+      <td style="padding:12px 0 0;border-top:2px solid #0f172a;font-weight:700;font-size:16px">Amount received</td>
+      <td style="padding:12px 0 0;border-top:2px solid #0f172a;text-align:right;font-weight:700;font-size:16px">${amount}</td>
+    </tr>
+  </table>
+  <p style="margin-top:40px;color:#94a3b8;font-size:12px">Thank you for your payment.</p>
+</div>`;
+  w.document.write(shell(`Receipt ${r.receiptNo}`, 'size: A4; margin: 18mm;', body));
+  w.document.close();
 }

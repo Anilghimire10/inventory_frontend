@@ -1,7 +1,8 @@
 'use client';
 import { useState } from 'react';
+import Link from 'next/link';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Pencil, Store as StoreIcon, Building2, Download, Percent, Power, RotateCcw, Wallet } from 'lucide-react';
+import { Plus, Pencil, Store as StoreIcon, Building2, Download, Percent, Power, RotateCcw, Wallet, CalendarClock } from 'lucide-react';
 import { BusinessApi, StoresApi } from '@/api';
 import type { Store } from '@/types';
 import { useStores } from '@/hooks/useStores';
@@ -184,7 +185,18 @@ export default function SettingsPage() {
 
   return (
     <div className="max-w-3xl">
-      <PageHeader title="Settings" description="Business profile and stores." />
+      <PageHeader
+        title="Settings"
+        description="Business profile and stores."
+        action={
+          <Link
+            href="/subscription"
+            className="inline-flex h-10 items-center gap-2 rounded-md border border-input px-4 text-sm font-medium hover:bg-accent"
+          >
+            <CalendarClock className="h-4 w-4" /> Subscription
+          </Link>
+        }
+      />
 
       <Card className="mb-6">
         <CardHeader className="flex-row items-center justify-between">
