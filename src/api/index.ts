@@ -169,10 +169,11 @@ export const ProductsApi = {
       .data;
   },
   exportAll: () => get<Record<string, unknown>[]>('/products/export'),
-  importProducts: (items: Record<string, unknown>[]) =>
+  /** `dryRun` checks the file and reports what would happen, saving nothing. */
+  importProducts: (items: Record<string, unknown>[], dryRun = false) =>
     post<{ created: number; updated: number; errors: { row: number; error: string }[] }>(
       '/products/import',
-      { items },
+      { items, dryRun },
     ),
   listVariants: (id: string) => get<ProductVariant[]>(`/products/${id}/variants`),
   generateVariants: (
@@ -217,6 +218,15 @@ export const InventoryApi = {
   lowStock: (storeId?: string) =>
     get<StockItem[]>('/inventory/low-stock', storeId ? { storeId } : undefined),
   expiring: (params?: object) => get<Batch[]>('/inventory/expiring', params),
+  /** Opening stock from a spreadsheet. `dryRun` checks it and saves nothing. */
+  importStock: (items: Record<string, unknown>[], opts: { storeId?: string; dryRun?: boolean }) =>
+    post<{ rows?: number; imported?: number; units: number; errors: { row: number; error: string }[] }>(
+      '/inventory/import-stock',
+      { items, ...opts },
+    ),
+  /** Remove expired stock: an EXPIRED adjustment, and the batch emptied. */
+  writeOffExpired: (body: { storeId: string; productId: string; batchId?: string }) =>
+    post<{ writtenOff: number }>('/inventory/expiring/write-off', body),
   movements: (params?: object) =>
     get<Paginated<StockMovement>>('/inventory/movements', params),
   serials: (params?: object) =>
@@ -349,6 +359,9 @@ export const NotificationsAdminApi = {
 };
 
 export const SalesApi = {
+  /** Every bill the filter matches, one row each (owner / manager). */
+  exportRows: (params?: object) =>
+    get<{ rows: Record<string, unknown>[]; total: number; truncated: boolean }>('/sales/export', params),
   list: (params?: object) => get<Paginated<SaleListItem>>('/sales', params),
   get: (id: string) => get<Sale>(`/sales/${id}`),
   create: (body: object) => post<Sale>('/sales', body),
