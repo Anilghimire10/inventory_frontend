@@ -33,7 +33,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [pwOpen, setPwOpen] = useState(false);
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  // The section opened by hand, and on which page. On another page the
+  // current page's section is open again.
+  const [picked, setPicked] = useState<{ label: string | null; at: string } | null>(null);
   const pathname = usePathname() ?? '';
 
   if (!user) return null;
@@ -44,10 +46,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     items: g.items.filter((i) => canSee(i, user.role)),
   })).filter((g) => g.items.length > 0);
 
-  // Which group holds the current page (the active group stays expanded).
-  const activeLabel = groups.find((g) =>
-    g.items.some((i) => (i.to === '/' ? pathname === '/' : pathname.startsWith(i.to))),
-  )?.label;
+  // Which group holds the current page. Overview is always open; of the rest,
+  // one at a time -- the current page's, until another is picked.
+  const activeLabel =
+    groups.find((g) => g.items.some((i) => (i.to === '/' ? pathname === '/' : pathname.startsWith(i.to))))?.label ??
+    null;
+  const openLabel = picked && picked.at === pathname ? picked.label : activeLabel;
 
   return (
     <div className="flex min-h-screen">
@@ -56,7 +60,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           on its own if it's taller than the screen. */}
       <aside
         className={cn(
-          'fixed inset-y-0 left-0 z-40 flex w-64 shrink-0 transform flex-col border-r border-border bg-card transition-transform lg:sticky lg:top-0 lg:h-screen lg:translate-x-0',
+          'fixed inset-y-0 left-0 z-40 flex w-64 shrink-0 transform flex-col border-r border-border bg-card transition-transform lg:sticky lg:top-0 lg:h-dvh lg:translate-x-0',
           mobileOpen ? 'translate-x-0' : '-translate-x-full',
         )}
       >
@@ -76,11 +80,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         <nav className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-3">
           {groups.map((group) => {
             const isOverview = group.label === 'Overview';
-            // The active group stays expanded even if the user collapsed it.
-            const isCollapsed =
-              !isOverview &&
-              group.label !== activeLabel &&
-              collapsed[group.label] === true;
+            const isCollapsed = !isOverview && group.label !== openLabel;
             return (
               <div key={group.label} className="flex flex-col gap-1">
                 {isOverview ? (
@@ -89,9 +89,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                   </p>
                 ) : (
                   <button
-                    onClick={() =>
-                      setCollapsed((c) => ({ ...c, [group.label]: !(c[group.label] === true && group.label !== activeLabel) }))
-                    }
+                    // Opening one closes the others; clicking the open one closes it.
+                    onClick={() => setPicked({ label: isCollapsed ? group.label : null, at: pathname })}
+                    aria-expanded={!isCollapsed}
                     className="flex w-full items-center rounded-md px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground/70 transition-colors hover:bg-accent hover:text-foreground"
                   >
                     {group.label}
