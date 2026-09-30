@@ -1,5 +1,6 @@
 'use client';
 import { useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Boxes, SlidersHorizontal, AlertTriangle, CalendarClock, History, ArrowLeftRight, Trash2, ClipboardCheck, Fingerprint, PackagePlus, Target, Upload } from 'lucide-react';
 import { InventoryApi, ProductsApi, PurchasesApi } from '@/api';
@@ -61,7 +62,9 @@ const SERIAL_STATUS_LABEL: Record<SerialStatus, string> = {
   LOST: 'Lost',
 };
 
-type Tab = 'stock' | 'low' | 'reorder' | 'expiring' | 'movements' | 'stockTake' | 'serials';
+const TABS = ['stock', 'low', 'reorder', 'expiring', 'movements', 'stockTake', 'serials'] as const;
+type Tab = (typeof TABS)[number];
+const isTab = (v: string | null): v is Tab => (TABS as readonly string[]).includes(v ?? '');
 
 /** Which suggestions a pending "create drafts" confirmation covers. */
 type DraftTarget = { storeId?: string; supplierId?: string; label: string };
@@ -70,7 +73,13 @@ export default function InventoryPage() {
   const qc = useQueryClient();
   const { show } = useToast();
   const { data: stores } = useActiveStores();
-  const [tab, setTab] = useState<Tab>('stock');
+  // The tab lives in the URL (?tab=expiring), so the dashboard tiles, the
+  // Analytics shortcuts and the bell's alerts open the right one -- even when
+  // this page is already showing -- and a reload stays put.
+  const router = useRouter();
+  const tabParam = useSearchParams().get('tab');
+  const tab: Tab = isTab(tabParam) ? tabParam : 'stock';
+  const setTab = (t: Tab) => router.replace(t === 'stock' ? '/inventory' : `/inventory?tab=${t}`, { scroll: false });
   const [stockPage, setStockPage] = useState(1);
   const [movementPage, setMovementPage] = useState(1);
   const [adjusting, setAdjusting] = useState<StockItem | null>(null);

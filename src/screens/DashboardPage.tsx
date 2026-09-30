@@ -125,7 +125,7 @@ export default function DashboardPage() {
               sub="items need restocking"
               icon={AlertTriangle}
               tone={data.lowStockCount > 0 ? 'warning' : 'default'}
-              to="/inventory"
+              to="/inventory?tab=low"
             />
             <Stat
               label="Expiring Soon"
@@ -133,7 +133,7 @@ export default function DashboardPage() {
               sub="within 30 days"
               icon={CalendarClock}
               tone={data.expiringSoonCount > 0 ? 'destructive' : 'default'}
-              to="/inventory"
+              to="/inventory?tab=expiring"
             />
           </div>
 

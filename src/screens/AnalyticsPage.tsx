@@ -1228,9 +1228,9 @@ function InventoryPerformance({ data }: { data: Analytics['inventory'] }) {
 
 function NeedsAttention({ data }: { data: Analytics['needsAttention'] }) {
   const items: { label: string; count: number; href: string; cta: string }[] = [
-    { label: 'products below minimum stock', count: data.lowStock, href: '/inventory', cta: 'View Stock' },
+    { label: 'products below minimum stock', count: data.lowStock, href: '/inventory?tab=low', cta: 'View Stock' },
     { label: "products haven't sold in 30 days", count: data.unsold, href: '/products', cta: 'View Products' },
-    { label: 'products expiring within 30 days', count: data.expiring, href: '/inventory', cta: 'View Expiry' },
+    { label: 'products expiring within 30 days', count: data.expiring, href: '/inventory?tab=expiring', cta: 'View Expiry' },
   ];
   return (
     <>
