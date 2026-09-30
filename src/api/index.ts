@@ -200,6 +200,7 @@ export const NotificationsApi = {
   markRead: (id: string) => post<{ ok: true }>(`/notifications/${id}/read`),
   markAllRead: () => post<{ ok: true }>('/notifications/read-all'),
   dismiss: (id: string) => del<{ ok: true }>(`/notifications/${id}`),
+  dismissAll: () => post<{ ok: true; dismissed: number }>('/notifications/dismiss-all'),
 };
 
 /** A request header for the lock screen's billing-only pass, when there is one. */

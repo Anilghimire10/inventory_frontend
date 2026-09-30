@@ -95,3 +95,22 @@ export function formatDateTime(value: string | Date | null | undefined): string 
     minute: '2-digit',
   });
 }
+
+/**
+ * "Just now", "5m ago", "3h ago", "Yesterday", "4d ago", then the date.
+ * For lists scanned by recency, like the notification bell; pair it with
+ * formatDateTime in a title for the exact time.
+ */
+export function formatTimeAgo(value: string | Date | null | undefined, now = new Date()): string {
+  if (!value) return '—';
+  const d = typeof value === 'string' ? new Date(value) : value;
+  const mins = Math.floor((now.getTime() - d.getTime()) / 60_000);
+  if (mins < 1) return 'Just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days === 1) return 'Yesterday';
+  if (days < 7) return `${days}d ago`;
+  return formatDate(d);
+}
