@@ -32,6 +32,7 @@ import { Card } from '@/components/ui/card';
 import { formatMoney } from '@/lib/format';
 import { useAuth } from '@/auth/AuthContext';
 import { can } from '@/lib/permissions';
+import { GettingStarted } from '@/components/GettingStarted';
 import { cn } from '@/lib/utils';
 
 const PRIMARY = 'hsl(var(--primary))';
@@ -58,6 +59,8 @@ export default function DashboardPage() {
             : "Here's how your business is doing today."
         }
       />
+
+      {user && can.manageBusiness(user.role) && user.business && <GettingStarted businessId={user.business.id} />}
 
       {isError ? (
         <ErrorState onRetry={() => refetch()} />

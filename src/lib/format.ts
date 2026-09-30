@@ -36,12 +36,14 @@ function getSymbolFormatter(currency: string): Intl.NumberFormat {
   return f;
 }
 
-export function formatMoney(value: number | string | null | undefined): string {
+export function formatMoney(value: number | string | null | undefined, currency?: string): string {
   const n = typeof value === 'string' ? Number(value) : (value ?? 0);
+  // The shop's currency, unless another is asked for (e.g. to preview a change).
+  const code = currency ?? currentCurrency;
   try {
-    return getMoneyFormatter(currentCurrency).format(n);
+    return getMoneyFormatter(code).format(n);
   } catch {
-    return `${currentCurrency} ${n.toFixed(2)}`;
+    return `${code} ${n.toFixed(2)}`;
   }
 }
 

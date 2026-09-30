@@ -54,12 +54,6 @@ export const PAY_MODES = [
   { value: 'credit', label: 'Credit' },
 ] as const;
 
-export const TENDERS = [
-  { value: 'CASH', label: 'Cash' },
-  { value: 'CARD', label: 'Card' },
-  { value: 'MOBILE', label: 'Mobile' },
-] as const;
-
 /** Common note denominations for quick-tender buttons. */
 const QUICK_NOTES = [100, 500, 1000];
 
@@ -101,6 +95,8 @@ interface CartPanelProps {
   onDiscountTypeChange: (t: DiscountType) => void;
   payMode: PayMode;
   onPayModeChange: (m: PayMode) => void;
+  /** The tenders this shop takes (Settings -> Payment methods). */
+  tenders: { value: string; label: string }[];
   paymentMethod: string;
   onPaymentMethodChange: (m: string) => void;
   amountPaid: number;
@@ -151,6 +147,7 @@ export function CartPanel({
   onDiscountTypeChange,
   payMode,
   onPayModeChange,
+  tenders,
   paymentMethod,
   onPaymentMethodChange,
   amountPaid,
@@ -231,7 +228,7 @@ export function CartPanel({
     else onCheckout();
   };
 
-  const tenderLabel = TENDERS.find((t) => t.value === paymentMethod)?.label ?? paymentMethod;
+  const tenderLabel = tenders.find((t) => t.value === paymentMethod)?.label ?? paymentMethod;
 
   const paySummary =
     payMode === 'credit'
@@ -447,7 +444,7 @@ export function CartPanel({
                       value={paymentMethod}
                       onChange={(e) => onPaymentMethodChange(e.target.value)}
                     >
-                      {TENDERS.map((t) => (
+                      {tenders.map((t) => (
                         <option key={t.value} value={t.value}>
                           {t.label}
                         </option>

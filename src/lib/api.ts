@@ -23,7 +23,9 @@ export const api = axios.create({
 // Attach the JWT to every request.
 api.interceptors.request.use((config) => {
   const token = getToken();
-  if (token) config.headers.Authorization = `Bearer ${token}`;
+  // A request that brings its own (the lock screen's billing-only pass)
+  // keeps it.
+  if (token && !config.headers.Authorization) config.headers.Authorization = `Bearer ${token}`;
   return config;
 });
 
@@ -36,6 +38,12 @@ export interface SubscriptionBlock {
   reason: 'expired' | 'inactive';
   endedAt: string | null;
   contact: SupportContact;
+  /**
+   * For an owner or manager: a short-lived pass (about an hour) that opens
+   * only the Subscription routes, so the lock screen can show how to pay and
+   * take an "I've paid" report.
+   */
+  billingToken?: string;
 }
 
 const BLOCK_KEY = 'inv_subscription_block';
@@ -48,6 +56,7 @@ export function subscriptionBlock(err: unknown): SubscriptionBlock | null {
     reason: data.reason === 'expired' ? 'expired' : 'inactive',
     endedAt: data.endedAt ?? null,
     contact: data.contact ?? {},
+    ...(typeof data.billingToken === 'string' ? { billingToken: data.billingToken } : {}),
   };
 }
 

@@ -101,6 +101,8 @@ const METHOD_LABEL: Record<string, string> = {
   CASH: 'Cash',
   CARD: 'Card',
   MOBILE: 'QR / Mobile',
+  KHALTI: 'Khalti',
+  CONNECTIPS: 'connectIPS',
   CREDIT: 'On credit',
   MIXED: 'Mixed',
 };

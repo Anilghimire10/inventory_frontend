@@ -1,10 +1,11 @@
 'use client';
 import { useState } from 'react';
 import Link from 'next/link';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Pencil, Store as StoreIcon, Building2, Download, Percent, Power, RotateCcw, Wallet, CalendarClock } from 'lucide-react';
-import { BusinessApi, StoresApi } from '@/api';
-import type { Store } from '@/types';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Plus, Pencil, Store as StoreIcon, Building2, Download, Percent, Power, RotateCcw, Wallet, CalendarClock, CreditCard } from 'lucide-react';
+import { BusinessApi, StoresApi, SubscriptionApi } from '@/api';
+import type { SettleMethod, Store } from '@/types';
+import { SETTLE_METHODS, acceptedTenders } from '@/lib/payment-methods';
 import { useStores } from '@/hooks/useStores';
 import { useAuth } from '@/auth/AuthContext';
 import { PageHeader, LoadingBlock, ErrorState } from '@/components/ui/misc';
@@ -22,6 +23,7 @@ import { apiError } from '@/lib/api';
 import { CURRENCIES } from '@/lib/currencies';
 import { saveFile } from '@/lib/save-file';
 import { TIMEZONES, DEFAULT_TIMEZONE } from '@/lib/timezones';
+import { formatMoney } from '@/lib/format';
 
 const empty = { name: '', address: '', phone: '' };
 type Form = typeof empty;
@@ -122,6 +124,29 @@ export default function SettingsPage() {
     onError: (e) => show(apiError(e), 'error'),
   });
 
+  // The tenders this shop takes. Cash can't be turned off: it is the counter
+  // default and what a part-paid sale falls back to.
+  const tenders = acceptedTenders(user?.business?.acceptedTenders).map((t) => t.value);
+  const saveTenders = useMutation({
+    mutationFn: (next: SettleMethod[]) => BusinessApi.update({ acceptedTenders: next }),
+    onSuccess: async () => {
+      await refresh();
+      show('Payment methods saved');
+    },
+    onError: (e) => show(apiError(e), 'error'),
+  });
+  const toggleTender = (m: SettleMethod) =>
+    saveTenders.mutate(tenders.includes(m) ? tenders.filter((t) => t !== m) : [...tenders, m]);
+
+  // The plan's branch limit, to say how many are left before Add store is refused.
+  const { data: sub } = useQuery({
+    queryKey: ['subscription'],
+    queryFn: () => SubscriptionApi.overview(),
+    enabled: canManageBiz,
+  });
+  const branchLimit = sub?.currentPlan?.maxStores ?? null;
+  const planFull = branchLimit !== null && (sub?.activeStores ?? 0) >= branchLimit;
+
   // Cash-drawer rules. Blind close hides expected cash from cashiers; the
   // limit makes a drawer that is off by more than it need a note to close.
   const blindClose = user?.business?.shiftBlindClose ?? false;
@@ -152,7 +177,7 @@ export default function SettingsPage() {
   const save = useMutation({
     mutationFn: () =>
       editing ? StoresApi.update(editing.id, form) : StoresApi.create(form),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['stores'] }); show(editing ? 'Store updated' : 'Store added'); setOpen(false); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['stores'] }); qc.invalidateQueries({ queryKey: ['subscription'] }); show(editing ? 'Store updated' : 'Store added'); setOpen(false); },
     onError: (e) => show(apiError(e), 'error'),
   });
 
@@ -164,6 +189,7 @@ export default function SettingsPage() {
     mutationFn: (id: string) => StoresApi.remove(id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['stores'] });
+      qc.invalidateQueries({ queryKey: ['subscription'] });
       show('Store deactivated');
       setDeactivating(null);
     },
@@ -174,6 +200,7 @@ export default function SettingsPage() {
     mutationFn: (id: string) => StoresApi.update(id, { isActive: true }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['stores'] });
+      qc.invalidateQueries({ queryKey: ['subscription'] });
       show('Store reactivated');
     },
     onError: (e) => show(apiError(e), 'error'),
@@ -309,6 +336,55 @@ export default function SettingsPage() {
 
       <Card className="mb-6">
         <CardHeader>
+          <CardTitle className="flex items-center gap-2"><CreditCard className="h-5 w-5 text-primary" /> Payment methods</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3 text-sm text-muted-foreground">
+          <div>
+            The ways your customers can pay. Only these show at checkout, when a
+            khata or supplier is paid, and for refunds. Money taken on Khalti or
+            connectIPS goes to your own account; this only records how the bill was paid.
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {SETTLE_METHODS.map((m) => {
+              const on = tenders.includes(m.value);
+              const locked = m.value === 'CASH';
+              return (
+                <button
+                  key={m.value}
+                  type="button"
+                  role="checkbox"
+                  aria-checked={on}
+                  disabled={locked || !canManageBiz || saveTenders.isPending}
+                  onClick={() => toggleTender(m.value)}
+                  title={locked ? 'Cash is always accepted' : undefined}
+                  className={
+                    'inline-flex h-9 items-center gap-2 rounded-md border px-3 font-medium transition-colors disabled:cursor-not-allowed ' +
+                    (on
+                      ? 'border-primary bg-primary/10 text-primary'
+                      : 'border-input text-foreground hover:bg-accent') +
+                    (locked ? '' : ' disabled:opacity-50')
+                  }
+                >
+                  <span
+                    className={
+                      'flex h-4 w-4 items-center justify-center rounded-sm border text-[10px] leading-none ' +
+                      (on ? 'border-primary bg-primary text-primary-foreground' : 'border-input')
+                    }
+                    aria-hidden
+                  >
+                    {on ? '✓' : ''}
+                  </span>
+                  {m.label}
+                </button>
+              );
+            })}
+          </div>
+          {!canManageBiz && <span className="block">Only an owner or manager can change this.</span>}
+        </CardContent>
+      </Card>
+
+      <Card className="mb-6">
+        <CardHeader>
           <CardTitle className="flex items-center gap-2"><Wallet className="h-5 w-5 text-primary" /> Shifts &amp; cash drawer</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4 text-sm text-muted-foreground">
@@ -372,9 +448,29 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
 
-      <div className="mb-3 flex items-center justify-between">
-        <h2 className="flex items-center gap-2 font-semibold"><StoreIcon className="h-5 w-5 text-primary" /> Stores</h2>
-        <Button size="sm" onClick={() => { setEditing(null); setForm(empty); setOpen(true); }}>
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div>
+          <h2 className="flex items-center gap-2 font-semibold"><StoreIcon className="h-5 w-5 text-primary" /> Stores</h2>
+          {sub?.currentPlan && (
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              {branchLimit === null
+                ? `${sub.currentPlan.name} plan: unlimited branches.`
+                : `${sub.activeStores} of ${branchLimit} branch${branchLimit === 1 ? '' : 'es'} open on your ${sub.currentPlan.name} plan.`}
+              {planFull && (
+                <>
+                  {' '}
+                  <Link href="/subscription" className="font-medium text-primary hover:underline">Choose a bigger plan</Link> to add more.
+                </>
+              )}
+            </p>
+          )}
+        </div>
+        <Button
+          size="sm"
+          disabled={planFull}
+          title={planFull ? 'Your plan’s branch limit is reached' : undefined}
+          onClick={() => { setEditing(null); setForm(empty); setOpen(true); }}
+        >
           <Plus className="h-4 w-4" /> Add store
         </Button>
       </div>
@@ -492,6 +588,23 @@ export default function SettingsPage() {
               </Select>
             </Field>
           </div>
+          {/* Changing currency relabels every amount; nothing is converted. */}
+          {biz.currency !== (user?.business?.currency ?? biz.currency) && (
+            <div role="alert" className="rounded-md border border-warning/40 bg-warning/10 p-3 text-sm">
+              <p className="font-medium text-foreground">
+                Amounts won&apos;t be converted
+              </p>
+              <p className="mt-1 text-muted-foreground">
+                Every price and total keeps its number and just shows in {biz.currency} instead of{' '}
+                {user?.business?.currency}: a product at {formatMoney(10, user?.business?.currency ?? 'USD')} becomes{' '}
+                {formatMoney(10, biz.currency)}. That includes past sales, reports and what customers owe. Change it
+                before adding products, or update your prices afterwards.
+              </p>
+              <p className="mt-1 text-muted-foreground">
+                Your subscription plans will show in {biz.currency === 'NPR' ? 'NPR, and you can pay online with eSewa, Khalti or connectIPS' : 'US dollars, paid by bank or QR'}.
+              </p>
+            </div>
+          )}
           <Field label="Time zone">
             <Select value={biz.timezone} onChange={(e) => setBiz((b) => ({ ...b, timezone: e.target.value }))}>
               {TIMEZONES.map((tz) => (

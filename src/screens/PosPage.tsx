@@ -16,7 +16,8 @@ import { useToast } from '@/components/ui/toast';
 import { apiError } from '@/lib/api';
 import { formatDate, formatDateTime, formatMoney } from '@/lib/format';
 import { cn } from '@/lib/utils';
-import { CartPanel, TENDERS, lineNet } from '@/components/pos/CartPanel';
+import { CartPanel, lineNet } from '@/components/pos/CartPanel';
+import { useAcceptedTenders } from '@/hooks/useAcceptedTenders';
 import { splitTax } from '@/lib/tax';
 import type { CartLine, DiscountType, PayMode } from '@/components/pos/CartPanel';
 import { OpenShiftModal } from '@/components/pos/OpenShiftModal';
@@ -117,7 +118,11 @@ export default function PosPage() {
     );
   const [cart, setCart] = useState<CartLine[]>([]);
   const [customerId, setCustomerId] = useState('');
-  const [paymentMethod, setPaymentMethod] = useState('CASH');
+  const [picked, setPaymentMethod] = useState('CASH');
+  // Only the tenders the shop takes. One the owner has just turned off falls
+  // back to cash rather than going out on the sale.
+  const tenders = useAcceptedTenders();
+  const paymentMethod = tenders.some((t) => t.value === picked) ? picked : 'CASH';
   // Pay in full now, leave it all on credit, or pay part now (rest to credit).
   const [payMode, setPayMode] = useState<PayMode>('full');
   const [amountPaid, setAmountPaid] = useState(0);
@@ -498,9 +503,9 @@ export default function PosPage() {
           // Credit sales have no tender to cycle.
           if (payMode === 'credit') break;
           e.preventDefault();
-          setPaymentMethod((m) => {
-            const i = TENDERS.findIndex((t) => t.value === m);
-            return TENDERS[(i + 1) % TENDERS.length].value;
+          setPaymentMethod(() => {
+            const i = tenders.findIndex((t) => t.value === paymentMethod);
+            return tenders[(i + 1) % tenders.length].value;
           });
           break;
       }
@@ -1130,6 +1135,7 @@ export default function PosPage() {
               onDiscountTypeChange={setDiscountType}
               payMode={payMode}
               onPayModeChange={setPayMode}
+              tenders={tenders}
               paymentMethod={paymentMethod}
               onPaymentMethodChange={setPaymentMethod}
               amountPaid={amountPaid}

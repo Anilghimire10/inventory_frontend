@@ -2,7 +2,7 @@
 
 export type UserRole = 'OWNER' | 'MANAGER' | 'CASHIER' | 'STOCK_KEEPER';
 export type BusinessType = 'GROCERY' | 'PHARMACY' | 'RETAIL' | 'OTHER';
-export type PaymentMethod = 'CASH' | 'CARD' | 'MOBILE' | 'CREDIT' | 'MIXED';
+export type PaymentMethod = 'CASH' | 'CARD' | 'MOBILE' | 'KHALTI' | 'CONNECTIPS' | 'CREDIT' | 'MIXED';
 export type SaleStatus =
   | 'COMPLETED'
   | 'HELD'
@@ -40,6 +40,18 @@ export interface Business {
   shiftBlindClose?: boolean;
   /** A drawer off by more than this needs a note to close. Null: never. Decimal string. */
   shiftVarianceNoteOver?: string | null;
+  /** The tenders this shop takes; cash is always among them. */
+  acceptedTenders?: SettleMethod[];
+}
+
+/** GET /business/setup -- each of a new shop's first steps, true once done. */
+export interface BusinessSetup {
+  products: boolean;
+  stock: boolean;
+  /** Changed from the Cash / Card / Mobile every shop starts with. */
+  paymentMethods: boolean;
+  staff: boolean;
+  sale: boolean;
 }
 
 /** Who a shop contacts to renew (the API's SUPPORT_EMAIL / SUPPORT_PHONE). */
@@ -369,7 +381,7 @@ export interface Sale extends SaleListItem {
 }
 
 /** Tenders a refund (or a balance payment) can move on. */
-export type SettleMethod = 'CASH' | 'CARD' | 'MOBILE';
+export type SettleMethod = 'CASH' | 'CARD' | 'MOBILE' | 'KHALTI' | 'CONNECTIPS';
 
 /** GET /sales/:id/return-quote — what a return would hand back, before it is made. */
 export interface ReturnQuote {
@@ -943,6 +955,99 @@ export interface SubscriptionOverview {
   periodStart: string;
   graceDays: number;
   payments: SubscriptionPaymentRow[];
+  /** How to pay by hand, from the admin panel's Settings: blank until set there. */
+  payment: SubscriptionPaymentInfo;
+  /** "I've paid" reports, newest first; at most one is pending. */
+  claims: PaymentClaim[];
+  /** The plans to choose from, in the order the platform set. */
+  plans: SubscriptionPlan[];
+  /** The plan the shop is on; null on a trial, or when its plan was removed. */
+  currentPlan: SubscriptionPlan | null;
+  /** Branches open now: a plan allowing fewer can't be chosen. */
+  activeStores: number;
+  /** Pay online. No gateways: not offered (none set up, or no plans). */
+  online: {
+    gateways: { id: OnlineGateway; label: string; test: boolean }[];
+    currency: string;
+  };
+}
+
+/** The price, where to send money (with a QR code if there is one), and what to write. */
+export interface SubscriptionPaymentInfo {
+  price: string | null;
+  instructions: string | null;
+  methods: { label: string; details: string; qrUrl: string | null }[];
+}
+
+export type OnlineGateway = 'ESEWA' | 'KHALTI' | 'CONNECTIPS';
+
+/** A subscription plan (the platform's Settings -> Plans). */
+export interface SubscriptionPlan {
+  id: string;
+  name: string;
+  description: string | null;
+  /** What's included, one short line each. */
+  features: string[];
+  /** Branches allowed open; null is unlimited. */
+  maxStores: number | null;
+  /**
+   * What the prices are in, for this shop: NPR, or USD for a shop keeping
+   * its books in another currency (where the plan has dollar prices).
+   */
+  currency: 'NPR' | 'USD';
+  /** Shortest first, of 1, 3 and 12 months: a length not sold is absent. */
+  prices: { months: number; amount: number }[];
+}
+
+/** How money reached the platform (the API's SubscriptionPaymentMethod). */
+export type SubscriptionPaymentMethod = 'CASH' | 'BANK' | 'ESEWA' | 'KHALTI' | 'CONNECTIPS' | 'OTHER';
+
+/** "I've paid": a payment the shop reported, for an admin to check and confirm. */
+export interface PaymentClaim {
+  id: string;
+  amount: number;
+  currency: string;
+  method: SubscriptionPaymentMethod;
+  reference: string | null;
+  months: number | null;
+  planId: string | null;
+  planName: string | null;
+  note: string | null;
+  proofUrl: string | null;
+  status: 'PENDING' | 'CONFIRMED' | 'REJECTED' | 'CANCELLED';
+  /** Why an admin couldn't confirm it. */
+  rejectReason: string | null;
+  submittedByName: string;
+  createdAt: string;
+  reviewedAt: string | null;
+}
+
+export interface CreatePaymentClaimBody {
+  amount: number;
+  method: SubscriptionPaymentMethod;
+  reference?: string;
+  months?: number;
+  planId?: string;
+  note?: string;
+  proofUrl?: string;
+}
+
+/** POST /subscription/online: post this form to eSewa, or go to Khalti's page. */
+export type OnlinePaymentStart =
+  | { id: string; kind: 'form'; action: string; fields: Record<string, string> }
+  | { id: string; kind: 'redirect'; url: string };
+
+/** Where an online payment stands, from the gateway itself. */
+export interface OnlinePaymentStatus {
+  id: string;
+  status: 'STARTED' | 'COMPLETED' | 'FAILED';
+  gateway: OnlineGateway;
+  months: number;
+  amount: number;
+  currency: string;
+  failReason: string | null;
+  /** The new end date, once completed. */
+  paidUntil: string | null;
 }
 
 export interface SubscriptionPaymentRow {
@@ -955,6 +1060,8 @@ export interface SubscriptionPaymentRow {
   reference: string | null;
   periodFrom: string;
   periodTo: string;
+  /** The plan it paid for, by its name then; null before plans existed. */
+  planName: string | null;
 }
 
 /** Everything a printed subscription receipt shows. */

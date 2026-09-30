@@ -27,7 +27,7 @@ import { useToast } from '@/components/ui/toast';
 import { Hint } from '@/components/ui/tooltip';
 import { apiError } from '@/lib/api';
 import { formatMoney, formatDate } from '@/lib/format';
-import { SETTLE_METHODS } from '@/lib/payment-methods';
+import { useAcceptedTenders } from '@/hooks/useAcceptedTenders';
 import { TillPicker, useTillChoice } from '@/components/TillPicker';
 import { cn } from '@/lib/utils';
 
@@ -652,6 +652,7 @@ function PayDialog({
 }) {
   const [amount, setAmount] = useState(target.max);
   const [method, setMethod] = useState<PaymentMethod>('CASH');
+  const tenders = useAcceptedTenders();
   // Only customer payments land in a till; a supplier is paid from elsewhere.
   const till = useTillChoice(storeId, method, target.kind === 'customer');
   return (
@@ -683,7 +684,7 @@ function PayDialog({
         </Field>
         <Field label="Paid by">
           <Select value={method} onChange={(e) => setMethod(e.target.value as PaymentMethod)}>
-            {SETTLE_METHODS.map((m) => (
+            {tenders.map((m) => (
               <option key={m.value} value={m.value}>{m.label}</option>
             ))}
           </Select>

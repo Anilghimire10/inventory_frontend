@@ -7,6 +7,7 @@ import { Field } from '@/components/ui/label';
 import { Hint, Tooltip } from '@/components/ui/tooltip';
 import { formatMoney } from '@/lib/format';
 import { countTotal, denominationsFor } from '@/lib/cash';
+import { TENDER_LABEL } from '@/lib/payment-methods';
 import type { CloseShiftBody } from '@/api';
 import type { ShiftReport } from '@/types';
 import { cn } from '@/lib/utils';
@@ -115,7 +116,7 @@ export function CloseShiftModal({
           {shift.byTender.map((t) => (
             <Row
               key={t.method}
-              label={`${t.method} (${t.count})`}
+              label={`${TENDER_LABEL[t.method] ?? t.method} (${t.count})`}
               value={formatMoney(t.amount)}
             />
           ))}
