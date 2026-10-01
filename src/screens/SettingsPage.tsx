@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, Pencil, Store as StoreIcon, Building2, Download, Percent, Power, RotateCcw, Wallet, CalendarClock, CreditCard } from 'lucide-react';
 import { BusinessApi, StoresApi, SubscriptionApi } from '@/api';
-import type { SettleMethod, Store } from '@/types';
+import type { BusinessType, SettleMethod, Store } from '@/types';
 import { SETTLE_METHODS, acceptedTenders } from '@/lib/payment-methods';
 import { useStores } from '@/hooks/useStores';
 import { useAuth } from '@/auth/AuthContext';
@@ -26,6 +26,15 @@ import { TIMEZONES, DEFAULT_TIMEZONE } from '@/lib/timezones';
 import { formatMoney } from '@/lib/format';
 
 const empty = { name: '', address: '', phone: '' };
+
+// The same words the sign-up form uses for each type.
+const BUSINESS_TYPE_LABEL: Record<BusinessType, string> = {
+  GROCERY: 'Grocery',
+  PHARMACY: 'Pharmacy',
+  RETAIL: 'Retail',
+  OTHER: 'Other',
+};
+const businessTypeLabel = (t?: string | null) => (t ? (BUSINESS_TYPE_LABEL[t as BusinessType] ?? t) : '—');
 type Form = typeof empty;
 
 export default function SettingsPage() {
@@ -233,7 +242,7 @@ export default function SettingsPage() {
         </CardHeader>
         <CardContent className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2 md:grid-cols-4">
           <div><div className="text-muted-foreground">Name</div><div className="font-medium">{user?.business?.name}</div></div>
-          <div><div className="text-muted-foreground">Type</div><div className="font-medium">{user?.business?.type}</div></div>
+          <div><div className="text-muted-foreground">Type</div><div className="font-medium">{businessTypeLabel(user?.business?.type)}</div></div>
           <div><div className="text-muted-foreground">Sells as</div><div className="font-medium">{user?.business?.salesModel === 'WHOLESALE' ? 'Wholesaler' : 'Retailer'}</div></div>
           <div><div className="text-muted-foreground">Currency</div><div className="font-medium">{user?.business?.currency}</div></div>
           <div><div className="text-muted-foreground">PAN / VAT</div><div className="font-medium">{user?.business?.taxId || '—'}</div></div>
@@ -551,10 +560,7 @@ export default function SettingsPage() {
           <CardTitle>Appearance</CardTitle>
         </CardHeader>
         <CardContent className="text-sm text-muted-foreground">
-          Use the sun/moon toggle in the top bar to switch light/dark mode.
-          To change the brand color across the whole app, edit the
-          <code className="mx-1 rounded bg-muted px-1.5 py-0.5 text-xs">--primary</code>
-          value in <code className="rounded bg-muted px-1.5 py-0.5 text-xs">src/index.css</code>.
+          Use the sun/moon button in the top bar to switch between light and dark mode.
         </CardContent>
       </Card>
 
@@ -621,7 +627,7 @@ export default function SettingsPage() {
               placeholder="e.g. 301234567" />
           </Field>
           <p className="text-xs text-muted-foreground">
-            Business type: <span className="font-medium">{user?.business?.type}</span>
+            Business type: <span className="font-medium">{businessTypeLabel(user?.business?.type)}</span>
           </p>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setBizOpen(false)}>Cancel</Button>

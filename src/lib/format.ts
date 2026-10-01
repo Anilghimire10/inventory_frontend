@@ -62,6 +62,13 @@ export function formatNumber(value: number | null | undefined): string {
   return numberFormatter.format(n);
 }
 
+/** "1 customer", "3 customers". Pass `many` for irregular plurals. */
+export function plural(count: number | null | undefined, one: string, many = `${one}s`): string {
+  const n = count ?? 0;
+  // Decide on the number as shown: 1.04 kg prints as "1", so it reads "1 unit".
+  return `${formatNumber(n)} ${Math.round(n * 10) / 10 === 1 ? one : many}`;
+}
+
 export function formatDate(value: string | Date | null | undefined): string {
   if (!value) return '—';
   const d = typeof value === 'string' ? new Date(value) : value;

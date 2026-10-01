@@ -48,19 +48,23 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Hint } from '@/components/ui/tooltip';
-import { formatMoney, formatNumber, formatDateTime } from '@/lib/format';
+import { formatMoney, formatNumber, formatDateTime, plural } from '@/lib/format';
 import { exportCsv } from '@/lib/csv';
 import { cn } from '@/lib/utils';
 
 const PRIMARY = 'hsl(var(--primary))';
-const PALETTE = [
-  'hsl(var(--primary))',
-  'hsl(var(--chart-1, 25 80% 50%))',
-  'hsl(var(--chart-2, 142 70% 45%))',
-  'hsl(var(--chart-3, 25 95% 53%))',
-  'hsl(var(--chart-4, 262 80% 60%))',
-  'hsl(var(--muted-foreground))',
-];
+// Fixed order, never cycled: past eight, slices fold into "Other".
+const PALETTE = Array.from({ length: 8 }, (_, i) => `hsl(var(--chart-${i + 1}))`);
+const OTHER_COLOR = 'hsl(var(--muted-foreground))';
+
+/** Biggest categories first (the API sorts them); the tail past what the palette can tell apart becomes "Other". */
+function foldCategories(rows: Analytics['byCategory']): Analytics['byCategory'] {
+  if (rows.length <= PALETTE.length) return rows;
+  const head = rows.slice(0, PALETTE.length - 1);
+  const tail = rows.slice(PALETTE.length - 1);
+  const sum = (k: 'revenue' | 'units' | 'share') => Math.round(tail.reduce((s, r) => s + r[k], 0) * 100) / 100;
+  return [...head, { category: `Other (${tail.length})`, revenue: sum('revenue'), units: sum('units'), share: sum('share') }];
+}
 
 type RangeKey = 'today' | '7d' | '30d' | 'month' | 'all' | 'custom';
 
@@ -465,7 +469,9 @@ function ShiftHistory({
           {storeId ? 'No shifts at this store yet.' : 'No shifts closed yet.'}
         </p>
       ) : (
-        <div className="overflow-x-auto">
+        // `relative` keeps the absolutely-positioned sr-only header inside
+        // this scroller; without it the page scrolls sideways on phones.
+        <div className="relative overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted-foreground">
@@ -611,7 +617,7 @@ function AnalyticsBody({ data, orderValue }: { data: Analytics; orderValue: numb
         <KpiCard icon={Receipt} label="Bills"
           hint="How many sales were rung up. Held carts don't count until they're completed."
           value={formatNumber(t.transactions)}
-          sub={`${formatNumber(t.units)} items sold`} />
+          sub={`${plural(t.units, 'item')} sold`} />
         <KpiCard icon={ShoppingBag} label="Average bill"
           hint="Sales ÷ bills. Suggesting an add-on or a bundle at the counter is the usual way to raise it."
           value={formatMoney(orderValue)}
@@ -749,21 +755,21 @@ function MoneyLeaks({ data, grossSales }: { data: Analytics['money']; grossSales
       label: 'Discounts given',
       hint: 'Line and bill discounts taken off at the till. Already out of your sales figure.',
       value: formatMoney(data.discounts.total),
-      sub: `${data.discounts.pct}% off · on ${formatNumber(data.discounts.salesWithDiscount)} bills`,
+      sub: `${data.discounts.pct}% off · on ${plural(data.discounts.salesWithDiscount, 'bill')}`,
     },
     {
       icon: Undo2,
       label: 'Refunds paid',
       hint: 'Cash handed back to customers on returns in this period. Returns on credit sales cancel what the customer owed instead, so they aren’t counted here.',
       value: formatMoney(data.refunds.total),
-      sub: `${formatNumber(data.refunds.count)} refunds · ${formatNumber(data.refunds.unitsReturned)} units back · ${data.refunds.returnRate}% of bills`,
+      sub: `${plural(data.refunds.count, 'refund')} · ${plural(data.refunds.unitsReturned, 'unit')} back · ${data.refunds.returnRate}% of bills`,
     },
     {
       icon: PackageX,
       label: 'Stock written off',
       hint: 'Stock removed by hand as damaged, expired, stolen or missing at a count, valued at today’s cost price. It is taken off net profit.',
       value: formatMoney(data.writeOffs.value),
-      sub: `${formatNumber(data.writeOffs.units)} units`,
+      sub: plural(data.writeOffs.units, 'unit'),
     },
     {
       icon: HandCoins,
@@ -771,7 +777,7 @@ function MoneyLeaks({ data, grossSales }: { data: Analytics['money']; grossSales
       hint: 'Cash paid out of the drawer as an expense (Cash in/out → Expense). Taken off net profit. Owner drawings aren’t a cost, so they are shown separately.',
       value: formatMoney(data.expenses.total),
       sub:
-        `${formatNumber(data.expenses.count)} payouts` +
+        plural(data.expenses.count, 'payout') +
         (data.ownerDrawings > 0 ? ` · owner took ${formatMoney(data.ownerDrawings)}` : ''),
     },
   ];
@@ -805,7 +811,7 @@ function MoneyLeaks({ data, grossSales }: { data: Analytics['money']; grossSales
           <span className="text-muted-foreground">Written off as:</span>
           {data.writeOffs.byReason.map((r) => (
             <span key={r.reason} className="rounded-full bg-muted px-2 py-0.5">
-              {REASON_LABEL[r.reason] ?? r.reason} · {formatNumber(r.units)} units · {formatMoney(r.value)}
+              {REASON_LABEL[r.reason] ?? r.reason} · {plural(r.units, 'unit')} · {formatMoney(r.value)}
             </span>
           ))}
         </div>
@@ -944,6 +950,8 @@ function SalesPerformance({ data }: { data: { date: string; revenue: number; ord
 
 function CategoryDonut({ data }: { data: Analytics['byCategory'] }) {
   const [active, setActive] = useState<number | null>(null);
+  const rows = foldCategories(data);
+  const color = (i: number) => (rows !== data && i === rows.length - 1 ? OTHER_COLOR : PALETTE[i]);
   return (
     <>
       <SectionHeader title="Sales by category"
@@ -955,11 +963,11 @@ function CategoryDonut({ data }: { data: Analytics['byCategory'] }) {
           <>
             <ResponsiveContainer width="100%" height={180}>
               <PieChart>
-                <Pie data={data} dataKey="revenue" nameKey="category" innerRadius={50} outerRadius={75}
+                <Pie data={rows} dataKey="revenue" nameKey="category" innerRadius={50} outerRadius={75}
                   paddingAngle={2} stroke="hsl(var(--background))"
                   onMouseEnter={(_, i) => setActive(i)} onMouseLeave={() => setActive(null)}>
-                  {data.map((_, i) => (
-                    <Cell key={i} fill={PALETTE[i % PALETTE.length]}
+                  {rows.map((_, i) => (
+                    <Cell key={i} fill={color(i)}
                       opacity={active == null || active === i ? 1 : 0.35} />
                   ))}
                 </Pie>
@@ -967,10 +975,10 @@ function CategoryDonut({ data }: { data: Analytics['byCategory'] }) {
               </PieChart>
             </ResponsiveContainer>
             <div className="mt-4 space-y-2">
-              {data.map((c, i) => (
+              {rows.map((c, i) => (
                 <div key={c.category} className="flex items-center gap-2 text-sm"
                   onMouseEnter={() => setActive(i)} onMouseLeave={() => setActive(null)}>
-                  <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: PALETTE[i % PALETTE.length] }} />
+                  <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: color(i) }} />
                   <span className="flex-1 truncate">{c.category}</span>
                   <span className="font-medium">{c.share}%</span>
                   <span className="text-xs text-muted-foreground">{formatMoney(c.revenue)}</span>
@@ -1028,12 +1036,12 @@ function PaymentMethods({ data, orders }: { data: Analytics['byPaymentMethod']; 
                   <div className="h-full rounded-full bg-primary" style={{ width: `${m.share}%` }} />
                 </div>
                 <p className="mt-0.5 text-xs text-muted-foreground">
-                  {formatMoney(m.total)} · {m.count} bills
+                  {formatMoney(m.total)} · {plural(m.count, 'bill')}
                 </p>
               </div>
             ))}
             <p className="border-t border-border pt-3 text-xs text-muted-foreground">
-              Total: {orders} bills
+              Total: {plural(orders, 'bill')}
             </p>
           </>
         )}
@@ -1191,7 +1199,7 @@ function InventoryPerformance({ data }: { data: Analytics['inventory'] }) {
     {
       label: 'Days of stock left',
       hint: 'How long the stock you hold would last if you keep selling at this period’s pace: stock value at cost ÷ cost of goods sold per day. Under a week is tight; over three months is a lot of cash tied up.',
-      value: cover == null ? '—' : `${formatNumber(cover)} days`,
+      value: cover == null ? '—' : plural(cover, 'day'),
       sub: coverNote,
       warn: cover != null && (cover < 7 || cover > 90),
     },

@@ -26,7 +26,7 @@ import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
 import { useToast } from '@/components/ui/toast';
 import { Hint } from '@/components/ui/tooltip';
 import { apiError } from '@/lib/api';
-import { formatMoney, formatDate } from '@/lib/format';
+import { formatMoney, formatDate, plural } from '@/lib/format';
 import { useAcceptedTenders } from '@/hooks/useAcceptedTenders';
 import { TillPicker, useTillChoice } from '@/components/TillPicker';
 import { cn } from '@/lib/utils';
@@ -156,8 +156,8 @@ export default function CreditPage() {
           value={formatMoney(receivablesTotal)}
           sub={
             businessWide
-              ? `${summary.data?.customersOwing ?? 0} customers who buy here — full balances`
-              : `${summary.data?.customersOwing ?? 0} customers owe you`
+              ? `${plural(summary.data?.customersOwing, 'customer')} who buy here — full balances`
+              : `${plural(summary.data?.customersOwing, 'customer')} ${summary.data?.customersOwing === 1 ? 'owes' : 'owe'} you`
           }
           icon={ArrowDownLeft}
           tone="success"
@@ -168,8 +168,8 @@ export default function CreditPage() {
           value={formatMoney(payablesTotal)}
           sub={
             refundsDue > 0
-              ? `${summary.data?.suppliersOwed ?? 0} suppliers to pay · ${formatMoney(refundsDue)} owed back to you`
-              : `${summary.data?.suppliersOwed ?? 0} suppliers to pay`
+              ? `${plural(summary.data?.suppliersOwed, 'supplier')} to pay · ${formatMoney(refundsDue)} owed back to you`
+              : `${plural(summary.data?.suppliersOwed, 'supplier')} to pay`
           }
           icon={ArrowUpRight}
           tone="destructive"

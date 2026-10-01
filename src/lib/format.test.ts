@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { currencySymbol, formatDate, formatMoney, formatTimeAgo, setCurrency } from './format';
+import { currencySymbol, formatDate, formatMoney, formatTimeAgo, plural, setCurrency } from './format';
 
 // Intl output varies with the host's locale, so assert on behaviour that must
 // hold anywhere rather than on exact strings.
@@ -78,5 +78,23 @@ describe('formatTimeAgo', () => {
 
   it('shows a dash for nothing', () => {
     expect(formatTimeAgo(null)).toBe('—');
+  });
+});
+
+describe('plural', () => {
+  it('uses the singular only for exactly one', () => {
+    expect(plural(1, 'customer')).toBe('1 customer');
+    expect(plural(0, 'customer')).toBe('0 customers');
+    expect(plural(3, 'customer')).toBe('3 customers');
+  });
+
+  it('takes an irregular plural and reads nothing as zero', () => {
+    expect(plural(2, 'branch', 'branches')).toBe('2 branches');
+    expect(plural(undefined, 'bill')).toBe('0 bills');
+  });
+
+  it('agrees with the rounded number it prints for weighed goods', () => {
+    expect(plural(1.04, 'unit')).toMatch(/ unit$/);
+    expect(plural(1.5, 'unit')).toMatch(/ units$/);
   });
 });

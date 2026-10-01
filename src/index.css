@@ -52,6 +52,17 @@
     --border: 214 32% 91%;
     --input: 214 32% 91%;
     --ring: 246 69% 47%;
+
+    /* Chart series, in this fixed order. Neighbours stay apart for
+       colour-blind readers; checked against the light card surface. */
+    --chart-1: 213 68% 50%;
+    --chart-2: 17 82% 56%;
+    --chart-3: 159 73% 40%;
+    --chart-4: 41 100% 46%;
+    --chart-5: 337 70% 70%;
+    --chart-6: 120 100% 26%;
+    --chart-7: 249 48% 44%;
+    --chart-8: 0 73% 59%;
   }
 
   .dark {
@@ -83,6 +94,16 @@
     --border: 217 33% 20%;
     --input: 217 33% 22%;
     --ring: 246 80% 75%;
+
+    /* Same eight hues, stepped for the dark card surface. */
+    --chart-1: 213 77% 56%;
+    --chart-2: 17 70% 50%;
+    --chart-3: 159 73% 36%;
+    --chart-4: 40 100% 39%;
+    --chart-5: 338 61% 58%;
+    --chart-6: 120 100% 26%;
+    --chart-7: 247 69% 72%;
+    --chart-8: 0 72% 65%;
   }
 }
 

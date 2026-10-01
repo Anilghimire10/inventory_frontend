@@ -29,7 +29,7 @@ import { PageHeader, LoadingBlock, EmptyState, ErrorState } from '@/components/u
 import { useStoreLabel } from '@/components/StorePicker';
 import { useStoreScope } from '@/store/StoreContext';
 import { Card } from '@/components/ui/card';
-import { formatMoney } from '@/lib/format';
+import { formatMoney, plural } from '@/lib/format';
 import { useAuth } from '@/auth/AuthContext';
 import { can } from '@/lib/permissions';
 import { GettingStarted } from '@/components/GettingStarted';
@@ -55,8 +55,8 @@ export default function DashboardPage() {
         title={`Welcome, ${user?.name?.split(' ')[0] ?? ''}`}
         description={
           storeLabel
-            ? `Here's how ${storeLabel === 'all stores' ? 'your business' : storeLabel} is doing today.`
-            : "Here's how your business is doing today."
+            ? `Here's how ${storeLabel === 'all stores' ? 'your business' : storeLabel} is doing.`
+            : "Here's how your business is doing."
         }
       />
 
@@ -79,7 +79,7 @@ export default function DashboardPage() {
               <Stat
                 label="Total Sales"
                 value={formatMoney(data.totalSalesTotal ?? 0)}
-                sub={`${data.totalSalesCount} transactions`}
+                sub={`${plural(data.totalSalesCount, 'transaction')}, all time`}
                 icon={Banknote}
                 tone="primary"
               />
@@ -87,7 +87,7 @@ export default function DashboardPage() {
               <Stat
                 label="Total Sales"
                 value={String(data.totalSalesCount)}
-                sub="transactions"
+                sub={data.totalSalesCount === 1 ? 'transaction, all time' : 'transactions, all time'}
                 icon={Receipt}
                 tone="primary"
               />
@@ -112,7 +112,7 @@ export default function DashboardPage() {
                 sub={
                   (data.creditOverdue ?? 0) > 0
                     ? `${formatMoney(data.creditOverdue ?? 0)} over 30 days`
-                    : `${data.creditCustomersOwing ?? 0} customers on credit`
+                    : `${plural(data.creditCustomersOwing, 'customer')} on credit`
                 }
                 icon={HandCoins}
                 tone={(data.creditOverdue ?? 0) > 0 ? 'warning' : 'default'}
