@@ -3,7 +3,7 @@ import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, ClipboardList, Trash2, Pencil, RotateCcw, PackageCheck } from 'lucide-react';
 import { ProductsApi, PurchasesApi, SuppliersApi } from '@/api';
-import type { Product, Purchase, Supplier } from '@/types';
+import type { Product, Purchase, SettleMethod, Supplier } from '@/types';
 import { useActiveStores } from '@/hooks/useStores';
 import { PageHeader, LoadingBlock, EmptyState, ErrorState } from '@/components/ui/misc';
 import { Button } from '@/components/ui/button';
@@ -22,6 +22,7 @@ import { apiError } from '@/lib/api';
 import { useAuth } from '@/auth/AuthContext';
 import { can } from '@/lib/permissions';
 import { formatMoney, formatDate } from '@/lib/format';
+import { SETTLE_METHODS } from '@/lib/payment-methods';
 import { remainingQty } from '@/lib/decimal';
 import { hasDuplicateSerials, parseSerials, serialsInvalid } from '@/lib/serials';
 
@@ -47,7 +48,10 @@ type StoreOption = { id: string; name: string; isActive: boolean };
 interface Line {
   productId: string;
   quantity: number;
+  /** Before VAT. */
   costPrice: number;
+  /** VAT % the supplier charged on top; 0 unless "Supplier charged VAT" is ticked. */
+  taxRate: number;
   batchNumber: string;
   expiryDate: string;
   /** Raw serial-entry text, kept as typed; parsed into a list only for validation/submit. */
@@ -80,6 +84,13 @@ export default function PurchasesPage() {
   const canPay = !!user && can.paySuppliers(user.role);
   const [payMode, setPayMode] = useState<'full' | 'credit' | 'partial'>('full');
   const [amountPaid, setAmountPaid] = useState(0);
+  const [payMethod, setPayMethod] = useState<SettleMethod>('CASH');
+  // A VAT bill: each line carries its product's VAT on top of the cost, and
+  // the Tax report counts it as VAT paid. Off for a supplier who charges none.
+  const [vatOn, setVatOn] = useState(false);
+  const taxEnabled = user?.business?.taxEnabled ?? true;
+  const vatRateOf = (p: Product | undefined) =>
+    taxEnabled && p?.isTaxable ? Number(p.taxRate) || 0 : 0;
 
   // Inline "create new product" within the receive-stock flow
   const newProductEmpty = { name: '', sku: '', unit: 'pcs', costPrice: 0, sellingPrice: 0 };
@@ -105,10 +116,17 @@ export default function PurchasesPage() {
     queryFn: () => PurchasesApi.list({ page, limit: 20 }),
   });
 
-  const total = useMemo(
-    () => lines.reduce((s, l) => s + l.quantity * l.costPrice, 0),
-    [lines],
-  );
+  // Mirrors purchaseTotals on the server: VAT per line, rounded once.
+  const { subtotal, vat, total } = useMemo(() => {
+    const round2 = (n: number) => Math.round(n * 100) / 100;
+    const net = lines.reduce((s, l) => s + l.quantity * l.costPrice, 0);
+    const tax = lines.reduce((s, l) => s + (l.quantity * l.costPrice * l.taxRate) / 100, 0);
+    return { subtotal: round2(net), vat: round2(tax), total: round2(net) + round2(tax) };
+  }, [lines]);
+  const toggleVat = (on: boolean) => {
+    setVatOn(on);
+    setLines((ls) => ls.map((l) => ({ ...l, taxRate: on ? vatRateOf(lineProducts[l.productId]) : 0 })));
+  };
 
   const productOf = (id: string): Product | undefined => lineProducts[id];
 
@@ -146,10 +164,12 @@ export default function PurchasesPage() {
             : payMode === 'credit'
               ? 0
               : Math.min(Math.max(amountPaid, 0), total),
+        ...(canPay && payMode !== 'credit' ? { paymentMethod: payMethod } : {}),
         items: lines.map((l) => ({
           productId: l.productId,
           quantity: l.quantity,
           costPrice: l.costPrice,
+          taxRate: l.taxRate,
           batchNumber: l.batchNumber || undefined,
           expiryDate: l.expiryDate || undefined,
           serials: productOf(l.productId)?.trackSerials ? parseSerials(l.serialsText) : undefined,
@@ -177,6 +197,8 @@ export default function PurchasesPage() {
     setLineProducts({});
     setPayMode('full');
     setAmountPaid(0);
+    setPayMethod('CASH');
+    setVatOn(false);
     setAttachedStore(null);
     setOpen(true);
   };
@@ -197,11 +219,14 @@ export default function PurchasesPage() {
           productId: it.productId,
           quantity: Number(it.quantity),
           costPrice: Number(it.costPrice),
+          taxRate: Number(it.taxRate ?? 0),
           batchNumber: it.batchNumber ?? '',
           expiryDate: it.expiryDate ? it.expiryDate.slice(0, 10) : '',
           serialsText: '',
         })),
       );
+      setVatOn((p.items ?? []).some((it) => Number(it.taxRate ?? 0) > 0));
+      setPayMethod('CASH');
       const paid = Number(p.amountPaid);
       const tot = Number(p.total);
       if (paid >= tot) setPayMode('full');
@@ -312,7 +337,15 @@ export default function PurchasesPage() {
     setLineProducts((m) => ({ ...m, [product.id]: product }));
     setLines((ls) => [
       ...ls,
-      { productId: product.id, quantity: 1, costPrice: Number(product.costPrice), batchNumber: '', expiryDate: '', serialsText: '' },
+      {
+        productId: product.id,
+        quantity: 1,
+        costPrice: Number(product.costPrice),
+        taxRate: vatOn ? vatRateOf(product) : 0,
+        batchNumber: '',
+        expiryDate: '',
+        serialsText: '',
+      },
     ]);
   };
 
@@ -505,14 +538,19 @@ export default function PurchasesPage() {
                           updateLine(i, { quantity: qtyStep === '1' ? Math.round(raw) : raw });
                         }} />
                     </Field>
-                    <Field label="Unit cost">
+                    <Field label={l.taxRate > 0 ? `Unit cost (+${l.taxRate}% VAT)` : 'Unit cost'}>
                       <Input type="number" step="0.01" min="0" value={l.costPrice}
                         onChange={(e) => updateLine(i, { costPrice: Number(e.target.value) })} />
                     </Field>
-                    <Field label="Batch #">
-                      <Input value={l.batchNumber} onChange={(e) => updateLine(i, { batchNumber: e.target.value })} />
-                    </Field>
-                    <Field label="Expiry">
+                    {/* Only batch-tracked products keep batches: a sale draws
+                        those down. Any other product's expiry is kept on the
+                        product itself. */}
+                    {product?.trackBatches && (
+                      <Field label="Batch #">
+                        <Input value={l.batchNumber} onChange={(e) => updateLine(i, { batchNumber: e.target.value })} />
+                      </Field>
+                    )}
+                    <Field label={product?.trackBatches ? 'Expiry' : 'Expiry (optional)'}>
                       <Input type="date" value={l.expiryDate} onChange={(e) => updateLine(i, { expiryDate: e.target.value })} />
                     </Field>
                   </div>
@@ -543,6 +581,25 @@ export default function PurchasesPage() {
           )}
 
           <div className="space-y-3 border-t border-border pt-3">
+            {taxEnabled && (
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" className="h-4 w-4" checked={vatOn} onChange={(e) => toggleVat(e.target.checked)} />
+                Supplier charged VAT
+                <span className="text-xs text-muted-foreground">— enter costs before VAT</span>
+              </label>
+            )}
+            {vat > 0 && (
+              <>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">Goods</span>
+                  <span>{formatMoney(subtotal)}</span>
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">VAT</span>
+                  <span>{formatMoney(vat)}</span>
+                </div>
+              </>
+            )}
             <div className="flex items-center justify-between">
               <span className="text-sm text-muted-foreground">Total cost</span>
               <span className="text-lg font-semibold">{formatMoney(total)}</span>
@@ -557,6 +614,15 @@ export default function PurchasesPage() {
                       <option value="partial">Partial payment now</option>
                     </Select>
                   </Field>
+                  {payMode !== 'credit' && (
+                    <Field label="Paid by">
+                      <Select value={payMethod} onChange={(e) => setPayMethod(e.target.value as SettleMethod)}>
+                        {SETTLE_METHODS.map((m) => (
+                          <option key={m.value} value={m.value}>{m.label}</option>
+                        ))}
+                      </Select>
+                    </Field>
+                  )}
                   {payMode === 'partial' && (
                     <Field label="Amount paid now">
                       <Input type="number" step="0.01" min="0" max={total} value={amountPaid}

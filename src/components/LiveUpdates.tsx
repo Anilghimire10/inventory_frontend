@@ -14,7 +14,8 @@ const STALE: Record<LiveTopic, QueryKey[]> = {
   stock: [['stock'], ['low-stock'], ['expiring'], ['movements'], ['serials'], ['reorder-suggestions'], ['products'], ['product'], ['dashboard']],
   catalog: [['products'], ['product'], ['variants'], ['categories'], ['taxes']],
   customers: [['customers'], ['credit'], ['dashboard']],
-  purchases: [['purchases'], ['suppliers'], ['reorder-suggestions'], ['credit']],
+  // A purchase moves cost prices and input VAT too.
+  purchases: [['purchases'], ['suppliers'], ['reorder-suggestions'], ['credit'], ['tax-report'], ['analytics'], ['dashboard']],
   shifts: [['shift-current'], ['shift-open'], ['shift-history'], ['shift-float']],
   notifications: [['notifications']],
   subscription: [['subscription']],

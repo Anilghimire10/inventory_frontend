@@ -136,6 +136,14 @@ export interface TaxReport {
   taxCollected: number;
   grossSales: number;
   byRate: { rate: number; taxableAmount: number; tax: number }[];
+  /** Input VAT: what suppliers charged on goods received in the period. */
+  purchases: {
+    taxableAmount: number;
+    taxPaid: number;
+    byRate: { rate: number; taxableAmount: number; tax: number }[];
+  };
+  /** VAT collected less VAT paid: what is owed for the period (negative is a credit). */
+  netTax: number;
 }
 
 export interface Product {
@@ -238,7 +246,7 @@ export interface StockItem {
   /** Decimal(12,3) — arrives as a string, so `Number()` it before any arithmetic. */
   quantity: string;
   reorderLevel: number;
-  product: { id: string; name: string; sku?: string | null; unit?: string; reorderLevel?: number; trackSerials?: boolean };
+  product: { id: string; name: string; sku?: string | null; unit?: string; reorderLevel?: number; trackSerials?: boolean; trackBatches?: boolean };
   store?: { id: string; name: string };
   effectiveReorderLevel?: number;
 }
@@ -506,7 +514,10 @@ export interface PurchaseLine {
   quantity: string;
   /** Decimal(12,3) — arrives as a string, so `Number()` it before any arithmetic. */
   returnedQty: string;
+  /** Before VAT. */
   costPrice: string;
+  /** VAT % the supplier charged on top of costPrice. */
+  taxRate?: string;
   batchNumber?: string | null;
   expiryDate?: string | null;
   product?: { id: string; name: string; sku?: string | null };

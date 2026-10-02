@@ -32,6 +32,11 @@ export function AdjustStockDialog({
   const [note, setNote] = useState('');
   // Serialised products: the units added or removed by this adjustment.
   const [adjustSerials, setAdjustSerials] = useState<string[]>([]);
+  // Batch-tracked products, stock added: the batch it goes into. Stock taken
+  // out comes from the earliest-expiring batch on its own.
+  const [batchNumber, setBatchNumber] = useState('');
+  const [expiryDate, setExpiryDate] = useState('');
+  const batchAdd = !!adjusting.product.trackBatches && delta > 0;
 
   // A serialised product names its units: whole numbers only, one serial each.
   const serialAdjust = !!adjusting.product.trackSerials;
@@ -48,12 +53,14 @@ export function AdjustStockDialog({
         reason,
         note: note || undefined,
         ...(serialAdjust ? { serials: adjustSerials } : {}),
+        ...(batchAdd ? { batchNumber: batchNumber.trim() || undefined, expiryDate: expiryDate || undefined } : {}),
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['stock'] });
       qc.invalidateQueries({ queryKey: ['low-stock'] });
       qc.invalidateQueries({ queryKey: ['movements'] });
       qc.invalidateQueries({ queryKey: ['serials'] });
+      qc.invalidateQueries({ queryKey: ['expiring'] });
       show('Stock adjusted');
       onClose();
     },
@@ -106,6 +113,19 @@ export function AdjustStockDialog({
               </p>
             )}
           </Field>
+        )}
+        {batchAdd && (
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Batch # (optional)">
+              <Input value={batchNumber} onChange={(e) => setBatchNumber(e.target.value)} />
+            </Field>
+            <Field label="Expiry (optional)">
+              <Input type="date" value={expiryDate} onChange={(e) => setExpiryDate(e.target.value)} />
+            </Field>
+          </div>
+        )}
+        {!!adjusting.product.trackBatches && delta < 0 && (
+          <p className="text-xs text-muted-foreground">Taken from the batch that expires first.</p>
         )}
         {serialAdjust && !Number.isInteger(delta) && (
           <p className="text-xs text-destructive">This product is counted in whole units.</p>

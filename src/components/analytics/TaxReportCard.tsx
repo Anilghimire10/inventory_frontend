@@ -9,8 +9,9 @@ import { exportCsv } from '@/lib/csv';
 import { cn } from '@/lib/utils';
 
 /**
- * VAT/tax collected over the selected range, split by rate — what a shop
- * copies onto its tax return. Zero-rated and exempt lines still count toward
+ * VAT/tax collected over the selected range, split by rate, less the VAT
+ * paid to suppliers on goods received — what a shop copies onto its tax
+ * return. Zero-rated and exempt lines still count toward
  * the taxable base, so `byRate` (rates above 0 only) can total less than
  * `taxableAmount`; the summary row is the authority, not the sum of the table.
  */
@@ -46,7 +47,7 @@ export function TaxReportCard({
         <div>
           <h2 className="font-semibold">Tax Report</h2>
           <p className="text-xs text-muted-foreground">
-            Tax collected on completed sales, {label}. Returned items are excluded.
+            Tax collected on completed sales and paid on purchases received, {label}. Returned items are excluded.
           </p>
         </div>
         <Button
@@ -80,6 +81,15 @@ export function TaxReportCard({
             <TaxFigure label="Taxable amount" value={data.taxableAmount} />
             <TaxFigure label="Tax collected" value={data.taxCollected} accent />
             <TaxFigure label="Gross sales" value={data.grossSales} />
+          </div>
+          <div className="grid grid-cols-1 gap-px border-t border-border bg-border sm:grid-cols-3">
+            <TaxFigure label="Purchases with VAT" value={data.purchases.taxableAmount} />
+            <TaxFigure label="VAT paid on purchases" value={data.purchases.taxPaid} />
+            <TaxFigure
+              label={data.netTax < 0 ? 'VAT credit carried' : 'Net VAT to pay'}
+              value={Math.abs(data.netTax)}
+              accent
+            />
           </div>
 
           {data.byRate.length === 0 ? (
