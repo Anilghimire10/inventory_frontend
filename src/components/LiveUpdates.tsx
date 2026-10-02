@@ -28,11 +28,15 @@ const ALL = Object.keys(STALE) as LiveTopic[];
 /** Leave the stream open this long after the tab is hidden: a quick switch away and back keeps it. */
 const HIDDEN_GRACE_MS = 60_000;
 
-function reload(qc: ReturnType<typeof useQueryClient>, topics: LiveTopic[]) {
+function reload(
+  qc: ReturnType<typeof useQueryClient>,
+  topics: LiveTopic[],
+  refetchType: 'active' | 'none' = 'active',
+) {
   const keys = new Map<string, QueryKey>();
   for (const t of topics) for (const k of STALE[t] ?? []) keys.set(JSON.stringify(k), k);
   // Only screens on show refetch now; the rest are marked stale for when they open.
-  for (const queryKey of keys.values()) void qc.invalidateQueries({ queryKey });
+  for (const queryKey of keys.values()) void qc.invalidateQueries({ queryKey, refetchType });
 }
 
 /**
@@ -58,8 +62,16 @@ export function LiveUpdates() {
       if (close) return;
       close = openLiveStream({
         onChange: ({ topics, origin }) => {
-          // This tab made the change and has reloaded for it already.
-          if (origin && origin === me) return;
+          // This tab made the change, and the screen that made it has
+          // refreshed itself -- but not every other screen the change
+          // touches. Skipping the event entirely left them cached as fresh
+          // (staleTime 30s): ring up a sale, open Sales, and it wasn't there
+          // until a reload. So mark them stale for when they open, without
+          // refetching what's on show a second time.
+          if (origin && origin === me) {
+            reload(qc, topics, 'none');
+            return;
+          }
           reload(qc, topics);
         },
         onStatus: (connected) => {

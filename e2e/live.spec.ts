@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { api, dropShop, makeShop, signIn, type TestShop } from './helpers';
+import { api, dropShop, ignorePrinting, makeShop, signIn, type TestShop } from './helpers';
 
 // Live updates (GET /api/events): what another device does reaches an open
 // screen within seconds, and the 30-second poll still covers a blocked stream.
@@ -45,6 +45,35 @@ test("another till's sale reaches an open Dashboard and till within seconds", as
   await expect(till.getByText('8 in stock')).toBeVisible({ timeout: 5_000 });
 });
 
+test("another till's sale appears on an open Sales page within seconds", async ({ page }) => {
+  await Promise.all([streamOpen(page), signIn(page, shop, '/sales')]);
+  await expect(page.getByRole('heading', { name: 'Sales', exact: true }).first()).toBeVisible();
+
+  const receiptNo = await sellElsewhere(1);
+
+  await expect(page.getByRole('table').getByText(receiptNo)).toBeVisible({ timeout: 5_000 });
+});
+
+test('a sale rung up in this tab is on the Sales page straight away, no reload', async ({ page }) => {
+  // Sales is opened first so its list is cached: the bug was that list
+  // staying "fresh" for 30 seconds after this tab's own sale.
+  await ignorePrinting(page);
+  await Promise.all([streamOpen(page), signIn(page, shop, '/sales')]);
+  await expect(page.getByRole('heading', { name: 'Sales', exact: true }).first()).toBeVisible();
+
+  await page.getByRole('link', { name: 'Point of Sale' }).first().click();
+  await page.getByRole('button', { name: `Add ${shop.product.name}`, exact: true }).click();
+  await page.getByLabel('Amount tendered').fill('100');
+  await page.getByRole('button', { name: /Complete Sale/ }).click();
+  const done = page.getByText(/Sale .+ completed/);
+  await expect(done).toBeVisible();
+  const receiptNo = (await done.innerText()).match(/Sale (.+) completed/)![1];
+
+  await page.getByRole('link', { name: 'Sales', exact: true }).first().click();
+  await page.waitForURL('**/sales');
+  await expect(page.getByRole('table').getByText(receiptNo)).toBeVisible({ timeout: 3_000 });
+});
+
 test('an announcement lands in the bell at once, with a pop-up and the count in the tab title', async ({ page }) => {
   await Promise.all([streamOpen(page), signIn(page, shop, '/')]);
   const bell = page.getByRole('button', { name: /^Notifications/ });
@@ -82,10 +111,12 @@ test('with the stream blocked, screens still catch up within 30 seconds', async 
   await page.clock.install();
   await signIn(page, shop, '/');
   const totals = page.getByText(/transactions?, all time/).first();
-  await expect(totals).toHaveText(/^2 transactions/);
+  // Counted from whatever the earlier tests sold, so adding one doesn't break this.
+  await expect(totals).toHaveText(/^\d+ transactions?,/);
+  const before = Number((await totals.innerText()).match(/^(\d+)/)![1]);
 
   await sellElsewhere(1);
-  await expect(totals).toHaveText(/^2 transactions/);
+  await expect(totals).toHaveText(new RegExp(`^${before} transactions?,`));
   await page.clock.fastForward('00:31');
-  await expect(totals).toHaveText(/^3 transactions/);
+  await expect(totals).toHaveText(new RegExp(`^${before + 1} transactions?,`));
 });
