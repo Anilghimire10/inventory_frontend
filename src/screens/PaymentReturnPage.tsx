@@ -6,7 +6,7 @@ import axios from 'axios';
 import { CheckCircle2, Clock, XCircle } from 'lucide-react';
 import { SubscriptionApi } from '@/api';
 import { apiError, blockSnapshot, getToken } from '@/lib/api';
-import { formatDate } from '@/lib/format';
+import { formatDate, formatMoney } from '@/lib/format';
 import { returnedPayment } from '@/lib/payment-return';
 import { LoadingBlock } from '@/components/ui/misc';
 import { AuthShell } from './LoginPage';
@@ -50,7 +50,7 @@ export default function PaymentReturnPage() {
       : { href: '/login', label: 'Sign in' };
   const d = check.data;
   const gateway = { ESEWA: 'eSewa', KHALTI: 'Khalti', CONNECTIPS: 'connectIPS' }[d?.gateway ?? 'ESEWA'];
-  const what = d ? `${d.currency} ${d.amount.toLocaleString('en-IN')} for ${d.months} month${d.months === 1 ? '' : 's'}` : '';
+  const what = d ? `${formatMoney(d.amount, d.currency)} for ${d.months} month${d.months === 1 ? '' : 's'}` : '';
 
   let body: React.ReactNode;
   if (query === null || (check.isLoading && !!id)) {
@@ -91,7 +91,7 @@ export default function PaymentReturnPage() {
   }
 
   return (
-    <AuthShell>
+    <AuthShell openDuringMaintenance>
       <h1 className="text-2xl font-semibold tracking-tight">Subscription payment</h1>
       <div className="mt-6">{body}</div>
       <Link

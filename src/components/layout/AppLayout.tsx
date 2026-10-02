@@ -26,6 +26,7 @@ import { can } from '@/lib/permissions';
 import { Tooltip } from '@/components/ui/tooltip';
 import { SubscriptionBanner } from './SubscriptionBanner';
 import { ImpersonationBanner } from './ImpersonationBanner';
+import { MaintenanceBanner } from './MaintenanceBanner';
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { user, logout } = useAuth();
@@ -227,6 +228,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           </div>
         </header>
 
+        <MaintenanceBanner />
         <ImpersonationBanner />
         <SubscriptionBanner />
 

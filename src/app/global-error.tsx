@@ -9,10 +9,10 @@ import '../index.css';
  */
 export default function GlobalError({
   error,
-  reset,
+  retry,
 }: {
   error: Error & { digest?: string };
-  reset: () => void;
+  retry: () => void;
 }) {
   useEffect(() => {
     console.error(error);
@@ -24,14 +24,14 @@ export default function GlobalError({
         <div className="flex min-h-screen flex-col items-center justify-center gap-3 p-4 text-center">
           <h1 className="text-lg font-semibold">Something went wrong</h1>
           <p className="max-w-sm text-sm text-muted-foreground">
-            The app hit an unexpected error. Reloading usually fixes this.
+            The app hit an unexpected error. Trying again usually fixes it; reload if it doesn&apos;t.
           </p>
           <button
             type="button"
-            onClick={reset}
+            onClick={retry}
             className="mt-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
           >
-            Reload
+            Try again
           </button>
         </div>
       </body>

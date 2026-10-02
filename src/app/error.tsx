@@ -9,10 +9,10 @@ import { ErrorState } from '@/components/ui/misc';
  */
 export default function Error({
   error,
-  reset,
+  retry,
 }: {
   error: Error & { digest?: string };
-  reset: () => void;
+  retry: () => void;
 }) {
   useEffect(() => {
     console.error(error);
@@ -23,7 +23,7 @@ export default function Error({
       <ErrorState
         title="Something went wrong"
         description="This page hit an unexpected error. Try again, or reload if it keeps happening."
-        onRetry={reset}
+        onRetry={retry}
       />
     </div>
   );

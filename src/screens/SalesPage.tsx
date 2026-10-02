@@ -28,6 +28,7 @@ import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
 import { Pagination } from '@/components/ui/pagination';
 import { useToast } from '@/components/ui/toast';
 import { apiError } from '@/lib/api';
+import { liveRefetchInterval } from '@/lib/live';
 import { printReturnSlip, printSale, type ReturnSlip } from '@/lib/print';
 import { formatMoney, formatDateTime } from '@/lib/format';
 import { remainingQty } from '@/lib/decimal';
@@ -186,6 +187,7 @@ export default function SalesPage() {
         paymentMethod: payFilter === 'all' ? undefined : payFilter,
         storeId: storeId || undefined,
       }),
+    refetchInterval: liveRefetchInterval,
   });
   const detail = useQuery({
     queryKey: ['sale', openId],
@@ -716,6 +718,7 @@ function ReturnSection({
                   <span className="w-20 text-right tabular-nums">{picked.length}</span>
                 ) : (
                   <Input type="number" step="0.001" min="0" max={max} className="h-8 w-20"
+                    aria-label={`How many ${it.name} to return`}
                     value={returnQty[it.id] ?? 0}
                     onChange={(e) =>
                       setReturnQty({ ...returnQty, [it.id]: Math.min(max, Math.max(0, Number(e.target.value))) })

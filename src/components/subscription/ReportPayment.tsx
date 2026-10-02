@@ -12,7 +12,7 @@ import { Field } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { useToast } from '@/components/ui/toast';
 import { apiError } from '@/lib/api';
-import { formatDate } from '@/lib/format';
+import { formatDate, formatMoney } from '@/lib/format';
 
 const METHODS: { value: SubscriptionPaymentMethod; label: string }[] = [
   { value: 'ESEWA', label: 'eSewa' },
@@ -28,7 +28,7 @@ const NEEDS_REFERENCE: SubscriptionPaymentMethod[] = ['ESEWA', 'KHALTI', 'BANK']
 /** Screenshots the API takes: the product-image rules. */
 const MAX_PROOF_BYTES = 5 * 1024 * 1024;
 
-const money = (c: PaymentClaim) => `${c.currency} ${c.amount.toLocaleString('en-IN')}`;
+const money = (c: PaymentClaim) => formatMoney(c.amount, c.currency);
 const monthsText = (m: number) => (m === 12 ? '1 year' : `${m} month${m === 1 ? '' : 's'}`);
 
 /**

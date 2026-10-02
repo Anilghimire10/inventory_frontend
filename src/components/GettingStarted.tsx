@@ -7,6 +7,7 @@ import { BusinessApi } from '@/api';
 import type { BusinessSetup } from '@/types';
 import { Card } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
+import { Tooltip } from '@/components/ui/tooltip';
 
 type StepKey = keyof BusinessSetup;
 
@@ -71,15 +72,16 @@ export function GettingStarted({ businessId }: { businessId: string }) {
             {count} of {STEPS.length} done. A few steps and your shop is ready to sell.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => update({ ...local, hidden: true })}
-          className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-          aria-label="Hide getting started"
-          title="Hide"
-        >
-          <X className="h-4 w-4" />
-        </button>
+        <Tooltip content="Hide">
+          <button
+            type="button"
+            onClick={() => update({ ...local, hidden: true })}
+            className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+            aria-label="Hide getting started"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </Tooltip>
       </div>
 
       <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-muted">

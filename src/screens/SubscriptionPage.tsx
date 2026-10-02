@@ -21,7 +21,7 @@ import type { SubscriptionOverview, SubscriptionPlan } from '@/types';
 import { useAuth } from '@/auth/AuthContext';
 import { useToast } from '@/components/ui/toast';
 import { apiError } from '@/lib/api';
-import { formatDate } from '@/lib/format';
+import { formatDate, formatMoney } from '@/lib/format';
 import { printSubscriptionReceipt } from '@/lib/print';
 import { can } from '@/lib/permissions';
 import { cn } from '@/lib/utils';
@@ -253,7 +253,7 @@ function StatusCard({ sub }: { sub: SubscriptionOverview }) {
         )}
         <Fact
           label="Last payment"
-          value={last ? `${last.currency} ${last.amount.toLocaleString()}` : 'None yet'}
+          value={last ? formatMoney(last.amount, last.currency) : 'None yet'}
           hint={last ? formatDate(last.paidAt) : sub.trial ? 'You’re on the free trial.' : undefined}
         />
       </CardContent>
@@ -437,7 +437,7 @@ function PaymentsCard({ sub }: { sub: SubscriptionOverview }) {
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="font-semibold">
-                      {p.currency} {p.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      {formatMoney(p.amount, p.currency)}
                     </p>
                     <p className="text-xs text-muted-foreground">
                       {formatDate(p.paidAt)} · {p.method}
@@ -481,7 +481,7 @@ function PaymentsCard({ sub }: { sub: SubscriptionOverview }) {
                     {p.reference && <span className="block text-xs text-muted-foreground">{p.reference}</span>}
                   </TD>
                   <TD className="whitespace-nowrap text-right font-medium">
-                    {p.currency} {p.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    {formatMoney(p.amount, p.currency)}
                   </TD>
                   <TD className="text-right">
                     <Button

@@ -358,33 +358,33 @@ export default function SettingsPage() {
               const on = tenders.includes(m.value);
               const locked = m.value === 'CASH';
               return (
-                <button
-                  key={m.value}
-                  type="button"
-                  role="checkbox"
-                  aria-checked={on}
-                  disabled={locked || !canManageBiz || saveTenders.isPending}
-                  onClick={() => toggleTender(m.value)}
-                  title={locked ? 'Cash is always accepted' : undefined}
-                  className={
-                    'inline-flex h-9 items-center gap-2 rounded-md border px-3 font-medium transition-colors disabled:cursor-not-allowed ' +
-                    (on
-                      ? 'border-primary bg-primary/10 text-primary'
-                      : 'border-input text-foreground hover:bg-accent') +
-                    (locked ? '' : ' disabled:opacity-50')
-                  }
-                >
-                  <span
+                <Tooltip key={m.value} content={locked ? 'Cash is always accepted' : undefined}>
+                  <button
+                    type="button"
+                    role="checkbox"
+                    aria-checked={on}
+                    disabled={locked || !canManageBiz || saveTenders.isPending}
+                    onClick={() => toggleTender(m.value)}
                     className={
-                      'flex h-4 w-4 items-center justify-center rounded-sm border text-[10px] leading-none ' +
-                      (on ? 'border-primary bg-primary text-primary-foreground' : 'border-input')
+                      'inline-flex h-9 items-center gap-2 rounded-md border px-3 font-medium transition-colors disabled:cursor-not-allowed ' +
+                      (on
+                        ? 'border-primary bg-primary/10 text-primary'
+                        : 'border-input text-foreground hover:bg-accent') +
+                      (locked ? '' : ' disabled:opacity-50')
                     }
-                    aria-hidden
                   >
-                    {on ? '✓' : ''}
-                  </span>
-                  {m.label}
-                </button>
+                    <span
+                      className={
+                        'flex h-4 w-4 items-center justify-center rounded-sm border text-[10px] leading-none ' +
+                        (on ? 'border-primary bg-primary text-primary-foreground' : 'border-input')
+                      }
+                      aria-hidden
+                    >
+                      {on ? '✓' : ''}
+                    </span>
+                    {m.label}
+                  </button>
+                </Tooltip>
               );
             })}
           </div>
@@ -474,14 +474,15 @@ export default function SettingsPage() {
             </p>
           )}
         </div>
-        <Button
-          size="sm"
-          disabled={planFull}
-          title={planFull ? 'Your plan’s branch limit is reached' : undefined}
-          onClick={() => { setEditing(null); setForm(empty); setOpen(true); }}
-        >
-          <Plus className="h-4 w-4" /> Add store
-        </Button>
+        <Tooltip content={planFull ? 'Your plan’s branch limit is reached' : undefined}>
+          <Button
+            size="sm"
+            disabled={planFull}
+            onClick={() => { setEditing(null); setForm(empty); setOpen(true); }}
+          >
+            <Plus className="h-4 w-4" /> Add store
+          </Button>
+        </Tooltip>
       </div>
 
       {isError ? <ErrorState onRetry={() => refetch()} /> :

@@ -5,7 +5,7 @@ export function Table({
   ...props
 }: React.HTMLAttributes<HTMLTableElement>) {
   return (
-    <div className="relative w-full overflow-x-auto rounded-lg border border-border">
+    <div className="relative w-full overflow-x-auto rounded-lg border border-border bg-card">
       <table className={cn('w-full text-sm', className)} {...props} />
     </div>
   );

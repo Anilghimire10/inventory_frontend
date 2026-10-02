@@ -1,4 +1,5 @@
 import type { SubscriptionPlan } from '@/types';
+import { formatMoney } from './format';
 
 /** "1 month", "3 months", "1 year". */
 export const lengthLabel = (months: number) => (months === 12 ? '1 year' : `${months} month${months === 1 ? '' : 's'}`);
@@ -6,8 +7,8 @@ export const lengthLabel = (months: number) => (months === 12 ? '1 year' : `${mo
 /** "a month", "3 months", "a year": after a price. */
 export const perLabel = (months: number) => (months === 12 ? 'a year' : months === 1 ? 'a month' : `${months} months`);
 
-export const money = (currency: string, n: number) =>
-  `${currency} ${n.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
+/** A plan's price in its own currency, the way every other amount in the app reads. */
+export const money = (currency: string, n: number) => formatMoney(n, currency);
 
 /** "Up to 3 branches", "1 branch", "Unlimited branches". */
 export const branchesLabel = (maxStores: number | null) =>

@@ -234,6 +234,11 @@ export const SubscriptionApi = {
     (await api.post<OnlinePaymentStatus>(`/subscription/online/${encodeURIComponent(id)}/check`)).data,
 };
 
+/** Set from the admin panel; public, so the sign-in page can show it too. */
+export const StatusApi = {
+  get: async () => (await api.get<{ maintenanceMessage: string | null; maintenanceMode: boolean; signupOpen: boolean }>('/status')).data,
+};
+
 /** Help & support: questions to the platform team, answered from the admin panel. */
 export const SupportApi = {
   list: (params?: { status?: SupportStatus; page?: number; limit?: number }) =>

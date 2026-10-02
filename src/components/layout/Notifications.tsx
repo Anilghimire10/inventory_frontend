@@ -1,14 +1,16 @@
 'use client';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Bell, AlertTriangle, CalendarClock, CheckCheck, Info, Trash2, X } from 'lucide-react';
 import { NotificationsApi } from '@/api';
 import type { AppNotification, NotificationType } from '@/types';
 import { formatDateTime, formatTimeAgo } from '@/lib/format';
+import { liveRefetchInterval } from '@/lib/live';
 import { cn } from '@/lib/utils';
 import { Tooltip } from '@/components/ui/tooltip';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { useToast } from '@/components/ui/toast';
 
 const ICONS: Record<NotificationType, React.ComponentType<{ className?: string }>> = {
   LOW_STOCK: AlertTriangle,
@@ -39,7 +41,7 @@ export default function Notifications() {
   const { data, isLoading } = useQuery({
     queryKey: ['notifications'],
     queryFn: () => NotificationsApi.list(),
-    refetchInterval: 60_000,
+    refetchInterval: liveRefetchInterval,
   });
 
   const markAllRead = useMutation({
@@ -61,6 +63,30 @@ export default function Notifications() {
 
   const items = data?.items ?? [];
   const unread = data?.unreadCount ?? 0;
+
+  // Announcements and support replies pop up as they arrive. Stock alerts only
+  // count in the badge: a busy till would otherwise toast all day.
+  const { show } = useToast();
+  const seen = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    if (!data) return;
+    // The first load is what was already there, not news.
+    if (!seen.current) {
+      seen.current = new Set(data.items.map((n) => n.id));
+      return;
+    }
+    const known = seen.current;
+    const fresh = data.items.filter((n) => !known.has(n.id) && !n.readAt && n.type === 'GENERAL');
+    for (const n of data.items) known.add(n.id);
+    if (fresh.length === 1) show(fresh[0].title, 'info');
+    else if (fresh.length > 1) show(`${fresh.length} new notifications`, 'info');
+  }, [data, show]);
+
+  // The unread count in the tab's title, so it shows from another tab too.
+  useEffect(() => {
+    const base = document.title.replace(/^\(\d+\+?\) /, '');
+    document.title = unread > 0 ? `(${unread > 99 ? '99+' : unread}) ${base}` : base;
+  }, [unread]);
   const unreadShown = items.filter((n) => !n.readAt).length;
 
   const openPanel = () => {

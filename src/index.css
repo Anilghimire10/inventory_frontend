@@ -54,12 +54,12 @@
     --ring: 246 69% 47%;
 
     /* Chart series, in this fixed order. Neighbours stay apart for
-       colour-blind readers; checked against the light card surface. */
+       colour-blind readers; each is at least 3:1 against the white card. */
     --chart-1: 213 68% 50%;
     --chart-2: 17 82% 56%;
-    --chart-3: 159 73% 40%;
-    --chart-4: 41 100% 46%;
-    --chart-5: 337 70% 70%;
+    --chart-3: 159 73% 37%;
+    --chart-4: 41 100% 38%;
+    --chart-5: 337 70% 65%;
     --chart-6: 120 100% 26%;
     --chart-7: 249 48% 44%;
     --chart-8: 0 73% 59%;
