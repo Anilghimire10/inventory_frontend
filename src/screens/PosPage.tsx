@@ -57,6 +57,9 @@ export default function PosPage() {
     loadReport,
     joinable,
     joinShift,
+    tills,
+    switchTill,
+    setTillStore,
   } = useShift();
   const [showCloseShift, setShowCloseShift] = useState(false);
   const [showCashMove, setShowCashMove] = useState(false);
@@ -88,6 +91,12 @@ export default function PosPage() {
     activeStoreIds: (activeStores ?? []).map((st) => st.id),
   });
   const storeId = posStore.storeId;
+  // The shift is looked up at the till's store, not the header's "all
+  // stores": an owner with no till of their own is put on the one already
+  // open here only once the server knows where "here" is.
+  useEffect(() => {
+    setTillStore(storeId);
+  }, [storeId, setTillStore]);
   const storesLoaded = activeStores !== undefined;
   // A shift can pin a store that has since been deactivated, so name it from
   // the full list rather than the sellable one.
@@ -706,6 +715,12 @@ export default function PosPage() {
         storeName={storeName}
         lockedBy={posStore.lockedBy}
         shift={shift}
+        tills={tills}
+        onSwitchTill={(id) => {
+          switchTill(id);
+          const t = tills.find((x) => x.id === id);
+          if (t) show(t.isOwnShift ? 'Back on your till' : `Now selling into ${t.openedBy.name}’s till`);
+        }}
         isReporting={isReporting}
         onCashMove={() => setShowCashMove(true)}
         onXReport={printXReport}

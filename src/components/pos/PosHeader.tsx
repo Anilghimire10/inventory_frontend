@@ -1,15 +1,17 @@
 'use client';
 import { ArrowUpDown, FileText, Package, Printer, Wallet } from 'lucide-react';
-import type { ShiftReport } from '@/types';
+import type { OpenShiftSummary, ShiftReport } from '@/types';
 import type { PosStoreResolution } from '@/lib/posStore';
 import { Button } from '@/components/ui/button';
+import { Select } from '@/components/ui/select';
 import { Tooltip } from '@/components/ui/tooltip';
 import { formatMoney } from '@/lib/format';
 
 /**
  * The till's top row: which store it sells from, and the drawer's actions
  * while a shift is open -- cash in/out, the X report, close -- plus the last
- * receipt and the shortcuts list.
+ * receipt and the shortcuts list. With more than one till open here, an
+ * owner or manager picks which drawer the next sale goes into.
  */
 export function PosHeader({
   multiStore,
@@ -17,6 +19,8 @@ export function PosHeader({
   storeName,
   lockedBy,
   shift,
+  tills,
+  onSwitchTill,
   isReporting,
   onCashMove,
   onXReport,
@@ -31,6 +35,9 @@ export function PosHeader({
   /** Why the store can't be changed here, if it can't. */
   lockedBy: PosStoreResolution['lockedBy'];
   shift: ShiftReport | null;
+  /** Every till open at this store; only management gets any. */
+  tills: OpenShiftSummary[];
+  onSwitchTill: (id: string) => void;
   isReporting: boolean;
   onCashMove: () => void;
   onXReport: () => void;
@@ -65,7 +72,25 @@ export function PosHeader({
       )}
 
       <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
-        {shift && shift.isOwnShift === false && (
+        {shift && tills.length > 1 && (
+          <Select
+            aria-label="Till"
+            title="Which drawer the next sale goes into. The others stay open."
+            className="h-8 w-auto min-w-40"
+            value={shift.id}
+            onChange={(e) => onSwitchTill(e.target.value)}
+          >
+            {/* The till on screen may have just closed and fallen out of the
+                list; keep it selectable until the refresh lands. */}
+            {!tills.some((t) => t.id === shift.id) && <option value={shift.id}>This till</option>}
+            {tills.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.isOwnShift ? 'My till' : `${t.openedBy.name}’s till`} · {t.salesCount} sale{t.salesCount === 1 ? '' : 's'}
+              </option>
+            ))}
+          </Select>
+        )}
+        {shift && shift.isOwnShift === false && tills.length <= 1 && (
           <span
             className="flex items-center gap-1.5 rounded-md border border-warning/40 bg-warning/10 px-2.5 py-1 text-xs font-medium text-warning"
             title="You are selling into a drawer someone else opened. Its cash, and its variance at close, are theirs."
