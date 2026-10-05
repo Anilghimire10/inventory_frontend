@@ -149,6 +149,17 @@ export function ShiftProvider({ children }: { children: React.ReactNode }) {
   // up that branch's till and leaves the other one open behind you.
   const { storeId: scopeStoreId } = useStoreScope();
   const [tillStoreId, setTillStoreId] = useState<string | null>(null);
+  // The POS sets the till's store from the shift it finds, and the shift is
+  // looked up at the till's store -- so once a till was open, the two kept
+  // each other on that branch and a header switch did nothing until a reload.
+  // The header moving is the person asking for another branch: let go here and
+  // the POS picks the till back up from the new scope. Adjusted during render,
+  // as PosPage does for its own pick.
+  const [prevScope, setPrevScope] = useState(scopeStoreId);
+  if (prevScope !== scopeStoreId) {
+    setPrevScope(scopeStoreId);
+    setTillStoreId(null);
+  }
   const storeId = tillStoreId ?? scopeStoreId;
   // One key, used by the query *and* by every direct write below. They used to
   // read ['shift-current'] literally, which stopped matching the moment the
