@@ -20,7 +20,7 @@ import { useToast } from '@/components/ui/toast';
 import { Tooltip } from '@/components/ui/tooltip';
 import { apiError } from '@/lib/api';
 import { formatMoney } from '@/lib/format';
-import { SETTLE_METHODS } from '@/lib/payment-methods';
+import { useAcceptedTenders } from '@/hooks/useAcceptedTenders';
 import { CustomerStatementDialog } from '@/components/CustomerStatementDialog';
 import { TillPicker, useTillChoice } from '@/components/TillPicker';
 import { useAuth } from '@/auth/AuthContext';
@@ -85,6 +85,7 @@ export default function CustomersPage() {
   };
 
   const creditPayment = useCreditPayment(storeId);
+  const tenders = useAcceptedTenders();
   const [statementFor, setStatementFor] = useState<Customer | null>(null);
 
   const customers = data?.data ?? [];
@@ -265,7 +266,7 @@ export default function CustomersPage() {
               value={creditPayment.method}
               onChange={(e) => creditPayment.setMethod(e.target.value as PaymentMethod)}
             >
-              {SETTLE_METHODS.map((m) => (
+              {tenders.map((m) => (
                 <option key={m.value} value={m.value}>{m.label}</option>
               ))}
             </Select>

@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { PasswordInput } from '@/components/ui/password-input';
 import { Field } from '@/components/ui/label';
+import { MaintenanceBanner } from '@/components/layout/MaintenanceBanner';
 import { apiError, rememberBlock, subscriptionBlock } from '@/lib/api';
 
 export default function LoginPage() {
@@ -92,7 +93,14 @@ export default function LoginPage() {
   );
 }
 
-export function AuthShell({ children }: { children: React.ReactNode }) {
+export function AuthShell({
+  children,
+  openDuringMaintenance = false,
+}: {
+  children: React.ReactNode;
+  /** The payment-return page: the API keeps its check open during maintenance. */
+  openDuringMaintenance?: boolean;
+}) {
   const features = [
     'Point of Sale with barcode scanning',
     'Real-time stock & expiry tracking',
@@ -139,6 +147,7 @@ export function AuthShell({ children }: { children: React.ReactNode }) {
             </div>
             <span className="text-lg font-semibold">Inventory Manager</span>
           </div>
+          <MaintenanceBanner boxed openDuringMaintenance={openDuringMaintenance} />
           <div className="rounded-xl border border-border bg-card p-5 sm:p-6 shadow-sm">
             {children}
           </div>

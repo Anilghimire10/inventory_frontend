@@ -26,10 +26,11 @@ import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
 import { useToast } from '@/components/ui/toast';
 import { Hint } from '@/components/ui/tooltip';
 import { apiError } from '@/lib/api';
-import { formatMoney, formatDate } from '@/lib/format';
-import { SETTLE_METHODS } from '@/lib/payment-methods';
+import { formatMoney, formatDate, plural } from '@/lib/format';
+import { useAcceptedTenders } from '@/hooks/useAcceptedTenders';
 import { TillPicker, useTillChoice } from '@/components/TillPicker';
 import { cn } from '@/lib/utils';
+import { Tabs } from '@/components/ui/tabs';
 
 type Tab = 'receivables' | 'payables' | 'refunds';
 
@@ -156,8 +157,8 @@ export default function CreditPage() {
           value={formatMoney(receivablesTotal)}
           sub={
             businessWide
-              ? `${summary.data?.customersOwing ?? 0} customers who buy here — full balances`
-              : `${summary.data?.customersOwing ?? 0} customers owe you`
+              ? `${plural(summary.data?.customersOwing, 'customer')} who buy here — full balances`
+              : `${plural(summary.data?.customersOwing, 'customer')} ${summary.data?.customersOwing === 1 ? 'owes' : 'owe'} you`
           }
           icon={ArrowDownLeft}
           tone="success"
@@ -168,8 +169,8 @@ export default function CreditPage() {
           value={formatMoney(payablesTotal)}
           sub={
             refundsDue > 0
-              ? `${summary.data?.suppliersOwed ?? 0} suppliers to pay · ${formatMoney(refundsDue)} owed back to you`
-              : `${summary.data?.suppliersOwed ?? 0} suppliers to pay`
+              ? `${plural(summary.data?.suppliersOwed, 'supplier')} to pay · ${formatMoney(refundsDue)} owed back to you`
+              : `${plural(summary.data?.suppliersOwed, 'supplier')} to pay`
           }
           icon={ArrowUpRight}
           tone="destructive"
@@ -273,18 +274,18 @@ export default function CreditPage() {
       )}
 
       {/* Tabs + search */}
-      <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
-        <div className="inline-flex rounded-lg border border-border bg-card p-1">
-          <TabButton active={tab === 'receivables'} onClick={() => setTab('receivables')} icon={Wallet}>
-            Receivables
-          </TabButton>
-          <TabButton active={tab === 'payables'} onClick={() => setTab('payables')} icon={HandCoins}>
-            Payables
-          </TabButton>
-          <TabButton active={tab === 'refunds'} onClick={() => setTab('refunds')} icon={Undo2}>
-            Supplier refunds
-          </TabButton>
-        </div>
+      <div className="mt-6 flex flex-wrap items-end justify-between gap-3">
+        <Tabs
+          className="min-w-0 flex-1"
+          label="Who owes whom"
+          items={[
+            { id: 'receivables', label: 'Receivables', icon: Wallet },
+            { id: 'payables', label: 'Payables', icon: HandCoins },
+            { id: 'refunds', label: 'Supplier refunds', icon: Undo2 },
+          ]}
+          value={tab}
+          onChange={setTab}
+        />
         <div className="relative w-full max-w-xs">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
@@ -652,6 +653,7 @@ function PayDialog({
 }) {
   const [amount, setAmount] = useState(target.max);
   const [method, setMethod] = useState<PaymentMethod>('CASH');
+  const tenders = useAcceptedTenders();
   // Only customer payments land in a till; a supplier is paid from elsewhere.
   const till = useTillChoice(storeId, method, target.kind === 'customer');
   return (
@@ -683,7 +685,7 @@ function PayDialog({
         </Field>
         <Field label="Paid by">
           <Select value={method} onChange={(e) => setMethod(e.target.value as PaymentMethod)}>
-            {SETTLE_METHODS.map((m) => (
+            {tenders.map((m) => (
               <option key={m.value} value={m.value}>{m.label}</option>
             ))}
           </Select>
@@ -701,31 +703,6 @@ function PayDialog({
         </DialogFooter>
       </form>
     </Dialog>
-  );
-}
-
-function TabButton({
-  active,
-  onClick,
-  icon: Icon,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  icon: React.ComponentType<{ className?: string }>;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={cn(
-        'flex items-center gap-2 rounded-md px-4 py-1.5 text-sm font-medium transition-colors',
-        active ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground',
-      )}
-    >
-      <Icon className="h-4 w-4" />
-      {children}
-    </button>
   );
 }
 

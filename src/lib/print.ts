@@ -2,6 +2,7 @@ import type { ReturnResult, Sale, ShiftReport, SubscriptionReceipt } from '@/typ
 import { renderBarcodeSvg } from './barcode';
 import { splitTax } from './tax';
 import { CASH_REASON_LABEL } from './cash';
+import { TENDER_LABEL } from './payment-methods';
 
 export type PrintFormat = 'thermal' | 'a4';
 
@@ -130,7 +131,13 @@ export interface ReturnSlip {
   reason?: string;
 }
 
-const METHOD_LABEL: Record<string, string> = { CASH: 'cash', CARD: 'card', MOBILE: 'mobile' };
+const METHOD_LABEL: Record<string, string> = {
+  CASH: 'cash',
+  CARD: 'card',
+  MOBILE: 'mobile',
+  KHALTI: 'Khalti',
+  CONNECTIPS: 'connectIPS',
+};
 
 /**
  * A return slip (credit note) for the customer: which receipt the goods came
@@ -213,7 +220,7 @@ export function printShiftReport(
         .join('')
     : '';
   const tenderRows = shift.byTender
-    .map((t) => `<tr class="muted"><td>${esc(t.method)} (${t.count})</td><td class="r">${m(t.amount)}</td></tr>`)
+    .map((t) => `<tr class="muted"><td>${esc(TENDER_LABEL[t.method] ?? t.method)} (${t.count})</td><td class="r">${m(t.amount)}</td></tr>`)
     .join('');
   const body = `
     <div style="width:72mm;padding:2mm;font-size:11px">

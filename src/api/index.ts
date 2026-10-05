@@ -1,5 +1,5 @@
 import { api } from '@/lib/api';
-import type {
+import type { BusinessSetup, CreatePaymentClaimBody, PaymentClaim,
   SupplierRefund,
   ReturnQuote,
   ReturnResult,
@@ -53,6 +53,9 @@ import type {
   SupportTicketListItem,
   SubscriptionOverview,
   SubscriptionReceipt,
+  OnlineGateway,
+  OnlinePaymentStart,
+  OnlinePaymentStatus,
 } from '@/types';
 
 /** How a credit or supplier payment was made. Omitted, the API assumes cash. */
@@ -118,6 +121,8 @@ export const AuthApi = {
 
 export const BusinessApi = {
   get: () => get<Business>('/business'),
+  /** Which first steps the shop has taken, for the Dashboard's Getting started card. */
+  setup: () => get<BusinessSetup>('/business/setup'),
   update: (body: object) => patch<Business>('/business', body),
   /**
    * The full data export. NDJSON, not JSON: one `{"table":..,"row":..}` per
@@ -195,12 +200,43 @@ export const NotificationsApi = {
   markRead: (id: string) => post<{ ok: true }>(`/notifications/${id}/read`),
   markAllRead: () => post<{ ok: true }>('/notifications/read-all'),
   dismiss: (id: string) => del<{ ok: true }>(`/notifications/${id}`),
+  dismissAll: () => post<{ ok: true; dismissed: number }>('/notifications/dismiss-all'),
 };
 
-/** The shop's own subscription. Owners and managers; read-only. */
+/** A request header for the lock screen's billing-only pass, when there is one. */
+const withPass = (pass?: string) => (pass ? { headers: { Authorization: `Bearer ${pass}` } } : undefined);
+
+/**
+ * The shop's own subscription, and paying for it online. Owners and
+ * managers. Each call takes an optional billing-only pass: the lock screen
+ * has one, and nothing else.
+ */
 export const SubscriptionApi = {
-  overview: () => get<SubscriptionOverview>('/subscription'),
+  overview: async (pass?: string) => (await api.get<SubscriptionOverview>('/subscription', withPass(pass))).data,
   receipt: (paymentId: string) => get<SubscriptionReceipt>(`/subscription/payments/${paymentId}/receipt`),
+  /** Pay online: the price comes from the plan; the gateway sends the owner back to returnOrigin. */
+  startOnline: async (body: { gateway: OnlineGateway; planId: string; months: number; returnOrigin: string }, pass?: string) =>
+    (await api.post<OnlinePaymentStart>('/subscription/online', body, withPass(pass))).data,
+  /** "I've paid": report money sent another way, for an admin to confirm. */
+  reportPayment: async (body: CreatePaymentClaimBody, pass?: string) =>
+    (await api.post<PaymentClaim>('/subscription/claims', body, withPass(pass))).data,
+  /** A screenshot of the payment; its url goes into the report. */
+  uploadProof: async (file: File, pass?: string) => {
+    const fd = new FormData();
+    fd.append('image', file);
+    return (await api.post<{ url: string }>('/subscription/claims/proof', fd, withPass(pass))).data;
+  },
+  /** Withdraw a report still waiting for confirmation. */
+  cancelReport: async (id: string, pass?: string) =>
+    (await api.delete<{ cancelled: boolean }>(`/subscription/claims/${encodeURIComponent(id)}`, withPass(pass))).data,
+  /** The return page: asks the gateway where the payment stands. Needs no session. */
+  checkOnline: async (id: string) =>
+    (await api.post<OnlinePaymentStatus>(`/subscription/online/${encodeURIComponent(id)}/check`)).data,
+};
+
+/** Set from the admin panel; public, so the sign-in page can show it too. */
+export const StatusApi = {
+  get: async () => (await api.get<{ maintenanceMessage: string | null; maintenanceMode: boolean; signupOpen: boolean }>('/status')).data,
 };
 
 /** Help & support: questions to the platform team, answered from the admin panel. */

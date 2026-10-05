@@ -4,6 +4,7 @@ import {
   useContext,
   useCallback,
   useMemo,
+  useState,
   useSyncExternalStore,
 } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -54,6 +55,25 @@ interface ShiftState {
   joinable: OpenShiftSummary[];
   /** Work on one of them. Remembered per store for this browser. */
   joinShift: (id: string) => void;
+  /**
+   * Every till open at this store, the viewer's own included -- for an owner
+   * or manager to move between them. Empty for a cashier, who only ever
+   * works their own.
+   */
+  tills: OpenShiftSummary[];
+  /**
+   * Sell into another open till from now on: someone else's, or back to
+   * one's own. The till left behind stays open. Remembered per store for
+   * this browser, like a join.
+   */
+  switchTill: (id: string) => void;
+  /**
+   * The store the till sells from, as the POS resolved it. The shift is
+   * looked up there rather than at the header's selection, which for an
+   * owner is usually "all stores" -- and with no store the server can't
+   * tell which till to put them on.
+   */
+  setTillStore: (storeId: string | null) => void;
 }
 
 const Ctx = createContext<ShiftState>(null as never);
@@ -127,7 +147,9 @@ export function ShiftProvider({ children }: { children: React.ReactNode }) {
   // A user may have one open till per store, so "the current shift" only
   // means anything once you say which branch. Switching in the header brings
   // up that branch's till and leaves the other one open behind you.
-  const { storeId } = useStoreScope();
+  const { storeId: scopeStoreId } = useStoreScope();
+  const [tillStoreId, setTillStoreId] = useState<string | null>(null);
+  const storeId = tillStoreId ?? scopeStoreId;
   // One key, used by the query *and* by every direct write below. They used to
   // read ['shift-current'] literally, which stopped matching the moment the
   // store was added to it -- closing a shift then wrote to a key nobody read,
@@ -169,23 +191,36 @@ export function ShiftProvider({ children }: { children: React.ReactNode }) {
   });
   const shift = data ?? null;
 
-  // Only asked when the server came back empty-handed: either there is no
-  // till open here at all, or there are several and it would not guess.
+  // Every till open here, for management: offered to join when the server
+  // came back empty-handed (none of their own, several running), and to
+  // switch between once they are on one.
   const canJoin = enabled && !!user && MANAGEMENT.includes(user.role);
   const { data: openShifts } = useQuery({
     queryKey: ['shift-open', storeId],
     queryFn: () => ShiftsApi.openAtStore(storeId),
-    enabled: canJoin && !!storeId && !isLoading && !shift,
+    enabled: canJoin && !!storeId && !isLoading,
     staleTime: 15_000,
   });
+  const tills = useMemo(() => (canJoin ? (openShifts ?? []) : []), [canJoin, openShifts]);
+  // The open-shift dialog's choice only exists while there is no till yet.
   const joinable = useMemo(
-    () => (openShifts ?? []).filter((s) => !s.isOwnShift),
-    [openShifts],
+    () => (shift ? [] : tills.filter((s) => !s.isOwnShift)),
+    [shift, tills],
   );
 
   const joinShift = useCallback(
     (id: string) => writeJoinedShift(storeId, id),
     [storeId],
+  );
+  // Back to one's own till is forgetting the choice: with nothing remembered
+  // the server puts the caller on their own shift first. Anyone else's is
+  // remembered, exactly as a join is.
+  const switchTill = useCallback(
+    (id: string) => {
+      if (tills.find((t) => t.id === id)?.isOwnShift) clearJoinedShift(storeId);
+      else writeJoinedShift(storeId, id);
+    },
+    [storeId, tills],
   );
 
   const openMutation = useMutation({
@@ -296,6 +331,9 @@ export function ShiftProvider({ children }: { children: React.ReactNode }) {
       loadReport,
       joinable,
       joinShift,
+      tills,
+      switchTill,
+      setTillStore: setTillStoreId,
       moveCash,
       isMovingCash: moveMutation.isPending,
     }),
@@ -316,6 +354,8 @@ export function ShiftProvider({ children }: { children: React.ReactNode }) {
       loadReport,
       joinable,
       joinShift,
+      tills,
+      switchTill,
     ],
   );
 

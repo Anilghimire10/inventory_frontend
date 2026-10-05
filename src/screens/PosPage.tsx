@@ -1,7 +1,7 @@
 'use client';
-import { useEffect, useMemo, useState, useRef } from 'react';
+import { useEffect, useEffectEvent, useMemo, useState, useRef } from 'react';
 import { useMutation, useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
-import { Plus, Package, Barcode, ChevronUp, Printer, ShoppingCart, Wallet, Star, FileText, ArrowUpDown, Clock } from 'lucide-react';
+import { Barcode, Clock } from 'lucide-react';
 import { CategoriesApi, CustomersApi, InventoryApi, ProductsApi, SalesApi, ShiftsApi, type CloseShiftBody } from '@/api';
 import type { Product, Paginated } from '@/types';
 import { useAuth } from '@/auth/AuthContext';
@@ -9,33 +9,34 @@ import { useShift } from '@/shift/ShiftContext';
 import { printSale, printShiftReport } from '@/lib/print';
 import { loadFavoriteIds, saveFavoriteIds } from '@/lib/favorites';
 import { useDebounced } from '@/hooks/useDebounced';
+import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { RxBadge } from '@/components/ui/RxBadge';
 import { useToast } from '@/components/ui/toast';
 import { apiError } from '@/lib/api';
 import { formatDate, formatDateTime, formatMoney } from '@/lib/format';
 import { cn } from '@/lib/utils';
-import { CartPanel, TENDERS, lineNet } from '@/components/pos/CartPanel';
-import { splitTax } from '@/lib/tax';
+import { CartPanel, lineNet } from '@/components/pos/CartPanel';
+import { useAcceptedTenders } from '@/hooks/useAcceptedTenders';
+import { cartTotals } from '@/lib/cart-totals';
+import { liveRefetchInterval } from '@/lib/live';
 import type { CartLine, DiscountType, PayMode } from '@/components/pos/CartPanel';
 import { OpenShiftModal } from '@/components/pos/OpenShiftModal';
 import { ChooseStoreModal } from '@/components/pos/ChooseStoreModal';
 import { CloseShiftModal } from '@/components/pos/CloseShiftModal';
+import { FAVORITES, ProductGrid } from '@/components/pos/ProductGrid';
+import { PosHeader } from '@/components/pos/PosHeader';
+import { ShortcutsHelp } from '@/components/pos/ShortcutsHelp';
+import { MobileCartBar } from '@/components/pos/MobileCartBar';
 import { CashMovementModal } from '@/components/pos/CashMovementModal';
 import { isStaleShift } from '@/lib/cash';
 import { customerKey } from '@/components/pos/CustomerPicker';
-import { ErrorState, LoadingBlock } from '@/components/ui/misc';
+import { ErrorState } from '@/components/ui/misc';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { productExpiry } from '@/lib/expiry';
-import { ExpiryBadge } from '@/components/ExpiryBadge';
-import { Tooltip } from '@/components/ui/tooltip';
 import { useActiveStores, useStores } from '@/hooks/useStores';
 import { resolvePosStore } from '@/lib/posStore';
 import { useStoreScope } from '@/store/StoreContext';
-
-/** Sentinel `categoryId` value for the pinned-favorites chip. */
-const FAVORITES = '__favorites__';
 
 export default function PosPage() {
   const qc = useQueryClient();
@@ -56,6 +57,9 @@ export default function PosPage() {
     loadReport,
     joinable,
     joinShift,
+    tills,
+    switchTill,
+    setTillStore,
   } = useShift();
   const [showCloseShift, setShowCloseShift] = useState(false);
   const [showCashMove, setShowCashMove] = useState(false);
@@ -87,6 +91,12 @@ export default function PosPage() {
     activeStoreIds: (activeStores ?? []).map((st) => st.id),
   });
   const storeId = posStore.storeId;
+  // The shift is looked up at the till's store, not the header's "all
+  // stores": an owner with no till of their own is put on the one already
+  // open here only once the server knows where "here" is.
+  useEffect(() => {
+    setTillStore(storeId);
+  }, [storeId, setTillStore]);
   const storesLoaded = activeStores !== undefined;
   // A shift can pin a store that has since been deactivated, so name it from
   // the full list rather than the sellable one.
@@ -117,7 +127,11 @@ export default function PosPage() {
     );
   const [cart, setCart] = useState<CartLine[]>([]);
   const [customerId, setCustomerId] = useState('');
-  const [paymentMethod, setPaymentMethod] = useState('CASH');
+  const [picked, setPaymentMethod] = useState('CASH');
+  // Only the tenders the shop takes. One the owner has just turned off falls
+  // back to cash rather than going out on the sale.
+  const tenders = useAcceptedTenders();
+  const paymentMethod = tenders.some((t) => t.value === picked) ? picked : 'CASH';
   // Pay in full now, leave it all on credit, or pay part now (rest to credit).
   const [payMode, setPayMode] = useState<PayMode>('full');
   const [amountPaid, setAmountPaid] = useState(0);
@@ -134,6 +148,10 @@ export default function PosPage() {
   const [lastSaleId, setLastSaleId] = useState<string | null>(null);
   // Mobile cart sheet visibility. On lg+ the cart is an inline column.
   const [cartOpen, setCartOpen] = useState(false);
+  // Below lg a closed cart sheet is off screen: hidden from screen readers and
+  // out of the tab order. On lg+ it's always on screen, whatever `cartOpen` says.
+  const cartInline = useMediaQuery('(min-width: 1024px)');
+  const cartHidden = !cartInline && !cartOpen;
   const [showHelp, setShowHelp] = useState(false);
 
   // Debounced search for the product grid: typing stays instant in the input,
@@ -176,6 +194,8 @@ export default function PosPage() {
             storeId: storeId ?? undefined,
           }),
     placeholderData: keepPreviousData,
+    // Another till selling the same stock moves these numbers.
+    refetchInterval: liveRefetchInterval,
   });
   // Self-heal the pinned set: if a favorited id no longer resolves to a
   // product (deleted, deactivated, or a leftover from an earlier bug), drop
@@ -211,6 +231,7 @@ export default function PosPage() {
     queryKey: ['held-sales', storeId],
     enabled: !!storeId,
     queryFn: () => SalesApi.list({ status: 'held', limit: 50, storeId: storeId! }),
+    refetchInterval: liveRefetchInterval,
   });
   const heldSales = heldSalesData?.data ?? [];
   // On-hand quantity and reorder level per product at the till's store.
@@ -260,42 +281,20 @@ export default function PosPage() {
 
   const needsRx = cart.some((l) => l.product.isRxRequired);
 
-  const { subtotal, tax } = useMemo(() => {
-    let sub = 0, t = 0;
-    for (const l of cart) {
-      // Tax applies only when the master switch is on AND the product is taxable.
-      const rate = taxEnabled && l.product.isTaxable ? Number(l.product.taxRate) : 0;
-      const split = splitTax(lineNet(l), rate, taxInclusive);
-      sub += split.net;
-      t += split.tax;
-    }
-    return { subtotal: Math.round(sub * 100) / 100, tax: Math.round(t * 100) / 100 };
-  }, [cart, taxEnabled, taxInclusive]);
-
-  const discountAmount = useMemo(() => {
-    if (!discount || discount <= 0) return 0;
-    // A percentage comes off the prices the customer sees: before tax when tax
-    // is added on top, the shelf total when prices already include it.
-    const base = taxInclusive ? subtotal + tax : subtotal;
-    const amt = discountType === 'percent' ? (base * discount) / 100 : discount;
-    return Math.round(amt * 100) / 100;
-  }, [discount, discountType, subtotal, tax, taxInclusive]);
-
-  const total = useMemo(
-    () => Math.max(0, Math.round((subtotal + tax - discountAmount) * 100) / 100),
-    [subtotal, tax, discountAmount],
-  );
+  // Tax applies only when the master switch is on AND the product is taxable.
+  const { subtotal, tax, discountAmount, total, paidNow, due } = cartTotals({
+    lines: cart.map((l) => ({
+      net: lineNet(l),
+      taxRate: taxEnabled && l.product.isTaxable ? Number(l.product.taxRate) : 0,
+    })),
+    taxInclusive,
+    discount,
+    discountType,
+    payMode,
+    amountPaid,
+  });
 
   const cartCount = cart.reduce((n, l) => n + l.quantity, 0);
-
-  // How much is collected now vs. left on the customer's account.
-  const paidNow =
-    payMode === 'full'
-      ? total
-      : payMode === 'credit'
-        ? 0
-        : Math.min(Math.max(amountPaid, 0), total);
-  const due = Math.max(0, Math.round((total - paidNow) * 100) / 100);
 
   // Ceiling on how many units of a product can be sold. Falls back to
   // unlimited for a product whose stock we have never seen -- while the first
@@ -458,61 +457,6 @@ export default function PosPage() {
     });
   };
 
-  const handlerRef = useRef<(e: KeyboardEvent) => void>(() => {});
-  // Deliberate "latest ref" idiom: writing handlerRef.current here (not in an
-  // effect) keeps it in sync every render with zero extra effect churn. It's
-  // read only from the keydown listener below, never during render, so this
-  // never affects what's painted -- eslint's react-compiler check doesn't
-  // recognize the pattern and flags it as a false positive.
-  // eslint-disable-next-line react-hooks/refs
-  handlerRef.current = (e: KeyboardEvent) => {
-    const focusSearch = () => {
-      setSearch('');
-      const inp = document.querySelector('input[placeholder="Search products, SKUs, or scan a barcode…"]');
-      if (inp) (inp as HTMLInputElement).focus();
-    };
-    const tag = (e.target as HTMLElement | null)?.tagName;
-    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (e.target as HTMLElement | null)?.isContentEditable) return;
-    if (e.metaKey || e.ctrlKey) {
-      switch (e.key.toLowerCase()) {
-        case 'h': e.preventDefault(); hold(); break;
-        case 'd': e.preventDefault(); setDiscountType(discountType === 'percent' ? 'amount' : 'percent'); break;
-        case 'p': e.preventDefault(); printLast(); break;
-        case 'k': e.preventDefault(); focusSearch(); break;
-      }
-    } else {
-      switch (e.key.toLowerCase()) {
-        case '/': e.preventDefault(); focusSearch(); break;
-        case 't': {
-          // Deliberate, cashier-initiated jump to the tendered field --
-          // NOT auto-focused on every item add, since that would steal
-          // focus from the search box mid-barcode-scan (a scanner just
-          // types into whatever has focus and sends Enter).
-          const input = document.querySelector('input[aria-label="Amount tendered"]');
-          if (input) { e.preventDefault(); (input as HTMLInputElement).focus(); }
-          break;
-        }
-        case 'enter': if (cart.length > 0) { const last = cart[cart.length - 1]; setQty(last.product.id, last.quantity + 1); } break;
-        case 'escape': setSearch(''); break;
-        case 'tab':
-          // Credit sales have no tender to cycle.
-          if (payMode === 'credit') break;
-          e.preventDefault();
-          setPaymentMethod((m) => {
-            const i = TENDERS.findIndex((t) => t.value === m);
-            return TENDERS[(i + 1) % TENDERS.length].value;
-          });
-          break;
-      }
-    }
-  };
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => handlerRef.current(e);
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, []);
-
   const checkout = useMutation({
     mutationFn: () =>
       SalesApi.create({
@@ -631,6 +575,57 @@ export default function PosPage() {
   const updateLine = (id: string, updates: { unitPrice?: number; discount?: number; serials?: string[] }) =>
     setCart((c) => c.map((l) => (l.product.id === id ? { ...l, ...updates } : l)));
 
+  // The till's keyboard shortcuts (listed in ShortcutsHelp). An effect event:
+  // it always sees this render's cart and tenders, while the listener below
+  // is added once rather than on every keystroke's re-render.
+  const onShortcut = useEffectEvent((e: KeyboardEvent) => {
+    const focusSearch = () => {
+      setSearch('');
+      const inp = document.querySelector('input[placeholder="Search products, SKUs, or scan a barcode…"]');
+      if (inp) (inp as HTMLInputElement).focus();
+    };
+    const tag = (e.target as HTMLElement | null)?.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (e.target as HTMLElement | null)?.isContentEditable) return;
+    if (e.metaKey || e.ctrlKey) {
+      switch (e.key.toLowerCase()) {
+        case 'h': e.preventDefault(); hold(); break;
+        case 'd': e.preventDefault(); setDiscountType(discountType === 'percent' ? 'amount' : 'percent'); break;
+        case 'p': e.preventDefault(); printLast(); break;
+        case 'k': e.preventDefault(); focusSearch(); break;
+      }
+    } else {
+      switch (e.key.toLowerCase()) {
+        case '/': e.preventDefault(); focusSearch(); break;
+        case 't': {
+          // Deliberate, cashier-initiated jump to the tendered field --
+          // NOT auto-focused on every item add, since that would steal
+          // focus from the search box mid-barcode-scan (a scanner just
+          // types into whatever has focus and sends Enter).
+          const input = document.querySelector('input[aria-label="Amount tendered"]');
+          if (input) { e.preventDefault(); (input as HTMLInputElement).focus(); }
+          break;
+        }
+        case 'enter': if (cart.length > 0) { const last = cart[cart.length - 1]; setQty(last.product.id, last.quantity + 1); } break;
+        case 'escape': setSearch(''); break;
+        case 'tab':
+          // Credit sales have no tender to cycle.
+          if (payMode === 'credit') break;
+          e.preventDefault();
+          setPaymentMethod(() => {
+            const i = tenders.findIndex((t) => t.value === paymentMethod);
+            return tenders[(i + 1) % tenders.length].value;
+          });
+          break;
+      }
+    }
+  });
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => onShortcut(e);
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, []);
+
   const resumeMutation = useMutation({
     mutationFn: (id: string) => SalesApi.resume(id),
     onSuccess: (held) => {
@@ -714,82 +709,26 @@ export default function PosPage() {
 
   return (
     <div className="flex h-[calc(100dvh-6rem)] flex-col lg:h-[calc(100dvh-7rem)]">
-      {/* Header — register + last-receipt print */}
-      <div className="mb-4 flex flex-wrap items-center gap-3">
-        <h1 className="text-xl font-semibold tracking-tight">Point of Sale</h1>
-
-        {/* Which store this till sells from. Only worth showing when there is
-            more than one -- a single-store shop has nothing to disambiguate.
-            Always a label, never a control: the store is chosen when the shift
-            is opened (the open-shift modal covers the till, so a control here
-            is unreachable), and an open shift pins it. */}
-        {multiStore && storesLoaded && (
-          <span
-            className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs text-muted-foreground"
-            title={
-              posStore.lockedBy === 'shift'
-                ? 'This till is running against the shift open at this store'
-                : posStore.lockedBy === 'role'
-                  ? 'You are assigned to this store'
-                  : 'Stock and the sale both follow this store'
-            }
-          >
-            <Package className="h-3.5 w-3.5" />
-            {storeName ?? 'No store'}
-          </span>
-        )}
-
-        <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
-          {shift && shift.isOwnShift === false && (
-            <span
-              className="flex items-center gap-1.5 rounded-md border border-warning/40 bg-warning/10 px-2.5 py-1 text-xs font-medium text-warning"
-              title="You are selling into a drawer someone else opened. Its cash, and its variance at close, are theirs."
-            >
-              <Wallet className="h-3.5 w-3.5" />
-              {shift.user?.name ?? 'Another user'}&apos;s till
-            </span>
-          )}
-          {shift && (
-            <>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setShowCashMove(true)}
-                title="Pay in or pay out: cash into or out of the drawer that isn't a sale"
-              >
-                <ArrowUpDown className="h-4 w-4" /> Cash in/out
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                loading={isReporting}
-                onClick={printXReport}
-                title="Print an X report — mid-shift drawer reading, shift stays open"
-              >
-                <FileText className="h-4 w-4" /> X report
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setShowCloseShift(true)}
-                title="Close shift and print a Z report"
-              >
-                <Wallet className="h-4 w-4" /> {formatMoney(shift.gross)} · Close shift
-              </Button>
-            </>
-          )}
-          {lastSaleId && (
-            <Button variant="outline" size="sm" onClick={printLast} title="Print the last sale's receipt">
-              <Printer className="h-4 w-4" /> Last receipt
-            </Button>
-          )}
-          <Tooltip content="Keyboard shortcuts">
-            <Button variant="outline" size="sm" onClick={() => setShowHelp(true)} aria-label="Keyboard shortcuts">
-              ?
-            </Button>
-          </Tooltip>
-        </div>
-      </div>
+      <PosHeader
+        multiStore={multiStore}
+        storesLoaded={storesLoaded}
+        storeName={storeName}
+        lockedBy={posStore.lockedBy}
+        shift={shift}
+        tills={tills}
+        onSwitchTill={(id) => {
+          switchTill(id);
+          const t = tills.find((x) => x.id === id);
+          if (t) show(t.isOwnShift ? 'Back on your till' : `Now selling into ${t.openedBy.name}’s till`);
+        }}
+        isReporting={isReporting}
+        onCashMove={() => setShowCashMove(true)}
+        onXReport={printXReport}
+        onCloseShift={() => setShowCloseShift(true)}
+        canPrintLast={!!lastSaleId}
+        onPrintLast={printLast}
+        onHelp={() => setShowHelp(true)}
+      />
 
       {/* Couldn't load the shift: not the same as having none. Offering "open
           shift" here is how a till with a shift already running got refused
@@ -882,30 +821,7 @@ export default function PosPage() {
         onCancel={() => setExpiredPrompt(null)}
       />
 
-      {/* Help overlay */}
-      {showHelp && (
-        <div className="fixed inset-0 bg-black/60 z-40 flex items-center justify-center p-4">
-          <div className="bg-card text-card-foreground border border-border rounded-lg p-6 max-w-sm w-full text-center">
-            <h2 className="text-lg font-semibold mb-4">Keyboard Shortcuts</h2>
-            <ul className="space-y-2 text-left mx-auto max-h-80 overflow-y-auto">
-              <li>/ or Cmd+K — Focus search</li>
-              <li>T — Focus amount tendered</li>
-              <li>Enter — Add quantity to last cart line</li>
-              <li>Tab — Cycle payment methods</li>
-              <li>H — Hold sale</li>
-              <li>D — Toggle discount (amount/percent)</li>
-              <li>P — Print last receipt</li>
-              <li>Esc — Clear search</li>
-            </ul>
-            <button
-              onClick={() => setShowHelp(false)}
-              className="mt-4 inline-block px-4 py-2 bg-primary text-primary-foreground rounded"
-            >
-              Close
-            </button>
-          </div>
-        </div>
-      )}
+      <ShortcutsHelp open={showHelp} onClose={() => setShowHelp(false)} />
 
       <div className="flex min-h-0 flex-1 flex-col gap-4 lg:flex-row">
         {/* Product picker */}
@@ -937,139 +853,21 @@ export default function PosPage() {
             <Barcode className="pointer-events-none absolute right-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
           </form>
 
-          {/* Category filter chips */}
-          <div className="flex gap-2 overflow-x-auto pb-1">
-            <Chip active={categoryId === ''} onClick={() => setCategoryId('')}>
-              All
-            </Chip>
-            <Chip active={categoryId === FAVORITES} onClick={() => setCategoryId(FAVORITES)}>
-              <Star className={cn('h-3.5 w-3.5', categoryId === FAVORITES && 'fill-current')} />
-              Favorites ({favorites.length})
-            </Chip>
-            {categories?.map((c) => (
-              <Chip key={c.id} active={categoryId === c.id} onClick={() => setCategoryId(c.id)}>
-                {c.name}
-              </Chip>
-            ))}
-          </div>
-
-          <div className="min-h-0 flex-1 overflow-y-auto pr-1">
-            {productsError ? (
-              <ErrorState
-                title="Couldn't load products"
-                description="The product catalog failed to load -- this is not the same as being out of stock. Try again."
-                onRetry={() => refetchProducts()}
-              />
-            ) : productsLoading ? (
-              <LoadingBlock label="Loading products…" />
-            ) : (
-              <>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4">
-              {displayProducts.map((p) => {
-                const available = onHand.get(p.id) ?? 0;
-                // Until the stock feed lands, "not loaded" is indistinguishable
-                // from "zero" -- don't claim out of stock on a guess. Matches
-                // maxOf, which treats an unknown product as unrestricted.
-                const out = stockLoaded && available <= 0;
-                const isFavorite = favorites.includes(p.id);
-                return (
-                  <div
-                    key={p.id}
-                    role="button"
-                    tabIndex={out ? -1 : 0}
-                    onClick={out ? undefined : () => add(p)}
-                    onKeyDown={out ? undefined : (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); add(p); } }}
-                    className={cn(
-                      'group flex cursor-pointer flex-col overflow-hidden rounded-lg border border-border bg-card shadow-sm transition-all focus-visible:outline-2 focus-visible:outline-ring outline-offset-1',
-                      out ? 'cursor-default opacity-50' : 'hover:border-primary/50 hover:shadow-md',
-                    )}
-                  >
-                    <div className="relative aspect-square w-full overflow-hidden bg-muted">
-                      {p.imageUrl ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={p.imageUrl}
-                          alt={p.name}
-                          loading="lazy"
-                          decoding="async"
-                          className={cn(
-                            'h-full w-full object-cover transition-transform duration-300',
-                            !out && 'group-hover:scale-105',
-                          )}
-                        />
-                      ) : (
-                        <div className="flex h-full w-full items-center justify-center text-muted-foreground">
-                          <Package className="h-5 w-5" />
-                        </div>
-                      )}
-                      <ExpiryBadge
-                        product={p}
-                        onHand={stockLoaded ? available : undefined}
-                        className="absolute left-1.5 top-1.5 z-10 shadow-sm"
-                      />
-                      {out && (
-                        <div className="absolute inset-0 flex items-center justify-center bg-background/60">
-                          <span className="rounded-full bg-background px-2 py-1 text-xs font-medium text-muted-foreground shadow-sm">
-                            Out of stock
-                          </span>
-                        </div>
-                      )}
-                      <Tooltip
-                        content={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
-                        className="absolute right-1.5 top-1.5"
-                      >
-                      <button
-                        type="button"
-                        onClick={(e) => { e.stopPropagation(); toggleFavorite(p.id); }}
-                        aria-label={isFavorite ? `Remove ${p.name} from favorites` : `Add ${p.name} to favorites`}
-                        className={cn(
-                          'flex h-8 w-8 items-center justify-center rounded-full bg-background/80 shadow-sm backdrop-blur-sm transition-colors sm:h-6 sm:w-6',
-                          isFavorite ? 'text-warning' : 'text-muted-foreground hover:text-foreground',
-                        )}
-                      >
-                        <Star className={cn('h-3.5 w-3.5', isFavorite && 'fill-current')} />
-                      </button>
-                      </Tooltip>
-                    </div>
-                    <div className="flex flex-1 flex-col gap-1 p-2.5">
-                      <div className="flex items-start gap-1">
-                        <span className="line-clamp-2 flex-1 text-sm font-medium">{p.name}</span>
-                        {p.isRxRequired && <RxBadge />}
-                      </div>
-                      <div className="mt-auto flex items-center justify-between pt-1">
-                        <span className="text-sm font-bold text-primary">{formatMoney(p.sellingPrice)}</span>
-                        <Tooltip content={out ? 'Out of stock' : 'Add to cart'}>
-                        <button
-                          disabled={out}
-                          onClick={(e) => { e.stopPropagation(); add(p); }}
-                          aria-label={`Add ${p.name}`}
-                          className="flex h-9 w-9 items-center justify-center rounded-full bg-primary text-primary-foreground transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-40 sm:h-7 sm:w-7"
-                        >
-                          <Plus className="h-4 w-4" />
-                        </button>
-                        </Tooltip>
-                      </div>
-                      <div className="flex items-center justify-between gap-1">
-                        <span className="truncate text-xs text-muted-foreground">{p.sku || p.unit}</span>
-                        {stockLoaded && (
-                          <StockBadge count={available} reorder={reorderLevels.get(p.id) ?? 0} />
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-            {displayProducts.length === 0 && (
-              <p className="py-8 text-center text-sm text-muted-foreground">
-                {categoryId === FAVORITES
-                  ? 'No favorites yet — tap the star on a product to pin it here.'
-                  : 'No products found.'}
-              </p>
-            )}
-              </>
-            )}
-          </div>
+          <ProductGrid
+            categories={categories}
+            categoryId={categoryId}
+            onCategory={setCategoryId}
+            products={displayProducts}
+            loading={productsLoading}
+            error={productsError}
+            onRetry={() => refetchProducts()}
+            stockLoaded={stockLoaded}
+            onHand={onHand}
+            reorderLevels={reorderLevels}
+            favorites={favorites}
+            onToggleFavorite={toggleFavorite}
+            onAdd={(p) => add(p)}
+          />
         </div>
 
         {/* Cart — inline right column on lg+, slide-up sheet on smaller screens */}
@@ -1079,7 +877,8 @@ export default function PosPage() {
             cartOpen ? 'pointer-events-auto' : 'pointer-events-none',
             'lg:pointer-events-auto',
           )}
-          aria-hidden={!cartOpen}
+          aria-hidden={cartHidden}
+          inert={cartHidden}
         >
           {/* Backdrop (mobile only) */}
           <div
@@ -1130,6 +929,7 @@ export default function PosPage() {
               onDiscountTypeChange={setDiscountType}
               payMode={payMode}
               onPayModeChange={setPayMode}
+              tenders={tenders}
               paymentMethod={paymentMethod}
               onPaymentMethodChange={setPaymentMethod}
               amountPaid={amountPaid}
@@ -1146,84 +946,9 @@ export default function PosPage() {
         </div>
       </div>
 
-      {/* Floating cart bar (mobile only) -- also the only way to reach the
-          held-sales tray on small screens, so it must stay visible even
-          when the active cart is empty but sales are parked. */}
-      {(cartCount > 0 || heldSales.length > 0) && (
-        <button
-          type="button"
-          onClick={() => setCartOpen(true)}
-          className={cn(
-            'fixed inset-x-4 bottom-4 z-40 flex h-14 items-center gap-3 rounded-full border px-4 shadow-lg lg:hidden',
-            cartCount > 0 ? 'border-border bg-card' : 'border-warning/40 bg-warning/10',
-          )}
-        >
-          <span
-            className={cn(
-              'flex h-8 w-8 items-center justify-center rounded-full',
-              cartCount > 0 ? 'bg-primary text-primary-foreground' : 'bg-warning/20 text-warning',
-            )}
-          >
-            <ShoppingCart className="h-4 w-4" />
-          </span>
-          {cartCount > 0 ? (
-            <>
-              <span className="text-sm font-semibold text-foreground">
-                {cartCount} item{cartCount !== 1 ? 's' : ''}
-              </span>
-              <span className="ml-auto text-base font-bold text-primary">{formatMoney(total)}</span>
-            </>
-          ) : (
-            <span className="text-sm font-semibold text-foreground">
-              {heldSales.length} sale{heldSales.length !== 1 ? 's' : ''} on hold
-            </span>
-          )}
-          <ChevronUp className="ml-auto h-4 w-4 text-muted-foreground" />
-        </button>
-      )}
+      {/* Mobile only -- also the only way to reach the held-sales tray on
+          small screens, so it stays while sales are parked. */}
+      <MobileCartBar cartCount={cartCount} heldCount={heldSales.length} total={total} onOpen={() => setCartOpen(true)} />
     </div>
   );
-}
-
-function Chip({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={cn(
-        'inline-flex shrink-0 items-center gap-1 rounded-full border px-3 py-1.5 text-sm font-medium transition-colors',
-        active
-          ? 'border-primary bg-primary text-primary-foreground'
-          : 'border-input bg-background text-muted-foreground hover:border-primary/50 hover:text-foreground',
-      )}
-    >
-      {children}
-    </button>
-  );
-}
-
-/** Availability hint for product cards. */
-function StockBadge({ count, reorder }: { count: number; reorder: number }) {
-  if (count <= 0) {
-    return (
-      <span className="shrink-0 rounded-full bg-destructive/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-destructive">
-        Out of stock
-      </span>
-    );
-  }
-  if (count <= reorder) {
-    return (
-      <span className="shrink-0 rounded-full bg-warning/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-warning">
-        Low: {count}
-      </span>
-    );
-  }
-  return <span className="shrink-0 text-xs text-muted-foreground">{count} in stock</span>;
 }

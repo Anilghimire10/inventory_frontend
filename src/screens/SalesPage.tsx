@@ -28,6 +28,7 @@ import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
 import { Pagination } from '@/components/ui/pagination';
 import { useToast } from '@/components/ui/toast';
 import { apiError } from '@/lib/api';
+import { liveRefetchInterval } from '@/lib/live';
 import { printReturnSlip, printSale, type ReturnSlip } from '@/lib/print';
 import { formatMoney, formatDateTime } from '@/lib/format';
 import { remainingQty } from '@/lib/decimal';
@@ -36,6 +37,7 @@ import { Tooltip } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { exportCsv } from '@/lib/csv';
 import { useAuth } from '@/auth/AuthContext';
+import { useAcceptedTenders } from '@/hooks/useAcceptedTenders';
 import { can } from '@/lib/permissions';
 
 /** The accountant's sales file: one row per bill. */
@@ -75,6 +77,8 @@ const PAYMENT_LABEL: Record<PaymentMethod, string> = {
   CASH: 'Cash',
   CARD: 'Card',
   MOBILE: 'Mobile',
+  KHALTI: 'Khalti',
+  CONNECTIPS: 'connectIPS',
   CREDIT: 'Credit',
   // Part paid now (by any tender -- the payment row records which), the rest
   // on the customer's khata. Not "Cash + Credit": a card part-payment is MIXED too.
@@ -183,6 +187,7 @@ export default function SalesPage() {
         paymentMethod: payFilter === 'all' ? undefined : payFilter,
         storeId: storeId || undefined,
       }),
+    refetchInterval: liveRefetchInterval,
   });
   const detail = useQuery({
     queryKey: ['sale', openId],
@@ -382,6 +387,8 @@ export default function SalesPage() {
             <option value="CASH">Cash</option>
             <option value="CARD">Card</option>
             <option value="MOBILE">Mobile</option>
+            <option value="KHALTI">Khalti</option>
+            <option value="CONNECTIPS">connectIPS</option>
             <option value="CREDIT">Credit</option>
             <option value="MIXED">Part credit</option>
           </Select>
@@ -652,8 +659,6 @@ function RowMenu({
   );
 }
 
-const REFUND_TENDERS: SettleMethod[] = ['CASH', 'CARD', 'MOBILE'];
-
 function ReturnSection({
   sale,
   returnQty,
@@ -684,6 +689,8 @@ function ReturnSection({
   setReason: (v: string) => void;
 }) {
   const returnable = sale.items.filter((it) => remainingQty(it) > 0);
+  // The shop's tenders, plus the one the sale was paid on (the default).
+  const refundTenders = useAcceptedTenders(quote?.defaultMethod);
   if (returnable.length === 0) return null;
   return (
     <details className="rounded-md border border-border p-3">
@@ -711,6 +718,7 @@ function ReturnSection({
                   <span className="w-20 text-right tabular-nums">{picked.length}</span>
                 ) : (
                   <Input type="number" step="0.001" min="0" max={max} className="h-8 w-20"
+                    aria-label={`How many ${it.name} to return`}
                     value={returnQty[it.id] ?? 0}
                     onChange={(e) =>
                       setReturnQty({ ...returnQty, [it.id]: Math.min(max, Math.max(0, Number(e.target.value))) })
@@ -780,9 +788,9 @@ function ReturnSection({
                 value={refundMethod ?? quote.defaultMethod}
                 onChange={(e) => setRefundMethod(e.target.value as SettleMethod)}
               >
-                {REFUND_TENDERS.map((m) => (
-                  <option key={m} value={m}>
-                    {PAYMENT_LABEL[m]}
+                {refundTenders.map((m) => (
+                  <option key={m.value} value={m.value}>
+                    {PAYMENT_LABEL[m.value]}
                   </option>
                 ))}
               </Select>

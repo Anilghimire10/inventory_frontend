@@ -1,5 +1,6 @@
 import axios, { AxiosError } from 'axios';
 import type { SupportContact } from '@/types';
+import { clientId } from './client-id';
 
 const TOKEN_KEY = 'inv_token';
 
@@ -12,18 +13,22 @@ export const getToken = () =>
 export const setToken = (t: string) => sessionStorage.setItem(TOKEN_KEY, t);
 export const clearToken = () => sessionStorage.removeItem(TOKEN_KEY);
 
-export const api = axios.create({
-  // On web (dev/prod server) `/api` is proxied to the backend by next.config.mjs
-  // rewrites. In the mobile (Capacitor static export) build there is no proxy, so
-  // NEXT_PUBLIC_API_URL must point at the absolute backend base, e.g.
-  // https://api.yourdomain.com/api
-  baseURL: process.env.NEXT_PUBLIC_API_URL || '/api',
-});
+// On web (dev/prod server) `/api` is proxied to the backend by next.config.mjs
+// rewrites. In the mobile (Capacitor static export) build there is no proxy, so
+// NEXT_PUBLIC_API_URL must point at the absolute backend base, e.g.
+// https://api.yourdomain.com/api
+export const API_BASE = process.env.NEXT_PUBLIC_API_URL || '/api';
+
+export const api = axios.create({ baseURL: API_BASE });
 
 // Attach the JWT to every request.
 api.interceptors.request.use((config) => {
   const token = getToken();
-  if (token) config.headers.Authorization = `Bearer ${token}`;
+  // A request that brings its own (the lock screen's billing-only pass)
+  // keeps it.
+  if (token && !config.headers.Authorization) config.headers.Authorization = `Bearer ${token}`;
+  // Names this tab on the live update its change causes (see LiveUpdates).
+  config.headers['X-Client-Id'] = clientId();
   return config;
 });
 
@@ -36,6 +41,12 @@ export interface SubscriptionBlock {
   reason: 'expired' | 'inactive';
   endedAt: string | null;
   contact: SupportContact;
+  /**
+   * For an owner or manager: a short-lived pass (about an hour) that opens
+   * only the Subscription routes, so the lock screen can show how to pay and
+   * take an "I've paid" report.
+   */
+  billingToken?: string;
 }
 
 const BLOCK_KEY = 'inv_subscription_block';
@@ -48,6 +59,7 @@ export function subscriptionBlock(err: unknown): SubscriptionBlock | null {
     reason: data.reason === 'expired' ? 'expired' : 'inactive',
     endedAt: data.endedAt ?? null,
     contact: data.contact ?? {},
+    ...(typeof data.billingToken === 'string' ? { billingToken: data.billingToken } : {}),
   };
 }
 
@@ -81,6 +93,9 @@ export function parseBlock(raw: string | null): SubscriptionBlock | null {
   }
 }
 
+/** Fired when the API answers 503 MAINTENANCE; MaintenanceBanner listens. */
+export const MAINTENANCE_EVENT = 'inv:maintenance';
+
 // On 401, drop the token and bounce to login -- or, when the subscription is
 // what stopped it, to the screen that says so. Sending a shop whose
 // subscription lapsed back to a login form it can't get past explains
@@ -88,6 +103,11 @@ export function parseBlock(raw: string | null): SubscriptionBlock | null {
 api.interceptors.response.use(
   (res) => res,
   (error: AxiosError) => {
+    // Closed for maintenance: keep the session, and have the maintenance
+    // screen look now rather than at its next check.
+    if (error.response?.status === 503 && apiErrorCode(error) === 'MAINTENANCE') {
+      window.dispatchEvent(new Event(MAINTENANCE_EVENT));
+    }
     if (error.response?.status === 401 && getToken()) {
       clearToken();
       const block = subscriptionBlock(error);

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { currencySymbol, formatDate, formatMoney, setCurrency } from './format';
+import { currencySymbol, formatDate, formatMoney, formatTimeAgo, plural, setCurrency } from './format';
 
 // Intl output varies with the host's locale, so assert on behaviour that must
 // hold anywhere rather than on exact strings.
@@ -56,5 +56,45 @@ describe('formatDate', () => {
     expect(formatDate(null)).toBe('—');
     expect(formatDate(undefined)).toBe('—');
     expect(formatDate('')).toBe('—');
+  });
+});
+
+describe('formatTimeAgo', () => {
+  const now = new Date('2026-09-30T12:00:00Z');
+  const ago = (ms: number) => new Date(now.getTime() - ms);
+  const MIN = 60_000;
+
+  it('reads recent times as minutes and hours', () => {
+    expect(formatTimeAgo(ago(20_000), now)).toBe('Just now');
+    expect(formatTimeAgo(ago(5 * MIN), now)).toBe('5m ago');
+    expect(formatTimeAgo(ago(3 * 60 * MIN), now)).toBe('3h ago');
+  });
+
+  it('reads older times as days, then the date', () => {
+    expect(formatTimeAgo(ago(30 * 60 * MIN), now)).toBe('Yesterday');
+    expect(formatTimeAgo(ago(4 * 24 * 60 * MIN), now)).toBe('4d ago');
+    expect(formatTimeAgo(ago(10 * 24 * 60 * MIN), now)).toBe(formatDate(ago(10 * 24 * 60 * MIN)));
+  });
+
+  it('shows a dash for nothing', () => {
+    expect(formatTimeAgo(null)).toBe('—');
+  });
+});
+
+describe('plural', () => {
+  it('uses the singular only for exactly one', () => {
+    expect(plural(1, 'customer')).toBe('1 customer');
+    expect(plural(0, 'customer')).toBe('0 customers');
+    expect(plural(3, 'customer')).toBe('3 customers');
+  });
+
+  it('takes an irregular plural and reads nothing as zero', () => {
+    expect(plural(2, 'branch', 'branches')).toBe('2 branches');
+    expect(plural(undefined, 'bill')).toBe('0 bills');
+  });
+
+  it('agrees with the rounded number it prints for weighed goods', () => {
+    expect(plural(1.04, 'unit')).toMatch(/ unit$/);
+    expect(plural(1.5, 'unit')).toMatch(/ units$/);
   });
 });

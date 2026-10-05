@@ -36,12 +36,14 @@ function getSymbolFormatter(currency: string): Intl.NumberFormat {
   return f;
 }
 
-export function formatMoney(value: number | string | null | undefined): string {
+export function formatMoney(value: number | string | null | undefined, currency?: string): string {
   const n = typeof value === 'string' ? Number(value) : (value ?? 0);
+  // The shop's currency, unless another is asked for (e.g. to preview a change).
+  const code = currency ?? currentCurrency;
   try {
-    return getMoneyFormatter(currentCurrency).format(n);
+    return getMoneyFormatter(code).format(n);
   } catch {
-    return `${currentCurrency} ${n.toFixed(2)}`;
+    return `${code} ${n.toFixed(2)}`;
   }
 }
 
@@ -58,6 +60,13 @@ export function formatNumber(value: number | null | undefined): string {
   const n = typeof value === 'string' ? Number(value) : (value ?? 0);
   numberFormatter ??= new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 });
   return numberFormatter.format(n);
+}
+
+/** "1 customer", "3 customers". Pass `many` for irregular plurals. */
+export function plural(count: number | null | undefined, one: string, many = `${one}s`): string {
+  const n = count ?? 0;
+  // Decide on the number as shown: 1.04 kg prints as "1", so it reads "1 unit".
+  return `${formatNumber(n)} ${Math.round(n * 10) / 10 === 1 ? one : many}`;
 }
 
 export function formatDate(value: string | Date | null | undefined): string {
@@ -92,4 +101,23 @@ export function formatDateTime(value: string | Date | null | undefined): string 
     hour: '2-digit',
     minute: '2-digit',
   });
+}
+
+/**
+ * "Just now", "5m ago", "3h ago", "Yesterday", "4d ago", then the date.
+ * For lists scanned by recency, like the notification bell; pair it with
+ * formatDateTime in a title for the exact time.
+ */
+export function formatTimeAgo(value: string | Date | null | undefined, now = new Date()): string {
+  if (!value) return '—';
+  const d = typeof value === 'string' ? new Date(value) : value;
+  const mins = Math.floor((now.getTime() - d.getTime()) / 60_000);
+  if (mins < 1) return 'Just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days === 1) return 'Yesterday';
+  if (days < 7) return `${days}d ago`;
+  return formatDate(d);
 }

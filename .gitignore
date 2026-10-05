@@ -13,3 +13,7 @@ out
 
 # Personal build-order/checklist doc — not meant to be tracked
 Tasks.md
+
+# Playwright output
+test-results/
+playwright-report/

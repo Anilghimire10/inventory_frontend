@@ -100,6 +100,9 @@ export function Tooltip({ content, children, side = 'top', tapToggle, id, classN
 
   useEffect(() => () => clearTimeout(timer.current), []);
 
+  // Nothing to say (a hint that only applies sometimes): just the trigger.
+  if (!content) return <>{children}</>;
+
   return (
     <span
       ref={triggerRef}
