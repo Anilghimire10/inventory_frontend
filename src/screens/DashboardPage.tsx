@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 import { ReportsApi } from '@/api';
 import { BarsChart, TrendChart } from '@/components/charts';
-import { PageHeader, LoadingBlock, EmptyState, ErrorState } from '@/components/ui/misc';
+import { PageHeader, EmptyState, ErrorState, Skeleton } from '@/components/ui/misc';
 import { useStoreLabel } from '@/components/StorePicker';
 import { useStoreScope } from '@/store/StoreContext';
 import { Card } from '@/components/ui/card';
@@ -55,7 +55,7 @@ export default function DashboardPage() {
       {isError ? (
         <ErrorState onRetry={() => refetch()} />
       ) : isLoading || !data ? (
-        <LoadingBlock />
+        <DashboardSkeleton showMoney={showMoney} />
       ) : (
         <>
           {/* Stat cards */}
@@ -215,6 +215,68 @@ export default function DashboardPage() {
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+/**
+ * The dashboard's shape while its numbers load: the same cards, charts and
+ * lists in the same places, so nothing jumps when the data lands.
+ */
+function DashboardSkeleton({ showMoney }: { showMoney: boolean }) {
+  const header = (
+    <div className="flex items-center gap-2 border-b border-border p-5">
+      <Skeleton className="h-5 w-5" />
+      <div className="space-y-1.5">
+        <Skeleton className="h-4 w-40" />
+        <Skeleton className="h-3 w-24" />
+      </div>
+    </div>
+  );
+  return (
+    <div role="status" aria-label="Loading dashboard">
+      <div className={cn('grid grid-cols-1 gap-4 sm:grid-cols-2', showMoney ? 'xl:grid-cols-5' : 'xl:grid-cols-4')}>
+        {Array.from({ length: showMoney ? 5 : 3 }, (_, i) => (
+          <Card key={i} className="p-5">
+            <div className="flex items-start justify-between">
+              <div className="space-y-2">
+                <Skeleton className="h-4 w-24" />
+                <Skeleton className="h-7 w-28" />
+                <Skeleton className="h-3 w-32" />
+              </div>
+              <Skeleton className="h-10 w-10 rounded-lg" />
+            </div>
+          </Card>
+        ))}
+      </div>
+      {showMoney && (
+        <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
+          {[0, 1].map((i) => (
+            <Card key={i}>
+              {header}
+              <div className="p-3">
+                <Skeleton className="h-[240px] w-full" />
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+      <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
+        {[0, 1].map((i) => (
+          <Card key={i}>
+            {header}
+            <ul className="space-y-1 p-2">
+              {[0, 1, 2, 3, 4].map((j) => (
+                <li key={j} className="flex items-center gap-3 px-2 py-1.5">
+                  <Skeleton className="h-6 w-6 rounded-full" />
+                  <Skeleton className="h-4 flex-1" />
+                  <Skeleton className="h-4 w-14" />
+                </li>
+              ))}
+            </ul>
+          </Card>
+        ))}
+      </div>
     </div>
   );
 }

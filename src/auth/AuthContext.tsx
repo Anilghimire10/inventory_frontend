@@ -9,7 +9,7 @@ import {
 } from 'react';
 import { AuthApi } from '@/api';
 import axios from 'axios';
-import { clearToken, setToken, getToken } from '@/lib/api';
+import { clearToken, setToken, getToken, getCachedSession, setCachedSession } from '@/lib/api';
 import { setCurrency } from '@/lib/format';
 import type { SessionUser } from '@/types';
 
@@ -59,6 +59,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       impersonation: me.impersonation ?? null,
     };
     if (me.business?.currency) setCurrency(me.business.currency);
+    setCachedSession(session);
     setUser(session);
   }, []);
 
@@ -69,12 +70,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // a blip had to sign in again afterwards.
   const restore = useCallback(async () => {
     if (getToken()) {
+      // Draw the app from the last known session now, and confirm it with the
+      // API behind it: the shell and the page's own requests no longer queue
+      // up behind /auth/me. The server still checks every request, so a stale
+      // copy can show a menu item at worst, never data.
+      const cached = getCachedSession();
+      if (cached) {
+        if (cached.business?.currency) setCurrency(cached.business.currency);
+        setUser(cached);
+        setLoading(false);
+      }
       try {
         await loadMe();
         setUnreachable(false);
       } catch (err) {
-        if (axios.isAxiosError(err) && err.response?.status === 401) clearToken();
-        else setUnreachable(true);
+        if (axios.isAxiosError(err) && err.response?.status === 401) {
+          clearToken();
+          setUser(null);
+        } else setUnreachable(true);
       }
     }
     setLoading(false);

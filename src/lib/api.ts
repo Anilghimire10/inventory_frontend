@@ -1,5 +1,5 @@
 import axios, { AxiosError } from 'axios';
-import type { SupportContact } from '@/types';
+import type { SessionUser, SupportContact } from '@/types';
 import { clientId } from './client-id';
 import { tabStorage } from './tab-storage';
 
@@ -13,7 +13,38 @@ const TOKEN_KEY = 'inv_token';
 export const getToken = () =>
   typeof window === 'undefined' ? null : tabStorage().getItem(TOKEN_KEY);
 export const setToken = (t: string) => tabStorage().setItem(TOKEN_KEY, t);
-export const clearToken = () => tabStorage().removeItem(TOKEN_KEY);
+export const clearToken = () => {
+  tabStorage().removeItem(TOKEN_KEY);
+  tabStorage().removeItem(SESSION_KEY);
+};
+
+const SESSION_KEY = 'inv_session';
+
+/**
+ * Who /auth/me last said is signed in, so a reload can draw the app at once
+ * instead of a spinner until the API answers (a second or more; far longer
+ * while the server wakes up). Kept with the token it was fetched for: a
+ * different token -- an impersonation, a new password -- never shows someone
+ * else's name or menu, even briefly.
+ */
+export function getCachedSession(): SessionUser | null {
+  try {
+    const raw = tabStorage().getItem(SESSION_KEY);
+    if (!raw) return null;
+    const saved = JSON.parse(raw) as { token: string; user: SessionUser };
+    return saved.token === getToken() ? saved.user : null;
+  } catch {
+    return null;
+  }
+}
+
+export function setCachedSession(user: SessionUser) {
+  try {
+    tabStorage().setItem(SESSION_KEY, JSON.stringify({ token: getToken(), user }));
+  } catch {
+    // Storage full or blocked: the next reload just waits for the API.
+  }
+}
 
 // On web (dev/prod server) `/api` is proxied to the backend by next.config.mjs
 // rewrites. In the mobile (Capacitor static export) build there is no proxy, so

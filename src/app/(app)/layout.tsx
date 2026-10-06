@@ -6,7 +6,8 @@ import { useAuth } from '@/auth/AuthContext';
 import { ShiftProvider } from '@/shift/ShiftContext';
 import { StoreScopeProvider } from '@/store/StoreContext';
 import AppLayout from '@/components/layout/AppLayout';
-import { ErrorState, LoadingBlock } from '@/components/ui/misc';
+import { Menu, Package } from 'lucide-react';
+import { ErrorState, Skeleton } from '@/components/ui/misc';
 import { MaintenanceBanner } from '@/components/layout/MaintenanceBanner';
 import { canAccessPath } from '@/components/layout/nav';
 import { LiveUpdates } from '@/components/LiveUpdates';
@@ -72,13 +73,7 @@ export default function AppGroupLayout({ children }: { children: React.ReactNode
     );
   }
 
-  if (loading || !user || !allowed) {
-    return (
-      <div className="flex min-h-screen items-center justify-center">
-        <LoadingBlock label="Loading…" />
-      </div>
-    );
-  }
+  if (loading || !user || !allowed) return <ShellSkeleton />;
   return (
     <QueryClientProvider client={client}>
       <LiveUpdates />
@@ -88,5 +83,46 @@ export default function AppGroupLayout({ children }: { children: React.ReactNode
         </ShiftProvider>
       </StoreScopeProvider>
     </QueryClientProvider>
+  );
+}
+
+/**
+ * The app's frame -- sidebar, header, a page title -- before there is a user
+ * to fill it. It is also what every app page's prerendered HTML holds, so the
+ * first paint already looks like the app rather than a centred spinner.
+ */
+function ShellSkeleton() {
+  return (
+    <div className="flex min-h-screen" role="status" aria-label="Loading">
+      <aside className="hidden w-64 shrink-0 flex-col border-r border-border bg-card lg:flex">
+        <div className="flex h-16 items-center gap-2 border-b border-border px-5">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+            <Package className="h-4 w-4" />
+          </div>
+          <span className="font-semibold">Inventory</span>
+        </div>
+        <div className="space-y-2 p-3">
+          {Array.from({ length: 8 }, (_, i) => (
+            <Skeleton key={i} className="h-8 w-full" />
+          ))}
+        </div>
+      </aside>
+      <div className="flex min-w-0 flex-1 flex-col">
+        <header className="flex h-16 items-center gap-3 border-b border-border px-4 lg:px-6">
+          {/* The real menu icon, not a grey block: browsers only count text
+              and images as a first paint, and on a phone this is the one. */}
+          <Menu className="h-5 w-5 text-muted-foreground lg:hidden" />
+          <div className="ml-auto flex items-center gap-2">
+            <Skeleton className="h-8 w-28" />
+            <Skeleton className="h-8 w-8" />
+            <Skeleton className="h-8 w-8 rounded-full" />
+          </div>
+        </header>
+        <main className="flex-1 space-y-3 p-4 lg:p-6">
+          <Skeleton className="h-7 w-48" />
+          <Skeleton className="h-4 w-72 max-w-full" />
+        </main>
+      </div>
+    </div>
   );
 }

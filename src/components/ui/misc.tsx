@@ -6,6 +6,15 @@ export function Spinner({ className }: { className?: string }) {
   return <Loader2 className={cn('h-5 w-5 animate-spin text-muted-foreground', className)} />;
 }
 
+/**
+ * A grey block standing in for content that is loading. Laid out where the
+ * real thing will be, the page looks nearly finished from the first frame --
+ * which reads as faster than a spinner, and is what Speed Index measures.
+ */
+export function Skeleton({ className }: { className?: string }) {
+  return <div aria-hidden className={cn('animate-pulse rounded-md bg-muted', className)} />;
+}
+
 export function LoadingBlock({ label = 'Loading…' }: { label?: string }) {
   return (
     <div className="flex items-center justify-center gap-2 py-16 text-muted-foreground">
