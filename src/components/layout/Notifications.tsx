@@ -104,11 +104,33 @@ export default function Notifications() {
     });
   };
 
+  // Closes on a tap outside, Escape, or tabbing out. It used to close when the
+  // bell lost focus -- but Safari (every iPhone) never focuses a tapped button,
+  // so there the panel couldn't be closed by tapping away, and elsewhere a tap
+  // on a row's text closed it.
+  const root = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const outside = (e: Event) => {
+      if (!root.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const escape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('pointerdown', outside);
+    document.addEventListener('focusin', outside);
+    document.addEventListener('keydown', escape);
+    return () => {
+      document.removeEventListener('pointerdown', outside);
+      document.removeEventListener('focusin', outside);
+      document.removeEventListener('keydown', escape);
+    };
+  }, [open]);
+
   return (
-    <div className="relative">
+    <div ref={root} className="relative">
       <button
         onClick={openPanel}
-        onBlur={() => setTimeout(() => setOpen(false), 200)}
         className={cn(
           'relative rounded-md p-2 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground',
           open && 'bg-accent text-foreground',
@@ -125,9 +147,12 @@ export default function Notifications() {
       </button>
 
       {open && (
-        // Phones: pinned under the header, full width -- anchored to the bell,
-        // which isn't at the screen's edge, it would run off the left side.
-        <div className="fixed inset-x-4 top-16 z-40 flex flex-col overflow-hidden rounded-xl border border-border bg-popover shadow-xl animate-fade-in sm:absolute sm:inset-x-auto sm:right-0 sm:top-auto sm:mt-2 sm:w-96">
+        // Phones and small tablets: pinned under the header, full width --
+        // anchored to the bell, which sits left of the account button (with
+        // the name showing from 640px), it ran off the left side below ~768px.
+        // Never taller than the screen, so the footer stays reachable on a
+        // short or landscape phone.
+        <div className="fixed inset-x-4 top-16 z-40 flex max-h-[calc(100dvh-5rem)] flex-col overflow-hidden rounded-xl border border-border bg-popover shadow-xl animate-fade-in md:absolute md:inset-x-auto md:right-0 md:top-auto md:mt-2 md:w-96">
           <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
             <div className="flex items-center gap-2">
               <span className="text-sm font-semibold">Notifications</span>
@@ -150,7 +175,7 @@ export default function Notifications() {
             )}
           </div>
 
-          <div className="max-h-[26rem] overflow-y-auto overscroll-contain">
+          <div className="max-h-[26rem] min-h-0 flex-1 overflow-y-auto overscroll-contain">
             {isLoading ? (
               <LoadingRows />
             ) : isError && !data ? (
@@ -278,7 +303,9 @@ function NotificationRow({
         <button
           onMouseDown={keepOpen}
           onClick={onDismiss}
-          className="rounded-md p-1.5 text-muted-foreground transition hover:bg-accent hover:text-foreground focus-visible:opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
+          // Hidden until hover only where there is hover: a tablet is wider than
+          // a phone but has no pointer to hover with, so it never showed there.
+          className="rounded-md p-1.5 text-muted-foreground transition hover:bg-accent hover:text-foreground focus-visible:opacity-100 [@media(hover:hover)]:opacity-0 group-hover:opacity-100"
           aria-label="Dismiss"
         >
           <X className="h-3.5 w-3.5" />
