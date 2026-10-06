@@ -16,6 +16,8 @@ import { Pagination } from '@/components/ui/pagination';
 import { Tooltip } from '@/components/ui/tooltip';
 import { useAuth } from '@/auth/AuthContext';
 import { can } from '@/lib/permissions';
+import { SupplierDetailsDialog } from '@/components/suppliers/SupplierDetailsDialog';
+import { PurchaseDetailsDialog } from '@/components/purchases/PurchaseDetailsDialog';
 
 const empty = { name: '', contactName: '', phone: '', email: '', address: '' };
 type Form = typeof empty;
@@ -25,6 +27,9 @@ export default function SuppliersPage() {
   const canDelete = !!user && can.deleteCatalog(user.role);
   const [form, setForm] = useState<Form>(empty);
   const [page, setPage] = useState(1);
+  // A supplier's details, and a purchase opened from them (Back returns).
+  const [detailsId, setDetailsId] = useState<string | null>(null);
+  const [purchaseId, setPurchaseId] = useState<string | null>(null);
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['suppliers', page],
@@ -74,7 +79,7 @@ export default function SuppliersPage() {
             <THead><TR><TH>Name</TH><TH>Contact</TH><TH>Phone</TH><TH>Email</TH><TH></TH></TR></THead>
             <TBody>
               {data.data.map((s) => (
-                <TR key={s.id}>
+                <TR key={s.id} onOpen={() => setDetailsId(s.id)}>
                   <TD className="font-medium">{s.name}</TD>
                   <TD>{s.contactName || '—'}</TD>
                   <TD>{s.phone || '—'}</TD>
@@ -99,6 +104,35 @@ export default function SuppliersPage() {
           <Pagination page={data.meta.page} pages={data.meta.pages} onPage={setPage} />
           </>
         )}
+
+      {detailsId && !purchaseId && (
+        <SupplierDetailsDialog
+          supplierId={detailsId}
+          onOpenPurchase={setPurchaseId}
+          onClose={() => setDetailsId(null)}
+          actions={(s) => (
+            <Button
+              type="button"
+              onClick={() => {
+                setDetailsId(null);
+                openEdit(s);
+              }}
+            >
+              <Pencil className="h-4 w-4" /> Edit
+            </Button>
+          )}
+        />
+      )}
+      {purchaseId && (
+        <PurchaseDetailsDialog
+          purchaseId={purchaseId}
+          onBack={() => setPurchaseId(null)}
+          onClose={() => {
+            setPurchaseId(null);
+            setDetailsId(null);
+          }}
+        />
+      )}
 
       <Dialog open={crud.open} onClose={crud.close} title={crud.editing ? 'Edit supplier' : 'New supplier'}>
         <form onSubmit={submit} className="space-y-4">

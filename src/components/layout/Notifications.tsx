@@ -11,6 +11,7 @@ import { cn } from '@/lib/utils';
 import { Tooltip } from '@/components/ui/tooltip';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { useToast } from '@/components/ui/toast';
+import { apiError } from '@/lib/api';
 
 const ICONS: Record<NotificationType, React.ComponentType<{ className?: string }>> = {
   LOW_STOCK: AlertTriangle,
@@ -38,19 +39,24 @@ export default function Notifications() {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['notifications'],
     queryFn: () => NotificationsApi.list(),
     refetchInterval: liveRefetchInterval,
   });
 
+  // A failed click used to do nothing at all, which reads as a broken button.
+  const { show } = useToast();
+  const failed = (e: unknown) => show(apiError(e), 'error');
   const markAllRead = useMutation({
     mutationFn: () => NotificationsApi.markAllRead(),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['notifications'] }),
+    onError: failed,
   });
   const dismiss = useMutation({
     mutationFn: (id: string) => NotificationsApi.dismiss(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['notifications'] }),
+    onError: failed,
   });
   const [confirmClear, setConfirmClear] = useState(false);
   const dismissAll = useMutation({
@@ -59,6 +65,7 @@ export default function Notifications() {
       setConfirmClear(false);
       return qc.invalidateQueries({ queryKey: ['notifications'] });
     },
+    onError: failed,
   });
 
   const items = data?.items ?? [];
@@ -66,7 +73,6 @@ export default function Notifications() {
 
   // Announcements and support replies pop up as they arrive. Stock alerts only
   // count in the badge: a busy till would otherwise toast all day.
-  const { show } = useToast();
   const seen = useRef<Set<string> | null>(null);
   useEffect(() => {
     if (!data) return;
@@ -147,6 +153,19 @@ export default function Notifications() {
           <div className="max-h-[26rem] overflow-y-auto overscroll-contain">
             {isLoading ? (
               <LoadingRows />
+            ) : isError && !data ? (
+              // Not "all caught up": that would hide a low-stock alert behind
+              // a network error.
+              <div className="flex flex-col items-center px-6 py-10 text-center">
+                <p className="text-sm font-medium text-destructive">Couldn&rsquo;t load notifications</p>
+                <button
+                  type="button"
+                  onClick={() => refetch()}
+                  className="mt-2 text-xs font-medium text-primary hover:underline"
+                >
+                  Retry
+                </button>
+              </div>
             ) : items.length === 0 ? (
               <div className="flex flex-col items-center px-6 py-10 text-center">
                 <div className="flex h-11 w-11 items-center justify-center rounded-full bg-muted text-muted-foreground">

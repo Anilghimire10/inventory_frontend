@@ -150,7 +150,7 @@ export function PlanPicker({
               {compact ? ' in Settings once you’ve renewed.' : ', then come back here.'}
             </p>
             {!compact && (
-              <Link href="/settings" className="mt-1.5 inline-block font-medium text-primary hover:underline">
+              <Link href="/settings?tab=stores" className="mt-1.5 inline-block font-medium text-primary hover:underline">
                 Manage branches in Settings →
               </Link>
             )}

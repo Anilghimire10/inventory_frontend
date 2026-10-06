@@ -11,12 +11,15 @@ export function StockTable({
   items,
   onAdjust,
   onReorderLevel,
+  onOpen,
   lowMode,
   showStore,
 }: {
   items: StockItem[];
   onAdjust: (i: StockItem) => void;
   onReorderLevel: (i: StockItem) => void;
+  /** A row click: the product's details at that store. */
+  onOpen?: (i: StockItem) => void;
   lowMode?: boolean;
   /** Viewing every branch at once — without this the same product appears
    *  once per store with nothing to tell the rows apart. */
@@ -41,7 +44,7 @@ export function StockTable({
             it.effectiveReorderLevel ?? (it.reorderLevel || it.product.reorderLevel || 0);
           const lowFlag = reorder > 0 && Number(it.quantity) <= reorder;
           return (
-            <TR key={it.id}>
+            <TR key={it.id} onOpen={onOpen && (() => onOpen(it))}>
               <TD className="font-medium">
                 {it.product.name}
                 <span className="block text-xs font-normal text-muted-foreground sm:hidden">

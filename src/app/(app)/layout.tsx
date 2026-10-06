@@ -6,7 +6,8 @@ import { useAuth } from '@/auth/AuthContext';
 import { ShiftProvider } from '@/shift/ShiftContext';
 import { StoreScopeProvider } from '@/store/StoreContext';
 import AppLayout from '@/components/layout/AppLayout';
-import { LoadingBlock } from '@/components/ui/misc';
+import { ErrorState, LoadingBlock } from '@/components/ui/misc';
+import { MaintenanceBanner } from '@/components/layout/MaintenanceBanner';
 import { canAccessPath } from '@/components/layout/nav';
 import { LiveUpdates } from '@/components/LiveUpdates';
 
@@ -16,7 +17,8 @@ import { LiveUpdates } from '@/components/LiveUpdates';
  *  - authenticated but role can't access this path → /dashboard
  */
 export default function AppGroupLayout({ children }: { children: React.ReactNode }) {
-  const { user, loading } = useAuth();
+  const { user, loading, unreachable, retry } = useAuth();
+  const [retrying, setRetrying] = useState(false);
   const router = useRouter();
   const pathname = usePathname() ?? '/';
   // React Query lives only inside the authenticated area — public pages never
@@ -35,15 +37,40 @@ export default function AppGroupLayout({ children }: { children: React.ReactNode
   );
 
   useEffect(() => {
-    if (loading) return;
+    // A saved session the server couldn't confirm is still a session: stay
+    // here and offer a retry rather than a login form.
+    if (loading || unreachable) return;
     if (!user) {
       router.replace('/login');
     } else if (!canAccessPath(user.role, pathname)) {
       router.replace('/');
     }
-  }, [loading, user, pathname, router]);
+  }, [loading, unreachable, user, pathname, router]);
 
   const allowed = !!user && canAccessPath(user.role, pathname);
+
+  if (!loading && !user && unreachable) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center gap-4 p-4">
+        {/* Covers this with the "down for maintenance" screen when that's why. */}
+        <MaintenanceBanner boxed />
+        <div className="w-full max-w-md">
+          <ErrorState
+            title={retrying ? 'Trying again…' : "Can't reach the server"}
+            description="You're still signed in. Check your connection, then retry."
+            onRetry={
+              retrying
+                ? undefined
+                : () => {
+                    setRetrying(true);
+                    retry().finally(() => setRetrying(false));
+                  }
+            }
+          />
+        </div>
+      </div>
+    );
+  }
 
   if (loading || !user || !allowed) {
     return (

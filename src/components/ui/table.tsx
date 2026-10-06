@@ -30,12 +30,43 @@ export function TBody({ children }: { children: React.ReactNode }) {
   return <tbody className="divide-y divide-border">{children}</tbody>;
 }
 
+/** Controls inside a row that do their own thing rather than open it. */
+const INTERACTIVE = 'button, a, input, select, textarea, label, [role="button"]';
+
 export function TR({
   className,
+  onOpen,
   ...props
-}: React.HTMLAttributes<HTMLTableRowElement>) {
+}: React.HTMLAttributes<HTMLTableRowElement> & {
+  /**
+   * Makes the whole row open its record (a details dialog). Clicks on a
+   * checkbox or button inside the row still do only that, and the row is
+   * reachable by keyboard: Tab to it, Enter to open.
+   */
+  onOpen?: () => void;
+}) {
+  const open = onOpen && {
+    tabIndex: 0,
+    onClick: (e: React.MouseEvent<HTMLTableRowElement>) => {
+      if ((e.target as HTMLElement).closest(INTERACTIVE)) return;
+      onOpen();
+    },
+    onKeyDown: (e: React.KeyboardEvent<HTMLTableRowElement>) => {
+      if (e.target !== e.currentTarget || (e.key !== 'Enter' && e.key !== ' ')) return;
+      e.preventDefault();
+      onOpen();
+    },
+  };
   return (
-    <tr className={cn('hover:bg-muted/40 transition-colors', className)} {...props} />
+    <tr
+      className={cn(
+        'hover:bg-muted/40 transition-colors',
+        onOpen && 'cursor-pointer focus-visible:bg-muted/40 focus-visible:outline-none',
+        className,
+      )}
+      {...open}
+      {...props}
+    />
   );
 }
 

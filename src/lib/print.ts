@@ -1,3 +1,4 @@
+import { Capacitor, registerPlugin } from '@capacitor/core';
 import type { ReturnResult, Sale, ShiftReport, SubscriptionReceipt } from '@/types';
 import { renderBarcodeSvg } from './barcode';
 import { splitTax } from './tax';
@@ -63,18 +64,57 @@ function shell(title: string, pageCss: string, body: string) {
 </body></html>`;
 }
 
+/** Android's print dialog, via the app's own plugin (android/…/PrintPlugin.java). */
+const NativePrint = registerPlugin<{ print(opts: { html: string; name: string }): Promise<void> }>('Print');
+
+/**
+ * Where a printout goes: a pop-up window in the browser, which prints itself
+ * once loaded (see `shell`); Android's print dialog in the app, whose web view
+ * opens no pop-ups and ignores window.print().
+ */
+interface PrintTarget {
+  /** Something to look at while the real page loads. Browser only. */
+  placeholder: (html: string) => void;
+  /** The page to print. */
+  write: (html: string) => void;
+  close: () => void;
+}
+
+function openPrintTarget(features: string, blocked: string): PrintTarget | null {
+  if (Capacitor.isNativePlatform()) {
+    return {
+      placeholder: () => {},
+      write: (html) => {
+        const name = /<title>([^<]*)<\/title>/.exec(html)?.[1] ?? 'Document';
+        NativePrint.print({ html, name }).catch(() => alert('Couldn’t open the print dialog.'));
+      },
+      close: () => {},
+    };
+  }
+  const w = window.open('', '_blank', features);
+  if (!w) {
+    alert(blocked);
+    return null;
+  }
+  return {
+    placeholder: (html) => w.document.write(html),
+    write: (html) => {
+      w.document.open();
+      w.document.write(html);
+      w.document.close();
+    },
+    close: () => w.close(),
+  };
+}
+
 export function printSale(sale: Sale, format: PrintFormat = 'thermal') {
   const currency = sale.business?.currency ?? 'USD';
   const m = (v: number | string) => money(currency, v);
   const taxes = taxBreakdown(sale);
-  const w = window.open('', '_blank', 'width=420,height=640');
-  if (!w) {
-    alert('Please allow pop-ups to print receipts.');
-    return;
-  }
+  const w = openPrintTarget('width=420,height=640', 'Please allow pop-ups to print receipts.');
+  if (!w) return;
   const html = format === 'thermal' ? thermal(sale, m, taxes) : invoiceA4(sale, m, taxes);
-  w.document.write(html);
-  w.document.close();
+  w.write(html);
 }
 
 function thermal(
@@ -146,11 +186,8 @@ const METHOD_LABEL: Record<string, string> = {
  */
 export function printReturnSlip(sale: Sale, slip: ReturnSlip) {
   const m = (v: number | string) => money(sale.business?.currency ?? 'USD', v);
-  const w = window.open('', '_blank', 'width=420,height=640');
-  if (!w) {
-    alert('Please allow pop-ups to print receipts.');
-    return;
-  }
+  const w = openPrintTarget('width=420,height=640', 'Please allow pop-ups to print receipts.');
+  if (!w) return;
   const { result } = slip;
   const rows = slip.lines
     .map(
@@ -180,8 +217,7 @@ export function printReturnSlip(sale: Sale, slip: ReturnSlip) {
       <hr/>
       <div class="c muted">Keep this slip with your receipt.</div>
     </div>`;
-  w.document.write(shell(`Return ${sale.receiptNo}`, 'size: 80mm auto; margin: 3mm;', body));
-  w.document.close();
+  w.write(shell(`Return ${sale.receiptNo}`, 'size: 80mm auto; margin: 3mm;', body));
 }
 
 /**
@@ -195,11 +231,8 @@ export function printShiftReport(
   opts: { businessName: string; storeName?: string; currency: string },
 ) {
   const m = (v: number | string) => money(opts.currency, v);
-  const w = window.open('', '_blank', 'width=420,height=640');
-  if (!w) {
-    alert('Please allow pop-ups to print reports.');
-    return;
-  }
+  const w = openPrintTarget('width=420,height=640', 'Please allow pop-ups to print reports.');
+  if (!w) return;
   const isX = shift.isOpen;
   const variance = shift.variance ?? 0;
   const varianceLabel = variance === 0 ? 'Balanced' : variance > 0 ? 'Over' : 'Short';
@@ -286,8 +319,7 @@ export function printShiftReport(
   const title = isX
     ? `X Report ${new Date().toLocaleDateString()}`
     : `Z Report ${new Date(shift.closedAt ?? shift.openedAt).toLocaleDateString()}`;
-  w.document.write(shell(title, 'size: 80mm auto; margin: 3mm;', body));
-  w.document.close();
+  w.write(shell(title, 'size: 80mm auto; margin: 3mm;', body));
 }
 
 export interface LabelItem {
@@ -299,11 +331,8 @@ export interface LabelItem {
 
 /** A sheet of scannable, printable product labels -- one label per unit to stick on stock. */
 export function printLabelSheet(items: LabelItem[]) {
-  const w = window.open('', '_blank', 'width=800,height=600');
-  if (!w) {
-    alert('Please allow pop-ups to print labels.');
-    return;
-  }
+  const w = openPrintTarget('width=800,height=600', 'Please allow pop-ups to print labels.');
+  if (!w) return;
   const labels = items
     .map(
       (it) => `
@@ -316,8 +345,7 @@ export function printLabelSheet(items: LabelItem[]) {
     )
     .join('');
   const body = `<div style="display:flex;flex-wrap:wrap;gap:2mm">${labels}</div>`;
-  w.document.write(shell('Product Labels', 'size: A4; margin: 8mm;', body));
-  w.document.close();
+  w.write(shell('Product Labels', 'size: A4; margin: 8mm;', body));
 }
 
 function invoiceA4(
@@ -412,12 +440,9 @@ function invoiceA4(
  * unrequested pop-up and block it.
  */
 export async function printSubscriptionReceipt(load: () => Promise<SubscriptionReceipt>) {
-  const w = window.open('', '_blank', 'width=720,height=900');
-  if (!w) {
-    alert('Please allow pop-ups to print the receipt.');
-    return;
-  }
-  w.document.write('<p style="font-family:system-ui,sans-serif;color:#555;padding:24px">Loading receipt…</p>');
+  const w = openPrintTarget('width=720,height=900', 'Please allow pop-ups to print the receipt.');
+  if (!w) return;
+  w.placeholder('<p style="font-family:system-ui,sans-serif;color:#555;padding:24px">Loading receipt…</p>');
   let r: SubscriptionReceipt;
   try {
     r = await load();
@@ -425,7 +450,6 @@ export async function printSubscriptionReceipt(load: () => Promise<SubscriptionR
     w.close();
     throw e;
   }
-  w.document.open();
   const day = (iso: string) => new Date(iso).toISOString().slice(0, 10);
   const contact = [r.seller.phone, r.seller.email].filter(Boolean).map(esc).join(' · ');
   const seller = [
@@ -467,6 +491,5 @@ export async function printSubscriptionReceipt(load: () => Promise<SubscriptionR
   </table>
   <p style="margin-top:40px;color:#94a3b8;font-size:12px">Thank you for your payment.</p>
 </div>`;
-  w.document.write(shell(`Receipt ${r.receiptNo}`, 'size: A4; margin: 18mm;', body));
-  w.document.close();
+  w.write(shell(`Receipt ${r.receiptNo}`, 'size: A4; margin: 18mm;', body));
 }

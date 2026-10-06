@@ -14,7 +14,7 @@ type StepKey = keyof BusinessSetup;
 const STEPS: { key: StepKey; title: string; hint: string; href: string; icon: typeof Package }[] = [
   { key: 'products', title: 'Add your products', hint: 'What you sell, with prices. Import a spreadsheet if you have one.', href: '/products', icon: Package },
   { key: 'stock', title: 'Put stock on the shelf', hint: 'How many of each you have now: import it, or receive a purchase.', href: '/inventory', icon: Boxes },
-  { key: 'paymentMethods', title: 'Choose how customers pay', hint: 'Cash, card, QR, Khalti, connectIPS -- only these show at checkout.', href: '/settings', icon: CreditCard },
+  { key: 'paymentMethods', title: 'Choose how customers pay', hint: 'Cash, card, QR, Khalti, connectIPS -- only these show at checkout.', href: '/settings?tab=sales', icon: CreditCard },
   { key: 'staff', title: 'Add your staff', hint: 'Cashiers and stock keepers get their own login. Skip it if you work alone.', href: '/users', icon: Users },
   { key: 'sale', title: 'Make your first sale', hint: 'Open a shift at the POS and ring up a bill.', href: '/pos', icon: ShoppingCart },
 ];

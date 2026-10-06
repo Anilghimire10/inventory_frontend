@@ -4,6 +4,11 @@ import { useQuery } from '@tanstack/react-query';
 import { Plus, Pencil, Trash2, Tags, Package } from 'lucide-react';
 import { CategoriesApi, ProductsApi } from '@/api';
 import type { Category } from '@/types';
+import { ProductDetailsDialog } from '@/components/products/ProductDetailsDialog';
+import { useStoreScope, ALL_STORES } from '@/store/StoreContext';
+import { useStoreLabel } from '@/components/StorePicker';
+import { useStores } from '@/hooks/useStores';
+import { cn } from '@/lib/utils';
 import { useCrudResource } from '@/hooks/useCrudResource';
 import { PageHeader, LoadingBlock, EmptyState, ErrorState } from '@/components/ui/misc';
 import { Button } from '@/components/ui/button';
@@ -23,6 +28,8 @@ export default function CategoriesPage() {
   const [name, setName] = useState('');
   // The category whose products we're currently viewing.
   const [viewing, setViewing] = useState<Category | null>(null);
+  // A product opened from that category's list; Back returns to the list.
+  const [viewingProduct, setViewingProduct] = useState<string | null>(null);
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['categories'],
@@ -71,15 +78,8 @@ export default function CategoriesPage() {
           </THead>
           <TBody>
             {data.map((c) => (
-              <TR key={c.id}>
-                <TD>
-                  <button
-                    onClick={() => setViewing(c)}
-                    className="font-medium text-primary hover:underline"
-                  >
-                    {c.name}
-                  </button>
-                </TD>
+              <TR key={c.id} onOpen={() => setViewing(c)}>
+                <TD className="font-medium">{c.name}</TD>
                 <TD className="text-right text-muted-foreground">{c._count?.products ?? 0}</TD>
                 <TD>
                   <div className="flex justify-end gap-1">
@@ -134,32 +134,64 @@ export default function CategoriesPage() {
         onCancel={() => crud.setRemoveTarget(null)}
       />
 
-      {viewing && (
+      {viewing && !viewingProduct && (
         <CategoryProductsDialog
           category={viewing}
+          onOpenProduct={setViewingProduct}
           onClose={() => setViewing(null)}
+        />
+      )}
+      {viewingProduct && (
+        <ProductDetailsDialog
+          productId={viewingProduct}
+          onBack={() => setViewingProduct(null)}
+          onClose={() => {
+            setViewingProduct(null);
+            setViewing(null);
+          }}
         />
       )}
     </div>
   );
 }
 
-/** Lists the products that belong to a given category. */
+/** How many of a category's products the dialog lists at once. */
+const LIST_LIMIT = 100;
+
+/**
+ * A category at a glance: how many products, what they sell for, and -- with
+ * a branch chosen in the header -- what is on the shelf there and what it
+ * cost. Each product opens its own details.
+ */
 function CategoryProductsDialog({
   category,
+  onOpenProduct,
   onClose,
 }: {
   category: Category;
+  onOpenProduct: (id: string) => void;
   onClose: () => void;
 }) {
+  const { storeId } = useStoreScope();
+  const storeLabel = useStoreLabel(storeId);
+  // On-hand is per store, and the API only carries it when asked about one:
+  // the branch chosen in the header, or the only store there is -- which is
+  // most shops, and never has a branch to choose.
+  const { data: stores } = useStores();
+  const stockAt = storeId !== ALL_STORES ? storeId : stores?.length === 1 ? stores[0].id : undefined;
+  const perStore = !!stockAt;
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['products', 'by-category', category.id],
-    queryFn: () => ProductsApi.list({ categoryId: category.id, limit: 100 }),
+    queryKey: ['products', 'by-category', category.id, stockAt ?? ''],
+    queryFn: () => ProductsApi.list({ categoryId: category.id, limit: LIST_LIMIT, storeId: stockAt }),
   });
   const products = data?.data ?? [];
+  const total = data?.meta.total ?? 0;
+  const units = products.reduce((sum, p) => sum + Number(p.onHandQty ?? 0), 0);
+  const value = products.reduce((sum, p) => sum + Number(p.onHandQty ?? 0) * Number(p.costPrice), 0);
+  const prices = products.map((p) => Number(p.sellingPrice));
 
   return (
-    <Dialog open onClose={onClose} title={`Products in “${category.name}”`}>
+    <Dialog open onClose={onClose} title={category.name} className="max-w-2xl">
       {isError ? (
         <ErrorState onRetry={() => refetch()} />
       ) : isLoading ? (
@@ -169,42 +201,70 @@ function CategoryProductsDialog({
           No products in this category yet.
         </p>
       ) : (
-        <Table>
-          <THead>
-            <TR>
-              <TH>Name</TH>
-              <TH>SKU</TH>
-              <TH className="text-right">Price</TH>
-            </TR>
-          </THead>
-          <TBody>
-            {products.map((p) => (
-              <TR key={p.id}>
-                <TD>
-                  <div className="flex items-center gap-2.5">
-                    {p.imageUrl ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={p.imageUrl}
-                        alt={p.name}
-                        loading="lazy"
-                        decoding="async"
-                        className="h-8 w-8 shrink-0 rounded-md border border-border object-cover"
-                      />
-                    ) : (
-                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-muted text-muted-foreground">
-                        <Package className="h-3.5 w-3.5" />
-                      </div>
-                    )}
-                    <span className="font-medium">{p.name}</span>
-                  </div>
-                </TD>
-                <TD className="text-muted-foreground">{p.sku || '—'}</TD>
-                <TD className="text-right font-medium">{formatMoney(p.sellingPrice)}</TD>
+        <div className="space-y-4">
+          <dl className="grid grid-cols-2 gap-x-6 gap-y-3 rounded-md border border-border p-4 text-sm sm:grid-cols-4">
+            <Stat label="Products" value={String(total)} />
+            <Stat
+              label="Price range"
+              value={
+                Math.min(...prices) === Math.max(...prices)
+                  ? formatMoney(prices[0])
+                  : `${formatMoney(Math.min(...prices))} – ${formatMoney(Math.max(...prices))}`
+              }
+            />
+            {perStore && <Stat label={`On hand${storeLabel ? ` · ${storeLabel}` : ''}`} value={String(units)} />}
+            {perStore && <Stat label="Stock value (cost)" value={formatMoney(value)} />}
+          </dl>
+          <Table>
+            <THead>
+              <TR>
+                <TH>Name</TH>
+                <TH className="hidden sm:table-cell">SKU</TH>
+                {perStore && <TH className="text-right">On hand</TH>}
+                <TH className="text-right">Price</TH>
               </TR>
-            ))}
-          </TBody>
-        </Table>
+            </THead>
+            <TBody>
+              {products.map((p) => {
+                const qty = Number(p.onHandQty ?? 0);
+                const low = !!p.effectiveReorderLevel && qty <= p.effectiveReorderLevel;
+                return (
+                  <TR key={p.id} onOpen={() => onOpenProduct(p.id)}>
+                    <TD>
+                      <div className="flex items-center gap-2.5">
+                        {p.imageUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={p.imageUrl}
+                            alt={p.name}
+                            loading="lazy"
+                            decoding="async"
+                            className="h-8 w-8 shrink-0 rounded-md border border-border object-cover"
+                          />
+                        ) : (
+                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-muted text-muted-foreground">
+                            <Package className="h-3.5 w-3.5" />
+                          </div>
+                        )}
+                        <span className="font-medium">{p.name}</span>
+                      </div>
+                    </TD>
+                    <TD className="hidden text-muted-foreground sm:table-cell">{p.sku || '—'}</TD>
+                    {perStore && (
+                      <TD className={cn('text-right', low && 'font-semibold text-warning')}>{p.onHandQty ?? '0'}</TD>
+                    )}
+                    <TD className="text-right font-medium">{formatMoney(p.sellingPrice)}</TD>
+                  </TR>
+                );
+              })}
+            </TBody>
+          </Table>
+          {total > products.length && (
+            <p className="text-xs text-muted-foreground">
+              Showing the first {products.length} of {total}; the totals above cover these.
+            </p>
+          )}
+        </div>
       )}
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onClose}>
@@ -212,5 +272,14 @@ function CategoryProductsDialog({
         </Button>
       </DialogFooter>
     </Dialog>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0">
+      <dt className="truncate text-xs text-muted-foreground">{label}</dt>
+      <dd className="truncate font-semibold">{value}</dd>
+    </div>
   );
 }

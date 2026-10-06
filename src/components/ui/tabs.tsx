@@ -1,5 +1,5 @@
 'use client';
-import { useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { cn } from '@/lib/utils';
 
 export interface TabItem<T extends string> {
@@ -34,6 +34,19 @@ export function Tabs<T extends string>({
   className?: string;
 }) {
   const refs = useRef<(HTMLButtonElement | null)[]>([]);
+  // On a phone the row scrolls sideways, and a page opened on a later tab
+  // (a ?tab= link, a reload) showed the first few with the chosen one off to
+  // the right -- no sign of where you were. Bring it into view.
+  const activeIndex = items.findIndex((t) => t.id === value);
+  useEffect(() => {
+    const tab = refs.current[activeIndex];
+    const row = tab?.parentElement;
+    if (!tab || !row) return;
+    const start = tab.offsetLeft;
+    const end = start + tab.offsetWidth;
+    if (start < row.scrollLeft) row.scrollLeft = start;
+    else if (end > row.scrollLeft + row.clientWidth) row.scrollLeft = end - row.clientWidth;
+  }, [activeIndex]);
   const move = (to: number) => {
     const i = (to + items.length) % items.length;
     refs.current[i]?.focus();
@@ -52,7 +65,7 @@ export function Tabs<T extends string>({
       aria-label={label}
       // The baseline is an inset shadow, not a border: a scrolling row clips a
       // tab's border pulled over its own, but paints over its own shadow.
-      className={cn('flex gap-1 overflow-x-auto shadow-[inset_0_-1px_0_hsl(var(--border))]', className)}
+      className={cn('relative flex gap-1 overflow-x-auto shadow-[inset_0_-1px_0_hsl(var(--border))]', className)}
     >
       {items.map((t, i) => {
         const active = t.id === value;

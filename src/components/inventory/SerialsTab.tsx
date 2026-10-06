@@ -22,7 +22,14 @@ const SERIAL_STATUS_LABEL: Record<SerialStatus, string> = {
 };
 
 /** Stock → Serials: the serial/IMEI register, searchable and filterable. */
-export function SerialsTab({ storeId }: { storeId: string | undefined }) {
+export function SerialsTab({
+  storeId,
+  onOpenProduct,
+}: {
+  storeId: string | undefined;
+  /** A row click: that product's details at that row's store. */
+  onOpenProduct?: (productId: string, storeId?: string) => void;
+}) {
   const [serialsPage, setSerialsPage] = useState(1);
   const [serialSearch, setSerialSearch] = useState('');
   const [serialStatus, setSerialStatus] = useState<SerialStatus | ''>('');
@@ -89,7 +96,7 @@ export function SerialsTab({ storeId }: { storeId: string | undefined }) {
             <THead><TR><TH>Serial #</TH><TH>Product</TH><TH>Status</TH><TH>Store</TH><TH>Sold to</TH><TH>Updated</TH></TR></THead>
             <TBody>
               {serials.data.data.map((s) => (
-                <TR key={s.id}>
+                <TR key={s.id} onOpen={onOpenProduct && (() => onOpenProduct(s.product.id, s.store?.id))}>
                   <TD className="font-medium">{s.serialNumber}</TD>
                   <TD>{s.product.name}</TD>
                   <TD>

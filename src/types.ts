@@ -191,6 +191,16 @@ export interface Product {
   expiry?: { expiredQty: number; nextBatchExpiry: string | null };
   /** Only returned by GET /products/:id — one row per store that carries it. */
   stockItems?: { storeId: string; quantity: string }[];
+  /** Active variants, on GET /products/:id of a parent product. */
+  variants?: {
+    id: string;
+    name: string;
+    variantName?: string | null;
+    sku?: string | null;
+    barcode?: string | null;
+    sellingPrice: string;
+    costPrice: string;
+  }[];
 }
 
 export type SerialStatus = 'IN_STOCK' | 'SOLD' | 'RETURNED_TO_SUPPLIER' | 'DAMAGED' | 'LOST';
@@ -334,6 +344,30 @@ export interface Supplier {
   isActive: boolean;
 }
 
+/** GET /suppliers/:id: the supplier with what was bought and is still owed. */
+export interface SupplierDetails extends Supplier {
+  summary: {
+    purchases: number;
+    totalPurchased: number;
+    totalPaid: number;
+    /** Same rule as Credit → Payables. */
+    outstanding: number;
+    /** Owed back by the supplier after returns. */
+    refundDue: number;
+    lastPurchaseAt: string | null;
+  };
+  recentPurchases: {
+    id: string;
+    reference?: string | null;
+    status: PurchaseStatus;
+    total: string;
+    amountPaid: string;
+    outstanding: number;
+    createdAt: string;
+    store?: { id: string; name: string };
+  }[];
+}
+
 export interface Customer {
   id: string;
   name: string;
@@ -442,6 +476,19 @@ export interface Purchase {
   store?: { id: string; name: string };
   _count?: { items: number };
   items?: PurchaseLine[];
+  /** GET /purchases/:id only. */
+  note?: string | null;
+  /** GET /purchases/:id only: money paid to, or back from, the supplier. */
+  payments?: {
+    id: string;
+    type: 'SUPPLIER_PAYMENT' | 'SUPPLIER_REFUND';
+    method: PaymentMethod;
+    amount: string;
+    createdAt: string;
+    user?: { name: string } | null;
+  }[];
+  /** GET /purchases/:id only: the serialised units this purchase brought in. */
+  serials?: { productId: string; serialNumber: string; status: string }[];
 }
 
 export interface CreditInvoice {

@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Plus, Pencil, Trash2, Percent } from 'lucide-react';
-import { TaxesApi } from '@/api';
+import { ProductsApi, TaxesApi } from '@/api';
 import type { Tax } from '@/types';
 import { useCrudResource } from '@/hooks/useCrudResource';
 import { PageHeader, LoadingBlock, EmptyState, ErrorState } from '@/components/ui/misc';
@@ -16,6 +16,9 @@ import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
 import { Tooltip } from '@/components/ui/tooltip';
 import { useAuth } from '@/auth/AuthContext';
 import { can } from '@/lib/permissions';
+import { ProductDetailsDialog } from '@/components/products/ProductDetailsDialog';
+import { formatMoney } from '@/lib/format';
+import { splitTax } from '@/lib/tax';
 
 const empty = { name: '', rate: 0, isActive: true, isDefault: false };
 type Form = typeof empty;
@@ -24,6 +27,9 @@ export default function TaxesPage() {
   const { user } = useAuth();
   const canManage = !!user && can.manageBusiness(user.role);
   const [form, setForm] = useState<Form>(empty);
+  // A tax's details, and a product opened from them (Back returns).
+  const [viewing, setViewing] = useState<Tax | null>(null);
+  const [viewingProduct, setViewingProduct] = useState<string | null>(null);
 
   const { data, isLoading, isError, refetch } = useQuery({ queryKey: ['taxes'], queryFn: () => TaxesApi.list() });
 
@@ -64,7 +70,7 @@ export default function TaxesPage() {
           </THead>
           <TBody>
             {data.map((t) => (
-              <TR key={t.id}>
+              <TR key={t.id} onOpen={() => setViewing(t)}>
                 <TD className="font-medium">
                   {t.name} {t.isDefault && <Badge tone="primary">Default</Badge>}
                 </TD>
@@ -88,6 +94,20 @@ export default function TaxesPage() {
             ))}
           </TBody>
         </Table>
+      )}
+
+      {viewing && !viewingProduct && (
+        <TaxDetailsDialog tax={viewing} onOpenProduct={setViewingProduct} onClose={() => setViewing(null)} />
+      )}
+      {viewingProduct && (
+        <ProductDetailsDialog
+          productId={viewingProduct}
+          onBack={() => setViewingProduct(null)}
+          onClose={() => {
+            setViewingProduct(null);
+            setViewing(null);
+          }}
+        />
       )}
 
       <Dialog open={crud.open} onClose={crud.close} title={crud.editing ? 'Edit tax' : 'New tax'}>
@@ -134,5 +154,90 @@ export default function TaxesPage() {
         onCancel={() => crud.setRemoveTarget(null)}
       />
     </div>
+  );
+}
+
+/** How many of a tax's products the dialog lists at once. */
+const LIST_LIMIT = 100;
+
+/**
+ * A tax and the products it is charged on, with what it adds to each one's
+ * price -- the question behind changing a rate. Each product opens its own
+ * details.
+ */
+function TaxDetailsDialog({
+  tax,
+  onOpenProduct,
+  onClose,
+}: {
+  tax: Tax;
+  onOpenProduct: (id: string) => void;
+  onClose: () => void;
+}) {
+  const { data, isLoading, isError, refetch } = useQuery({
+    queryKey: ['products', 'by-tax', tax.id],
+    queryFn: () => ProductsApi.list({ taxId: tax.id, limit: LIST_LIMIT, activeOnly: false }),
+  });
+  const products = data?.data ?? [];
+  const total = data?.meta.total ?? 0;
+  const rate = Number(tax.rate);
+  // Priced with tax in, the tax is backed out of the price; otherwise it goes on top.
+  const { user } = useAuth();
+  const inclusive = !!user?.business?.taxInclusive;
+
+  return (
+    <Dialog open onClose={onClose} title={tax.name} className="max-w-2xl">
+      <div className="space-y-4">
+        <div className="flex flex-wrap items-center gap-2 text-sm">
+          <span className="text-2xl font-semibold">{rate}%</span>
+          {tax.isDefault && <Badge tone="primary">Default for new products</Badge>}
+          {tax.isActive ? <Badge tone="success">Active</Badge> : <Badge tone="muted">Inactive</Badge>}
+        </div>
+        {isError ? (
+          <ErrorState onRetry={() => refetch()} />
+        ) : isLoading ? (
+          <LoadingBlock />
+        ) : products.length === 0 ? (
+          <p className="py-4 text-sm text-muted-foreground">No products are charged this tax.</p>
+        ) : (
+          <>
+            <p className="text-sm text-muted-foreground">
+              Charged on {total} product{total === 1 ? '' : 's'}.
+            </p>
+            <Table>
+              <THead>
+                <TR>
+                  <TH>Product</TH>
+                  <TH className="text-right">Price</TH>
+                  <TH className="text-right">{inclusive ? 'Tax in price' : 'Tax on top'}</TH>
+                </TR>
+              </THead>
+              <TBody>
+                {products.map((p) => (
+                  <TR key={p.id} onOpen={() => onOpenProduct(p.id)}>
+                    <TD>
+                      <span className="font-medium">{p.name}</span>
+                      {!p.isActive && <Badge tone="muted" className="ml-2">Inactive</Badge>}
+                    </TD>
+                    <TD className="text-right">{formatMoney(p.sellingPrice)}</TD>
+                    <TD className="text-right text-muted-foreground">
+                      {formatMoney(splitTax(Number(p.sellingPrice), rate, inclusive).tax)}
+                    </TD>
+                  </TR>
+                ))}
+              </TBody>
+            </Table>
+            {total > products.length && (
+              <p className="text-xs text-muted-foreground">Showing the first {products.length} of {total}.</p>
+            )}
+          </>
+        )}
+      </div>
+      <DialogFooter>
+        <Button type="button" variant="outline" onClick={onClose}>
+          Close
+        </Button>
+      </DialogFooter>
+    </Dialog>
   );
 }

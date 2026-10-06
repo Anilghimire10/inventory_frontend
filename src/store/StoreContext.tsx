@@ -2,6 +2,7 @@
 import { createContext, useCallback, useContext, useMemo, useSyncExternalStore } from 'react';
 import { useAuth } from '@/auth/AuthContext';
 import { useStores } from '@/hooks/useStores';
+import { tabStorage } from '@/lib/tab-storage';
 
 /** Value meaning "don't filter" — what the report endpoints expect for all stores. */
 export const ALL_STORES = '';
@@ -17,7 +18,8 @@ const KEY = 'inv_store';
  * sessionStorage, not localStorage: it must stay scoped to one tab. Two tabs
  * on the same machine can be signed in as different users (e.g. an owner and
  * a staff member), and localStorage is shared by every tab of the same
- * origin — one tab's branch switch would leak into the other's session.
+ * origin — one tab's branch switch would leak into the other's session. The
+ * Android app keeps it across restarts instead, like the token (tabStorage).
  */
 let cached: string | null = null;
 const listeners = new Set<() => void>();
@@ -25,7 +27,7 @@ const listeners = new Set<() => void>();
 function readStored(): string {
   if (cached !== null) return cached;
   try {
-    cached = sessionStorage.getItem(KEY) ?? ALL_STORES;
+    cached = tabStorage().getItem(KEY) ?? ALL_STORES;
   } catch {
     // Private window or blocked storage — all stores is a fine default.
     cached = ALL_STORES;
@@ -36,8 +38,8 @@ function readStored(): string {
 function writeStored(id: string) {
   cached = id;
   try {
-    if (id) sessionStorage.setItem(KEY, id);
-    else sessionStorage.removeItem(KEY);
+    if (id) tabStorage().setItem(KEY, id);
+    else tabStorage().removeItem(KEY);
   } catch {
     // The selection still applies for this session.
   }

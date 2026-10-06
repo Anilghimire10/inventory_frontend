@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
-import { Boxes, AlertTriangle, CalendarClock, History, ArrowLeftRight, ClipboardCheck, Fingerprint, PackagePlus, Upload } from 'lucide-react';
+import { Boxes, AlertTriangle, CalendarClock, History, ArrowLeftRight, ClipboardCheck, Fingerprint, PackagePlus, SlidersHorizontal, Target, Upload } from 'lucide-react';
 import { InventoryApi } from '@/api';
 import type { StockItem } from '@/types';
 import { useActiveStores } from '@/hooks/useStores';
@@ -18,6 +18,7 @@ import { ReorderTab } from '@/components/inventory/ReorderTab';
 import { SerialsTab } from '@/components/inventory/SerialsTab';
 import { StockImportDialog } from '@/components/inventory/StockImportDialog';
 import { StockTable } from '@/components/inventory/StockTable';
+import { ProductDetailsDialog } from '@/components/products/ProductDetailsDialog';
 import { StockTakeTab } from '@/components/inventory/StockTakeTab';
 import { TransferDialog } from '@/components/inventory/TransferDialog';
 import { liveRefetchInterval } from '@/lib/live';
@@ -54,6 +55,11 @@ export default function InventoryPage() {
 
   const [adjusting, setAdjusting] = useState<StockItem | null>(null);
   const [reorderTarget, setReorderTarget] = useState<StockItem | null>(null);
+  // The stock row whose product details are open.
+  const [detailsOf, setDetailsOf] = useState<StockItem | null>(null);
+  // A product opened from Expiring, History, Serials or Reorder.
+  const [productView, setProductView] = useState<{ productId: string; storeId?: string } | null>(null);
+  const openProduct = (productId: string, at?: string) => setProductView({ productId, storeId: at });
   const [transferOpen, setTransferOpen] = useState(false);
   const [importingStock, setImportingStock] = useState(false);
 
@@ -96,17 +102,56 @@ export default function InventoryPage() {
       {/* Keyed on the branch: switching it starts each list from page one. */}
       {tab === 'stock' && (
         <StockLevels key={storeId} storeId={forStore} showStoreColumn={showStoreColumn}
-          onAdjust={setAdjusting} onReorderLevel={setReorderTarget} />
+          onAdjust={setAdjusting} onReorderLevel={setReorderTarget} onOpen={setDetailsOf} />
       )}
       {tab === 'low' && (
         <LowStock storeId={forStore} showStoreColumn={showStoreColumn}
-          onAdjust={setAdjusting} onReorderLevel={setReorderTarget} />
+          onAdjust={setAdjusting} onReorderLevel={setReorderTarget} onOpen={setDetailsOf} />
       )}
-      {tab === 'reorder' && <ReorderTab stores={stores} />}
-      {tab === 'expiring' && <Expiring storeId={forStore} showStoreColumn={showStoreColumn} />}
-      {tab === 'movements' && <MovementsTab key={storeId} storeId={forStore} showStoreColumn={showStoreColumn} />}
+      {tab === 'reorder' && <ReorderTab stores={stores} onOpenProduct={openProduct} />}
+      {tab === 'expiring' && <Expiring storeId={forStore} showStoreColumn={showStoreColumn} onOpenProduct={openProduct} />}
+      {tab === 'movements' && <MovementsTab key={storeId} storeId={forStore} showStoreColumn={showStoreColumn} onOpenProduct={openProduct} />}
       {tab === 'stockTake' && <StockTakeTab stores={stores} />}
-      {tab === 'serials' && <SerialsTab key={storeId} storeId={forStore} />}
+      {tab === 'serials' && <SerialsTab key={storeId} storeId={forStore} onOpenProduct={openProduct} />}
+
+      {detailsOf && (
+        <ProductDetailsDialog
+          productId={detailsOf.productId}
+          storeId={detailsOf.storeId}
+          onClose={() => setDetailsOf(null)}
+          actions={
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setReorderTarget(detailsOf);
+                  setDetailsOf(null);
+                }}
+              >
+                <Target className="h-4 w-4" /> Reorder level
+              </Button>
+              <Button
+                type="button"
+                onClick={() => {
+                  setAdjusting(detailsOf);
+                  setDetailsOf(null);
+                }}
+              >
+                <SlidersHorizontal className="h-4 w-4" /> Adjust
+              </Button>
+            </>
+          }
+        />
+      )}
+
+      {productView && (
+        <ProductDetailsDialog
+          productId={productView.productId}
+          storeId={productView.storeId}
+          onClose={() => setProductView(null)}
+        />
+      )}
 
       {/* Mounted per opening, so each starts blank. */}
       {adjusting && (
@@ -128,9 +173,10 @@ type RowActions = {
   showStoreColumn: boolean;
   onAdjust: (i: StockItem) => void;
   onReorderLevel: (i: StockItem) => void;
+  onOpen: (i: StockItem) => void;
 };
 
-function StockLevels({ storeId, showStoreColumn, onAdjust, onReorderLevel }: RowActions) {
+function StockLevels({ storeId, showStoreColumn, onAdjust, onReorderLevel, onOpen }: RowActions) {
   const [page, setPage] = useState(1);
   const stock = useQuery({
     queryKey: ['stock', page, storeId ?? ''],
@@ -144,13 +190,13 @@ function StockLevels({ storeId, showStoreColumn, onAdjust, onReorderLevel }: Row
   }
   return (
     <>
-      <StockTable items={stock.data.data} onAdjust={onAdjust} onReorderLevel={onReorderLevel} showStore={showStoreColumn} />
+      <StockTable items={stock.data.data} onAdjust={onAdjust} onReorderLevel={onReorderLevel} onOpen={onOpen} showStore={showStoreColumn} />
       <Pagination page={stock.data.meta.page} pages={stock.data.meta.pages} onPage={setPage} />
     </>
   );
 }
 
-function LowStock({ storeId, showStoreColumn, onAdjust, onReorderLevel }: RowActions) {
+function LowStock({ storeId, showStoreColumn, onAdjust, onReorderLevel, onOpen }: RowActions) {
   const low = useQuery({
     queryKey: ['low-stock', storeId ?? ''],
     queryFn: () => InventoryApi.lowStock(storeId),
@@ -161,10 +207,18 @@ function LowStock({ storeId, showStoreColumn, onAdjust, onReorderLevel }: RowAct
   if (!low.data || low.data.length === 0) {
     return <EmptyState title="All good!" description="No items are below their reorder level." icon={AlertTriangle} />;
   }
-  return <StockTable items={low.data} onAdjust={onAdjust} onReorderLevel={onReorderLevel} lowMode showStore={showStoreColumn} />;
+  return <StockTable items={low.data} onAdjust={onAdjust} onReorderLevel={onReorderLevel} onOpen={onOpen} lowMode showStore={showStoreColumn} />;
 }
 
-function Expiring({ storeId, showStoreColumn }: { storeId: string | undefined; showStoreColumn: boolean }) {
+function Expiring({
+  storeId,
+  showStoreColumn,
+  onOpenProduct,
+}: {
+  storeId: string | undefined;
+  showStoreColumn: boolean;
+  onOpenProduct: (productId: string, storeId?: string) => void;
+}) {
   const expiring = useQuery({
     queryKey: ['expiring', storeId ?? ''],
     queryFn: () => InventoryApi.expiring({ days: 30, storeId }),
@@ -175,5 +229,5 @@ function Expiring({ storeId, showStoreColumn }: { storeId: string | undefined; s
   if (!expiring.data || expiring.data.length === 0) {
     return <EmptyState title="Nothing expiring soon" description="No stock expires within 30 days." icon={CalendarClock} />;
   }
-  return <ExpiringTab rows={expiring.data} showStore={showStoreColumn} />;
+  return <ExpiringTab rows={expiring.data} showStore={showStoreColumn} onOpenProduct={onOpenProduct} />;
 }

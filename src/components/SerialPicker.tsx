@@ -67,6 +67,15 @@ export function SerialPicker({
       {mode === 'pick' &&
         (onFile.isLoading ? (
           <Spinner className="py-3" />
+        ) : onFile.isError ? (
+          // Not "no units on file": a dropped connection would read as empty stock.
+          <p className="text-xs text-destructive">
+            Couldn&rsquo;t load the serial numbers on file.{' '}
+            <button type="button" className="font-medium underline" onClick={() => onFile.refetch()}>
+              Retry
+            </button>{' '}
+            or type them in below.
+          </p>
         ) : listed.length === 0 ? (
           <p className="text-xs text-muted-foreground">No units of this product are on file here.</p>
         ) : (

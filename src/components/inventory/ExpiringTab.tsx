@@ -19,7 +19,16 @@ import { formatDate } from '@/lib/format';
  * rows can be written off in one step -- an EXPIRED adjustment that also
  * empties the batch, so it leaves this list.
  */
-export function ExpiringTab({ rows, showStore }: { rows: Batch[]; showStore: boolean }) {
+export function ExpiringTab({
+  rows,
+  showStore,
+  onOpenProduct,
+}: {
+  rows: Batch[];
+  showStore: boolean;
+  /** A row click: that product's details at that row's store. */
+  onOpenProduct?: (productId: string, storeId?: string) => void;
+}) {
   const qc = useQueryClient();
   const { show } = useToast();
   const [target, setTarget] = useState<Batch | null>(null);
@@ -59,7 +68,7 @@ export function ExpiringTab({ rows, showStore }: { rows: Batch[]; showStore: boo
         {list.map((b) => {
           const days = b.expiryDate ? daysToExpiry(b.expiryDate) : null;
           return (
-            <TR key={b.id}>
+            <TR key={b.id} onOpen={onOpenProduct && (() => onOpenProduct(b.productId ?? b.product.id, b.storeId ?? b.store?.id))}>
               <TD className="font-medium">{b.product.name}</TD>
               {showStore && <TD className="text-muted-foreground">{b.store?.name ?? '—'}</TD>}
               <TD className="text-muted-foreground">

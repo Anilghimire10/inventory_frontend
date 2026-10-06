@@ -1,5 +1,6 @@
 'use client';
 import { useState } from 'react';
+import axios from 'axios';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, Pencil, RotateCcw, Trash2, UserX, UserCog } from 'lucide-react';
 import { UsersApi, StoresApi } from '@/api';
@@ -19,6 +20,7 @@ import { Dialog, DialogFooter } from '@/components/ui/dialog';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
 import { Tooltip } from '@/components/ui/tooltip';
+import { StaffDetailsDialog } from '@/components/staff/StaffDetailsDialog';
 
 const ROLES: UserRole[] = ['OWNER', 'MANAGER', 'CASHIER', 'STOCK_KEEPER'];
 
@@ -35,21 +37,40 @@ export default function UsersPage() {
     messages: { created: 'Staff added', updated: 'Staff updated', removed: 'Staff deactivated' },
   });
 
-  // Permanent delete is a separate, owner-only action on an already-deactivated
-  // account, so it gets its own target + mutation rather than reusing crud.remove
-  // (which deactivates).
+  // Delete is owner-only and permanent, so it has its own target + mutation
+  // rather than reusing crud.remove (which deactivates). The API deletes only
+  // a deactivated account, and refuses one with sales, shifts or stock changes
+  // on record: Delete used to appear only after a separate Deactivate, so it
+  // was easy to miss. Now it does both steps, and someone with history is left
+  // deactivated -- which is all that can be done for them -- and told so.
   const qc = useQueryClient();
   const { show } = useToast();
   const [deleteTarget, setDeleteTarget] = useState<AppUser | null>(null);
   const destroy = useMutation({
-    mutationFn: (id: string) => UsersApi.destroy(id),
-    onSuccess: () => {
+    mutationFn: async (u: AppUser) => {
+      if (u.isActive) await UsersApi.remove(u.id);
+      try {
+        await UsersApi.destroy(u.id);
+        return { deleted: true as const };
+      } catch (e) {
+        if (axios.isAxiosError(e) && e.response?.status === 409) return { deleted: false as const, why: apiError(e) };
+        throw e;
+      }
+    },
+    onSuccess: (r) => {
       void qc.invalidateQueries({ queryKey: ['users'] });
-      show('Staff deleted permanently');
+      if (r.deleted) show('Staff deleted');
+      else show(r.why, 'info');
       setDeleteTarget(null);
     },
-    onError: (e) => show(apiError(e), 'error'),
+    onError: (e) => {
+      // A deactivate that went through before the delete failed still changed the list.
+      void qc.invalidateQueries({ queryKey: ['users'] });
+      show(apiError(e), 'error');
+    },
   });
+  // The person whose details are open (a row click, as on Sales).
+  const [detailsId, setDetailsId] = useState<string | null>(null);
   // Deactivating was a one-way trip in the UI: PATCH already accepts
   // `isActive`, the edit form just never sent it. Same shape as the store
   // reactivate in Settings.
@@ -91,7 +112,7 @@ export default function UsersPage() {
             <THead><TR><TH>Name</TH><TH>Email</TH><TH>Role</TH><TH>Status</TH><TH></TH></TR></THead>
             <TBody>
               {data.map((u) => (
-                <TR key={u.id}>
+                <TR key={u.id} onOpen={() => setDetailsId(u.id)}>
                   <TD className="font-medium">{u.name}{u.id === me?.id && <span className="ml-2 text-xs text-muted-foreground">(you)</span>}</TD>
                   <TD className="text-muted-foreground">{u.email}</TD>
                   <TD><Badge tone="primary">{u.role}</Badge></TD>
@@ -120,9 +141,9 @@ export default function UsersPage() {
                           </Button>
                         </Tooltip>
                       )}
-                      {u.id !== me?.id && !u.isActive && isOwner && (
-                        <Tooltip content="Delete permanently">
-                          <Button size="icon" variant="ghost" aria-label={`Delete ${u.name} permanently`} onClick={() => setDeleteTarget(u)}>
+                      {u.id !== me?.id && isOwner && (
+                        <Tooltip content="Delete">
+                          <Button size="icon" variant="ghost" aria-label={`Delete ${u.name}`} onClick={() => setDeleteTarget(u)}>
                             <Trash2 className="h-4 w-4 text-destructive" /></Button>
                         </Tooltip>
                       )}
@@ -133,6 +154,42 @@ export default function UsersPage() {
             </TBody>
           </Table>
         )}
+
+      {detailsId && (
+        <StaffDetailsDialog
+          userId={detailsId}
+          onClose={() => setDetailsId(null)}
+          actions={(u) => {
+            const then = (fn: () => void) => () => {
+              setDetailsId(null);
+              fn();
+            };
+            const other = u.id !== me?.id;
+            return (
+              <>
+                {other && isOwner && (
+                  <Button type="button" variant="ghost" className="text-destructive" onClick={then(() => setDeleteTarget(u))}>
+                    <Trash2 className="h-4 w-4" /> Delete
+                  </Button>
+                )}
+                {other && u.isActive && (
+                  <Button type="button" variant="outline" onClick={then(() => crud.setRemoveTarget(u))}>
+                    <UserX className="h-4 w-4" /> Deactivate
+                  </Button>
+                )}
+                {other && !u.isActive && (
+                  <Button type="button" variant="outline" onClick={then(() => reactivate.mutate(u.id))}>
+                    <RotateCcw className="h-4 w-4" /> Reactivate
+                  </Button>
+                )}
+                <Button type="button" onClick={then(() => openEdit(u))}>
+                  <Pencil className="h-4 w-4" /> Edit
+                </Button>
+              </>
+            );
+          }}
+        />
+      )}
 
       <Dialog open={crud.open} onClose={crud.close} title={crud.editing ? 'Edit staff' : 'Add staff'}>
         <form onSubmit={submit} className="space-y-4">
@@ -185,12 +242,12 @@ export default function UsersPage() {
 
       <ConfirmDialog
         open={!!deleteTarget}
-        title="Delete staff permanently"
-        description={deleteTarget ? `Permanently delete ${deleteTarget.name}? This cannot be undone. Staff with sales, shifts or stock movements on record can't be deleted — they stay deactivated.` : undefined}
-        confirmLabel="Delete permanently"
+        title="Delete staff"
+        description={deleteTarget ? `Delete ${deleteTarget.name}? They are signed out and removed for good. Anyone with sales, shifts or stock changes on record can't be deleted, so the history keeps its owner — they are deactivated instead.` : undefined}
+        confirmLabel="Delete"
         loading={destroy.isPending}
         onConfirm={() => {
-          if (deleteTarget) destroy.mutate(deleteTarget.id);
+          if (deleteTarget) destroy.mutate(deleteTarget);
         }}
         onCancel={() => setDeleteTarget(null)}
       />

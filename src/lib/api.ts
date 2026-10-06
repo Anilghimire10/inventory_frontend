@@ -1,17 +1,19 @@
 import axios, { AxiosError } from 'axios';
 import type { SupportContact } from '@/types';
 import { clientId } from './client-id';
+import { tabStorage } from './tab-storage';
 
 const TOKEN_KEY = 'inv_token';
 
-// sessionStorage, not localStorage: the token must stay scoped to one tab.
-// localStorage is shared by every tab of the same origin, so an owner and a
-// staff member signed in from two tabs on the same machine would overwrite
-// each other's token and both end up as whoever logged in last on refresh.
+// Scoped to one tab in a browser: localStorage is shared by every tab of the
+// same origin, so an owner and a staff member signed in from two tabs on the
+// same machine would overwrite each other's token and both end up as whoever
+// logged in last on refresh. Kept across restarts in the Android app, which
+// has no tabs (see tabStorage).
 export const getToken = () =>
-  typeof window === 'undefined' ? null : sessionStorage.getItem(TOKEN_KEY);
-export const setToken = (t: string) => sessionStorage.setItem(TOKEN_KEY, t);
-export const clearToken = () => sessionStorage.removeItem(TOKEN_KEY);
+  typeof window === 'undefined' ? null : tabStorage().getItem(TOKEN_KEY);
+export const setToken = (t: string) => tabStorage().setItem(TOKEN_KEY, t);
+export const clearToken = () => tabStorage().removeItem(TOKEN_KEY);
 
 // On web (dev/prod server) `/api` is proxied to the backend by next.config.mjs
 // rewrites. In the mobile (Capacitor static export) build there is no proxy, so

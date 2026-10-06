@@ -39,6 +39,7 @@ import type { BusinessSetup, CreatePaymentClaimBody, PaymentClaim,
   StockMovement,
   Store,
   Supplier,
+  SupplierDetails,
   TaxReport,
   CreditAgeing,
   TransferResult,
@@ -293,6 +294,7 @@ export const InventoryApi = {
 
 export const SuppliersApi = {
   list: (params?: object) => get<Paginated<Supplier>>('/suppliers', params),
+  get: (id: string) => get<SupplierDetails>(`/suppliers/${id}`),
   create: (body: object) => post<Supplier>('/suppliers', body),
   update: (id: string, body: object) => patch<Supplier>(`/suppliers/${id}`, body),
   remove: (id: string) => del(`/suppliers/${id}`),
@@ -436,6 +438,7 @@ export const CustomersApi = {
 
 export const UsersApi = {
   list: () => get<AppUser[]>('/users'),
+  get: (id: string) => get<AppUser>(`/users/${id}`),
   create: (body: object) => post<AppUser>('/users', body),
   update: (id: string, body: object) => patch<AppUser>(`/users/${id}`, body),
   /** Deactivate — reversible, keeps the row and its history. */

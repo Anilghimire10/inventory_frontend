@@ -1,8 +1,9 @@
 'use client';
 import { useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, Pencil, Store as StoreIcon, Building2, Download, Percent, Power, RotateCcw, Wallet, CalendarClock, CreditCard } from 'lucide-react';
+import { Plus, Pencil, Store as StoreIcon, Building2, Download, Percent, Power, RotateCcw, Wallet, CalendarClock, CreditCard, ReceiptText, Palette, Sun, Moon, SlidersHorizontal } from 'lucide-react';
 import { BusinessApi, StoresApi, SubscriptionApi } from '@/api';
 import type { BusinessType, SettleMethod, Store } from '@/types';
 import { SETTLE_METHODS, acceptedTenders } from '@/lib/payment-methods';
@@ -24,6 +25,9 @@ import { CURRENCIES } from '@/lib/currencies';
 import { saveFile } from '@/lib/save-file';
 import { TIMEZONES, DEFAULT_TIMEZONE } from '@/lib/timezones';
 import { formatMoney } from '@/lib/format';
+import { Tabs } from '@/components/ui/tabs';
+import { useTheme } from '@/theme/ThemeProvider';
+import { cn } from '@/lib/utils';
 
 const empty = { name: '', address: '', phone: '' };
 
@@ -37,7 +41,29 @@ const BUSINESS_TYPE_LABEL: Record<BusinessType, string> = {
 const businessTypeLabel = (t?: string | null) => (t ? (BUSINESS_TYPE_LABEL[t as BusinessType] ?? t) : '—');
 type Form = typeof empty;
 
+/**
+ * Settings used to be one column of eight cards -- 2,400px of scrolling on a
+ * phone to find the store list. Grouped by what you came to change instead.
+ */
+const SETTINGS_TABS = [
+  { key: 'business', label: 'Business', icon: Building2 },
+  { key: 'sales', label: 'Tax & payments', icon: Percent },
+  { key: 'shifts', label: 'Shifts', icon: Wallet },
+  { key: 'stores', label: 'Stores', icon: StoreIcon },
+  { key: 'general', label: 'Data & appearance', icon: SlidersHorizontal },
+] as const;
+type SettingsTab = (typeof SETTINGS_TABS)[number]['key'];
+const isSettingsTab = (t: string | null): t is SettingsTab => SETTINGS_TABS.some((x) => x.key === t);
+
 export default function SettingsPage() {
+  // The tab lives in the URL (?tab=stores), so a link can land on one and a
+  // reload stays put -- the same as Stock's tabs.
+  const router = useRouter();
+  const tabParam = useSearchParams().get('tab');
+  const tab: SettingsTab = isSettingsTab(tabParam) ? tabParam : 'business';
+  const setTab = (t: SettingsTab) =>
+    router.replace(t === 'business' ? '/settings' : `/settings?tab=${t}`, { scroll: false });
+  const { theme, toggle: toggleTheme } = useTheme();
   const qc = useQueryClient();
   const { show } = useToast();
   const { user, refresh } = useAuth();
@@ -219,10 +245,10 @@ export default function SettingsPage() {
   const set = (k: keyof Form) => (e: React.ChangeEvent<HTMLInputElement>) => setForm((f) => ({ ...f, [k]: e.target.value }));
 
   return (
-    <div className="max-w-3xl">
+    <div>
       <PageHeader
         title="Settings"
-        description="Business profile and stores."
+        description="Your business, how it sells, its stores and this device."
         action={
           <Link
             href="/subscription"
@@ -233,337 +259,382 @@ export default function SettingsPage() {
         }
       />
 
-      <Card className="mb-6">
-        <CardHeader className="flex-row items-center justify-between">
-          <CardTitle className="flex items-center gap-2"><Building2 className="h-5 w-5 text-primary" /> Business</CardTitle>
-          <Button size="sm" variant="outline" onClick={openBiz}>
-            <Pencil className="h-4 w-4" /> Edit
-          </Button>
-        </CardHeader>
-        <CardContent className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2 md:grid-cols-4">
-          <div><div className="text-muted-foreground">Name</div><div className="font-medium">{user?.business?.name}</div></div>
-          <div><div className="text-muted-foreground">Type</div><div className="font-medium">{businessTypeLabel(user?.business?.type)}</div></div>
-          <div><div className="text-muted-foreground">Sells as</div><div className="font-medium">{user?.business?.salesModel === 'WHOLESALE' ? 'Wholesaler' : 'Retailer'}</div></div>
-          <div><div className="text-muted-foreground">Currency</div><div className="font-medium">{user?.business?.currency}</div></div>
-          <div><div className="text-muted-foreground">PAN / VAT</div><div className="font-medium">{user?.business?.taxId || '—'}</div></div>
-          <div><div className="text-muted-foreground">Time zone</div><div className="font-medium">{(user?.business?.timezone ?? DEFAULT_TIMEZONE).replace(/_/g, ' ')}</div></div>
-        </CardContent>
-      </Card>
+      <Tabs
+        className="mb-5"
+        label="Settings sections"
+        items={SETTINGS_TABS.map((t) => ({ id: t.key, label: t.label, icon: t.icon }))}
+        value={tab}
+        onChange={setTab}
+      />
 
-      <Card className="mb-6">
-        <CardHeader className="flex-row items-center justify-between">
-          <CardTitle className="flex items-center gap-2"><Percent className="h-5 w-5 text-primary" /> Tax</CardTitle>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={taxEnabled}
-            disabled={!canManageBiz || saveTax.isPending}
-            onClick={() => saveTax.mutate(!taxEnabled)}
-            className={
-              'relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-50 ' +
-              (taxEnabled ? 'bg-primary' : 'bg-muted')
-            }
-          >
-            <span
-              className={
-                'inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ' +
-                (taxEnabled ? 'translate-x-5' : 'translate-x-0.5')
-              }
-            />
-          </button>
-        </CardHeader>
-        <CardContent className="text-sm text-muted-foreground">
-          {taxEnabled
-            ? 'Tax is ON. Each sale charges tax on products marked “Taxable” using their tax rate. Products that aren’t taxable are never taxed.'
-            : 'Tax is OFF. No sale charges tax, even for products marked “Taxable”.'}
-          {taxEnabled && (
-            <div className="mt-4 flex items-start justify-between gap-4 border-t border-border pt-4">
-              <div>
-                <div id="tax-inclusive-label" className="font-medium text-foreground">Prices include tax</div>
-                <div>
-                  {taxInclusive
-                    ? 'A product’s price is what the customer pays; the tax is taken out of it on the bill (113 at 13% is 100 + 13 tax).'
-                    : 'Tax is added on top of a product’s price at checkout (100 at 13% comes to 113).'}{' '}
-                  Sales already made keep the way they were priced.
-                </div>
-              </div>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={taxInclusive}
-                aria-labelledby="tax-inclusive-label"
-                disabled={!canManageBiz || saveInclusive.isPending}
-                onClick={() => saveInclusive.mutate(!taxInclusive)}
-                className={
-                  'relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-50 ' +
-                  (taxInclusive ? 'bg-primary' : 'bg-muted')
-                }
-              >
-                <span
-                  className={
-                    'inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ' +
-                    (taxInclusive ? 'translate-x-5' : 'translate-x-0.5')
-                  }
-                />
-              </button>
-            </div>
-          )}
-          {!canManageBiz && <span className="block pt-1">Only an owner or manager can change this.</span>}
-        </CardContent>
-      </Card>
-
-      <Card className="mb-6">
-        <CardHeader className="flex-row items-center justify-between">
-          <CardTitle className="flex items-center gap-2"><Building2 className="h-5 w-5 text-primary" /> PAN on bill</CardTitle>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={showPan}
-            disabled={!canManageBiz || savePan.isPending}
-            onClick={() => savePan.mutate(!showPan)}
-            className={
-              'relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-50 ' +
-              (showPan ? 'bg-primary' : 'bg-muted')
-            }
-          >
-            <span
-              className={
-                'inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ' +
-                (showPan ? 'translate-x-5' : 'translate-x-0.5')
-              }
-            />
-          </button>
-        </CardHeader>
-        <CardContent className="text-sm text-muted-foreground">
-          {showPan
-            ? 'Your PAN/VAT number is printed on receipts and invoices.'
-            : 'Your PAN/VAT number is hidden on receipts and invoices.'}
-          {!hasPan && <span className="block pt-1">Add a PAN/VAT number with “Edit” above for it to appear.</span>}
-          {!canManageBiz && <span className="block pt-1">Only an owner or manager can change this.</span>}
-        </CardContent>
-      </Card>
-
-      <Card className="mb-6">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2"><CreditCard className="h-5 w-5 text-primary" /> Payment methods</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3 text-sm text-muted-foreground">
-          <div>
-            The ways your customers can pay. Only these show at checkout, when a
-            khata or supplier is paid, and for refunds. Money taken on Khalti or
-            connectIPS goes to your own account; this only records how the bill was paid.
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {SETTLE_METHODS.map((m) => {
-              const on = tenders.includes(m.value);
-              const locked = m.value === 'CASH';
-              return (
-                <Tooltip key={m.value} content={locked ? 'Cash is always accepted' : undefined}>
-                  <button
-                    type="button"
-                    role="checkbox"
-                    aria-checked={on}
-                    disabled={locked || !canManageBiz || saveTenders.isPending}
-                    onClick={() => toggleTender(m.value)}
-                    className={
-                      'inline-flex h-9 items-center gap-2 rounded-md border px-3 font-medium transition-colors disabled:cursor-not-allowed ' +
-                      (on
-                        ? 'border-primary bg-primary/10 text-primary'
-                        : 'border-input text-foreground hover:bg-accent') +
-                      (locked ? '' : ' disabled:opacity-50')
-                    }
-                  >
-                    <span
-                      className={
-                        'flex h-4 w-4 items-center justify-center rounded-sm border text-[10px] leading-none ' +
-                        (on ? 'border-primary bg-primary text-primary-foreground' : 'border-input')
-                      }
-                      aria-hidden
-                    >
-                      {on ? '✓' : ''}
-                    </span>
-                    {m.label}
-                  </button>
-                </Tooltip>
-              );
-            })}
-          </div>
-          {!canManageBiz && <span className="block">Only an owner or manager can change this.</span>}
-        </CardContent>
-      </Card>
-
-      <Card className="mb-6">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2"><Wallet className="h-5 w-5 text-primary" /> Shifts &amp; cash drawer</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4 text-sm text-muted-foreground">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <div id="blind-close-label" className="font-medium text-foreground">Blind close for cashiers</div>
-              <div>
-                {blindClose
-                  ? 'Cashiers count the drawer without seeing what it should hold, and aren’t shown the difference. Owners and managers still see everything.'
-                  : 'Cashiers see the expected cash while they count. Turn this on so they count what is really there instead of typing the expected figure.'}
-              </div>
-            </div>
+      {tab === 'business' && (
+        <div className="grid items-start gap-6 xl:grid-cols-2">
+        <Card>
+          <CardHeader className="flex-row items-center justify-between">
+            <CardTitle className="flex items-center gap-2"><Building2 className="h-5 w-5 text-primary" /> Business</CardTitle>
+            <Button size="sm" variant="outline" onClick={openBiz}>
+              <Pencil className="h-4 w-4" /> Edit
+            </Button>
+          </CardHeader>
+          <CardContent className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2 lg:grid-cols-3">
+            <div><div className="text-muted-foreground">Name</div><div className="font-medium">{user?.business?.name}</div></div>
+            <div><div className="text-muted-foreground">Type</div><div className="font-medium">{businessTypeLabel(user?.business?.type)}</div></div>
+            <div><div className="text-muted-foreground">Sells as</div><div className="font-medium">{user?.business?.salesModel === 'WHOLESALE' ? 'Wholesaler' : 'Retailer'}</div></div>
+            <div><div className="text-muted-foreground">Currency</div><div className="font-medium">{user?.business?.currency}</div></div>
+            <div><div className="text-muted-foreground">PAN / VAT</div><div className="font-medium">{user?.business?.taxId || '—'}</div></div>
+            <div><div className="text-muted-foreground">Time zone</div><div className="font-medium">{(user?.business?.timezone ?? DEFAULT_TIMEZONE).replace(/_/g, ' ')}</div></div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex-row items-center justify-between">
+            <CardTitle className="flex items-center gap-2"><ReceiptText className="h-5 w-5 text-primary" /> PAN on bill</CardTitle>
             <button
               type="button"
               role="switch"
-              aria-checked={blindClose}
-              aria-labelledby="blind-close-label"
-              disabled={!canManageBiz || saveBlind.isPending}
-              onClick={() => saveBlind.mutate(!blindClose)}
+              aria-checked={showPan}
+              disabled={!canManageBiz || savePan.isPending}
+              onClick={() => savePan.mutate(!showPan)}
               className={
-                'relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-50 ' +
-                (blindClose ? 'bg-primary' : 'bg-muted')
+                'relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-50 ' +
+                (showPan ? 'bg-primary' : 'bg-muted')
               }
             >
               <span
                 className={
                   'inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ' +
-                  (blindClose ? 'translate-x-5' : 'translate-x-0.5')
+                  (showPan ? 'translate-x-5' : 'translate-x-0.5')
                 }
               />
             </button>
-          </div>
-          <div className="border-t border-border pt-4">
-            <div className="font-medium text-foreground">Ask for a note when the drawer is off by more than</div>
-            <div>
-              Closing a shift over or short by more than this needs a reason. Leave it empty to never ask.
-              {blindClose && ' Cashiers closing blind are never asked, because they can’t see the difference.'}
-            </div>
-            <div className="mt-2 flex max-w-xs gap-2">
-              <Input
-                type="number"
-                min="0"
-                step="0.01"
-                aria-label="Variance limit"
-                placeholder="e.g. 100"
-                disabled={!canManageBiz || saveLimit.isPending}
-                value={limitText}
-                onChange={(e) => setLimit(e.target.value)}
-              />
-              <Button
-                variant="outline"
-                disabled={!canManageBiz || limit === null}
-                loading={saveLimit.isPending}
-                onClick={() => saveLimit.mutate()}
-              >
-                Save
-              </Button>
-            </div>
-          </div>
-          {!canManageBiz && <span className="block">Only an owner or manager can change this.</span>}
-        </CardContent>
-      </Card>
-
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <div>
-          <h2 className="flex items-center gap-2 font-semibold"><StoreIcon className="h-5 w-5 text-primary" /> Stores</h2>
-          {sub?.currentPlan && (
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              {branchLimit === null
-                ? `${sub.currentPlan.name} plan: unlimited branches.`
-                : `${sub.activeStores} of ${branchLimit} branch${branchLimit === 1 ? '' : 'es'} open on your ${sub.currentPlan.name} plan.`}
-              {planFull && (
-                <>
-                  {' '}
-                  <Link href="/subscription" className="font-medium text-primary hover:underline">Choose a bigger plan</Link> to add more.
-                </>
-              )}
-            </p>
-          )}
-        </div>
-        <Tooltip content={planFull ? 'Your plan’s branch limit is reached' : undefined}>
-          <Button
-            size="sm"
-            disabled={planFull}
-            onClick={() => { setEditing(null); setForm(empty); setOpen(true); }}
-          >
-            <Plus className="h-4 w-4" /> Add store
-          </Button>
-        </Tooltip>
-      </div>
-
-      {isError ? <ErrorState onRetry={() => refetch()} /> :
-        isLoading ? <LoadingBlock /> : !stores || stores.length === 0 ? (
-        <Card className="p-6 text-center text-sm text-muted-foreground">
-          No stores yet — add one to organize stock and sales by location.
-        </Card>
-      ) : (
-        <div className="space-y-2">
-          {stores.map((s) => (
-            <Card key={s.id} className="flex items-center justify-between p-4">
-              <div>
-                <div className="flex items-center gap-2 font-medium">
-                  {s.name} {!s.isActive && <Badge tone="muted">Inactive</Badge>}
-                </div>
-                <div className="text-sm text-muted-foreground">
-                  {[s.address, s.phone].filter(Boolean).join(' · ') || 'No address set'}
-                </div>
-              </div>
-              <div className="flex shrink-0 items-center gap-1">
-                <Tooltip content="Edit">
-                  <Button size="icon" variant="ghost" onClick={() => openEdit(s)} aria-label={`Edit ${s.name}`}><Pencil className="h-4 w-4" /></Button>
-                </Tooltip>
-                {!s.isActive ? (
-                  canManageBiz && (
-                    <Tooltip content="Reactivate this store">
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        loading={reactivate.isPending && reactivate.variables === s.id}
-                        onClick={() => reactivate.mutate(s.id)}
-                        aria-label={`Reactivate ${s.name}`}
-                      >
-                        <RotateCcw className="h-4 w-4" />
-                      </Button>
-                    </Tooltip>
-                  )
-                ) : (
-                  isOwner &&
-                  activeCount > 1 && (
-                    <Tooltip content="Deactivate this store">
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        onClick={() => setDeactivating(s)}
-                        aria-label={`Deactivate ${s.name}`}
-                      >
-                        <Power className="h-4 w-4 text-destructive" />
-                      </Button>
-                    </Tooltip>
-                  )
-                )}
-              </div>
-            </Card>
-          ))}
-        </div>
-      )}
-
-      {/* Not while an admin is viewing as the owner: the API refuses it then. */}
-      {user?.role === 'OWNER' && !user.impersonation && (
-        <Card className="mt-6">
-          <CardHeader className="flex-row items-center justify-between">
-            <CardTitle className="flex items-center gap-2"><Download className="h-5 w-5 text-primary" /> Your data</CardTitle>
-            <Button size="sm" variant="outline" loading={exporting} onClick={exportData}>
-              <Download className="h-4 w-4" /> Export all data
-            </Button>
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground">
-            Download a full JSON snapshot of your business — products, stock, sales, customers, purchases, and more.
+            {showPan
+              ? 'Your PAN/VAT number is printed on receipts and invoices.'
+              : 'Your PAN/VAT number is hidden on receipts and invoices.'}
+            {!hasPan && <span className="block pt-1">Add a PAN/VAT number with “Edit” above for it to appear.</span>}
+            {!canManageBiz && <span className="block pt-1">Only an owner or manager can change this.</span>}
           </CardContent>
         </Card>
+        </div>
       )}
 
-      <Card className="mt-6">
-        <CardHeader>
-          <CardTitle>Appearance</CardTitle>
-        </CardHeader>
-        <CardContent className="text-sm text-muted-foreground">
-          Use the sun/moon button in the top bar to switch between light and dark mode.
-        </CardContent>
-      </Card>
+      {tab === 'sales' && (
+        <div className="grid items-start gap-6 xl:grid-cols-2">
+        <Card>
+          <CardHeader className="flex-row items-center justify-between">
+            <CardTitle className="flex items-center gap-2"><Percent className="h-5 w-5 text-primary" /> Tax</CardTitle>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={taxEnabled}
+              disabled={!canManageBiz || saveTax.isPending}
+              onClick={() => saveTax.mutate(!taxEnabled)}
+              className={
+                'relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-50 ' +
+                (taxEnabled ? 'bg-primary' : 'bg-muted')
+              }
+            >
+              <span
+                className={
+                  'inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ' +
+                  (taxEnabled ? 'translate-x-5' : 'translate-x-0.5')
+                }
+              />
+            </button>
+          </CardHeader>
+          <CardContent className="text-sm text-muted-foreground">
+            {taxEnabled
+              ? 'Tax is ON. Each sale charges tax on products marked “Taxable” using their tax rate. Products that aren’t taxable are never taxed.'
+              : 'Tax is OFF. No sale charges tax, even for products marked “Taxable”.'}
+            {taxEnabled && (
+              <div className="mt-4 flex items-start justify-between gap-4 border-t border-border pt-4">
+                <div>
+                  <div id="tax-inclusive-label" className="font-medium text-foreground">Prices include tax</div>
+                  <div>
+                    {taxInclusive
+                      ? 'A product’s price is what the customer pays; the tax is taken out of it on the bill (113 at 13% is 100 + 13 tax).'
+                      : 'Tax is added on top of a product’s price at checkout (100 at 13% comes to 113).'}{' '}
+                    Sales already made keep the way they were priced.
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={taxInclusive}
+                  aria-labelledby="tax-inclusive-label"
+                  disabled={!canManageBiz || saveInclusive.isPending}
+                  onClick={() => saveInclusive.mutate(!taxInclusive)}
+                  className={
+                    'relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-50 ' +
+                    (taxInclusive ? 'bg-primary' : 'bg-muted')
+                  }
+                >
+                  <span
+                    className={
+                      'inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ' +
+                      (taxInclusive ? 'translate-x-5' : 'translate-x-0.5')
+                    }
+                  />
+                </button>
+              </div>
+            )}
+            {!canManageBiz && <span className="block pt-1">Only an owner or manager can change this.</span>}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2"><CreditCard className="h-5 w-5 text-primary" /> Payment methods</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3 text-sm text-muted-foreground">
+            <div>
+              The ways your customers can pay. Only these show at checkout, when a
+              khata or supplier is paid, and for refunds. Money taken on Khalti or
+              connectIPS goes to your own account; this only records how the bill was paid.
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {SETTLE_METHODS.map((m) => {
+                const on = tenders.includes(m.value);
+                const locked = m.value === 'CASH';
+                return (
+                  <Tooltip key={m.value} content={locked ? 'Cash is always accepted' : undefined}>
+                    <button
+                      type="button"
+                      role="checkbox"
+                      aria-checked={on}
+                      disabled={locked || !canManageBiz || saveTenders.isPending}
+                      onClick={() => toggleTender(m.value)}
+                      className={
+                        'inline-flex h-9 items-center gap-2 rounded-md border px-3 font-medium transition-colors disabled:cursor-not-allowed ' +
+                        (on
+                          ? 'border-primary bg-primary/10 text-primary'
+                          : 'border-input text-foreground hover:bg-accent') +
+                        (locked ? '' : ' disabled:opacity-50')
+                      }
+                    >
+                      <span
+                        className={
+                          'flex h-4 w-4 items-center justify-center rounded-sm border text-[10px] leading-none ' +
+                          (on ? 'border-primary bg-primary text-primary-foreground' : 'border-input')
+                        }
+                        aria-hidden
+                      >
+                        {on ? '✓' : ''}
+                      </span>
+                      {m.label}
+                    </button>
+                  </Tooltip>
+                );
+              })}
+            </div>
+            {!canManageBiz && <span className="block">Only an owner or manager can change this.</span>}
+          </CardContent>
+        </Card>
+        </div>
+      )}
+
+      {tab === 'shifts' && (
+        <div className="grid gap-6">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2"><Wallet className="h-5 w-5 text-primary" /> Shifts &amp; cash drawer</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4 text-sm text-muted-foreground">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <div id="blind-close-label" className="font-medium text-foreground">Blind close for cashiers</div>
+                <div>
+                  {blindClose
+                    ? 'Cashiers count the drawer without seeing what it should hold, and aren’t shown the difference. Owners and managers still see everything.'
+                    : 'Cashiers see the expected cash while they count. Turn this on so they count what is really there instead of typing the expected figure.'}
+                </div>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={blindClose}
+                aria-labelledby="blind-close-label"
+                disabled={!canManageBiz || saveBlind.isPending}
+                onClick={() => saveBlind.mutate(!blindClose)}
+                className={
+                  'relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-50 ' +
+                  (blindClose ? 'bg-primary' : 'bg-muted')
+                }
+              >
+                <span
+                  className={
+                    'inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ' +
+                    (blindClose ? 'translate-x-5' : 'translate-x-0.5')
+                  }
+                />
+              </button>
+            </div>
+            <div className="border-t border-border pt-4">
+              <div className="font-medium text-foreground">Ask for a note when the drawer is off by more than</div>
+              <div>
+                Closing a shift over or short by more than this needs a reason. Leave it empty to never ask.
+                {blindClose && ' Cashiers closing blind are never asked, because they can’t see the difference.'}
+              </div>
+              <div className="mt-2 flex max-w-xs gap-2">
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  aria-label="Variance limit"
+                  placeholder="e.g. 100"
+                  disabled={!canManageBiz || saveLimit.isPending}
+                  value={limitText}
+                  onChange={(e) => setLimit(e.target.value)}
+                />
+                <Button
+                  variant="outline"
+                  disabled={!canManageBiz || limit === null}
+                  loading={saveLimit.isPending}
+                  onClick={() => saveLimit.mutate()}
+                >
+                  Save
+                </Button>
+              </div>
+            </div>
+            {!canManageBiz && <span className="block">Only an owner or manager can change this.</span>}
+          </CardContent>
+        </Card>
+        </div>
+      )}
+
+      {tab === 'stores' && (
+        <div className="grid gap-6">
+        <Card>
+        <div className="flex items-center justify-between gap-3 p-5">
+          <div>
+            <h3 className="flex items-center gap-2 text-lg font-semibold leading-none"><StoreIcon className="h-5 w-5 text-primary" /> Stores</h3>
+            {sub?.currentPlan && (
+              <p className="mt-1.5 text-xs text-muted-foreground">
+                {branchLimit === null
+                  ? `${sub.currentPlan.name} plan: unlimited branches.`
+                  : `${sub.activeStores} of ${branchLimit} branch${branchLimit === 1 ? '' : 'es'} open on your ${sub.currentPlan.name} plan.`}
+                {planFull && (
+                  <>
+                    {' '}
+                    <Link href="/subscription" className="font-medium text-primary hover:underline">Choose a bigger plan</Link> to add more.
+                  </>
+                )}
+              </p>
+            )}
+          </div>
+          <Tooltip content={planFull ? 'Your plan’s branch limit is reached' : undefined}>
+            <Button
+              size="sm"
+              disabled={planFull}
+              onClick={() => { setEditing(null); setForm(empty); setOpen(true); }}
+            >
+              <Plus className="h-4 w-4" /> Add store
+            </Button>
+          </Tooltip>
+        </div>
+
+        {isError ? <ErrorState onRetry={() => refetch()} /> :
+          isLoading ? <LoadingBlock /> : !stores || stores.length === 0 ? (
+          <p className="px-5 pb-5 text-center text-sm text-muted-foreground">
+            No stores yet — add one to organize stock and sales by location.
+          </p>
+        ) : (
+          <div className="divide-y divide-border border-t border-border">
+            {stores.map((s) => (
+              <div key={s.id} className="flex items-center justify-between gap-3 px-5 py-3">
+                <div>
+                  <div className="flex items-center gap-2 font-medium">
+                    {s.name} {!s.isActive && <Badge tone="muted">Inactive</Badge>}
+                  </div>
+                  <div className="text-sm text-muted-foreground">
+                    {[s.address, s.phone].filter(Boolean).join(' · ') || 'No address set'}
+                  </div>
+                </div>
+                <div className="flex shrink-0 items-center gap-1">
+                  <Tooltip content="Edit">
+                    <Button size="icon" variant="ghost" onClick={() => openEdit(s)} aria-label={`Edit ${s.name}`}><Pencil className="h-4 w-4" /></Button>
+                  </Tooltip>
+                  {!s.isActive ? (
+                    canManageBiz && (
+                      <Tooltip content="Reactivate this store">
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          loading={reactivate.isPending && reactivate.variables === s.id}
+                          onClick={() => reactivate.mutate(s.id)}
+                          aria-label={`Reactivate ${s.name}`}
+                        >
+                          <RotateCcw className="h-4 w-4" />
+                        </Button>
+                      </Tooltip>
+                    )
+                  ) : (
+                    isOwner &&
+                    activeCount > 1 && (
+                      <Tooltip content="Deactivate this store">
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => setDeactivating(s)}
+                          aria-label={`Deactivate ${s.name}`}
+                        >
+                          <Power className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </Tooltip>
+                    )
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        </Card>
+        </div>
+      )}
+
+      {tab === 'general' && (
+        <div className="grid items-start gap-6 xl:grid-cols-2">
+        {/* Not while an admin is viewing as the owner: the API refuses it then. */}
+        {user?.role === 'OWNER' && !user.impersonation && (
+          <Card>
+            <CardHeader className="flex-row items-center justify-between">
+              <CardTitle className="flex items-center gap-2"><Download className="h-5 w-5 text-primary" /> Your data</CardTitle>
+              <Button size="sm" variant="outline" loading={exporting} onClick={exportData}>
+                <Download className="h-4 w-4" /> Export all data
+              </Button>
+            </CardHeader>
+            <CardContent className="text-sm text-muted-foreground">
+              Download a full JSON snapshot of your business — products, stock, sales, customers, purchases, and more.
+            </CardContent>
+          </Card>
+        )}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2"><Palette className="h-5 w-5 text-primary" /> Appearance</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3 text-sm text-muted-foreground">
+            <p>How the app looks on this device. The sun/moon button in the top bar switches it too.</p>
+            <div className="inline-flex rounded-md border border-border p-0.5" role="radiogroup" aria-label="Theme">
+              {(['light', 'dark'] as const).map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  role="radio"
+                  aria-checked={theme === t}
+                  onClick={() => theme !== t && toggleTheme()}
+                  className={cn(
+                    'inline-flex h-8 items-center gap-1.5 rounded px-3 text-sm font-medium',
+                    theme === t ? 'bg-primary text-primary-foreground' : 'text-foreground hover:bg-accent',
+                  )}
+                >
+                  {t === 'light' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+                  {t === 'light' ? 'Light' : 'Dark'}
+                </button>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+        </div>
+      )}
 
       <ConfirmDialog
         open={!!deactivating}

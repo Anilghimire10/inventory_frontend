@@ -23,7 +23,14 @@ type DraftTarget = { storeId?: string; supplierId?: string; label: string };
  * orders it would make (one per store and supplier), and raised as draft
  * purchase orders on confirmation.
  */
-export function ReorderTab({ stores }: { stores: Store[] | undefined }) {
+export function ReorderTab({
+  stores,
+  onOpenProduct,
+}: {
+  stores: Store[] | undefined;
+  /** A row click: that product's details at that row's store. */
+  onOpenProduct?: (productId: string, storeId?: string) => void;
+}) {
   const qc = useQueryClient();
   const { show } = useToast();
   const [reorderStoreId, setReorderStoreId] = useState('');
@@ -108,6 +115,7 @@ export function ReorderTab({ stores }: { stores: Store[] | undefined }) {
                 group={g}
                 multiStore={!!stores && stores.length > 1}
                 onDraft={setDraftTarget}
+                onOpenProduct={onOpenProduct}
               />
             ))}
           </>
@@ -160,10 +168,12 @@ function ReorderGroupCard({
   group,
   multiStore,
   onDraft,
+  onOpenProduct,
 }: {
   group: ReorderSuggestionGroup;
   multiStore: boolean;
   onDraft: (t: DraftTarget) => void;
+  onOpenProduct?: (productId: string, storeId?: string) => void;
 }) {
   return (
     <div className="overflow-hidden rounded-lg border border-border">
@@ -214,7 +224,7 @@ function ReorderGroupCard({
         </THead>
         <TBody>
           {group.items.map((it) => (
-            <TR key={it.productId}>
+            <TR key={it.productId} onOpen={onOpenProduct && (() => onOpenProduct(it.productId, group.storeId))}>
               <TD className="font-medium">{it.name}</TD>
               <TD className="text-muted-foreground">{it.sku || '—'}</TD>
               <TD className="text-right text-destructive">

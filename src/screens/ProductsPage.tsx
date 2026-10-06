@@ -5,6 +5,7 @@ import { Plus, Search, Pencil, Trash2, Package, Download, Upload, X, Check, Barc
 import { CategoriesApi, ProductsApi, TaxesApi } from '@/api';
 import { VariantsSection } from '@/components/products/VariantsSection';
 import { StoreAvailability } from '@/components/products/StoreAvailability';
+import { ProductDetailsDialog } from '@/components/products/ProductDetailsDialog';
 import type { Category, Product } from '@/types';
 import { PageHeader, LoadingBlock, EmptyState, ErrorState } from '@/components/ui/misc';
 import { Button } from '@/components/ui/button';
@@ -117,6 +118,8 @@ export default function ProductsPage() {
   const [editing, setEditing] = useState<Product | null>(null);
   const [form, setForm] = useState<Form>(empty);
   const [removeTarget, setRemoveTarget] = useState<Product | null>(null);
+  // The product whose details are open (a row click, as on Sales).
+  const [detailsOf, setDetailsOf] = useState<Product | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   // A branch switch can land you past the end of the new catalog, and a
   // selection made in one branch does not belong to another. Adjusted during
@@ -419,7 +422,7 @@ export default function ProductsPage() {
             </THead>
             <TBody>
               {data.data.map((p) => (
-                <TR key={p.id}>
+                <TR key={p.id} onOpen={() => setDetailsOf(p)}>
                   <TD>
                     <input
                       type="checkbox"
@@ -513,6 +516,26 @@ export default function ProductsPage() {
             }}
           />
         </>
+      )}
+
+      {detailsOf && (
+        <ProductDetailsDialog
+          productId={detailsOf.id}
+          storeId={storeId || undefined}
+          onClose={() => setDetailsOf(null)}
+          actions={
+            <Button
+              type="button"
+              onClick={() => {
+                const p = detailsOf;
+                setDetailsOf(null);
+                openEdit(p);
+              }}
+            >
+              <Pencil className="h-4 w-4" /> Edit
+            </Button>
+          }
+        />
       )}
 
       <Dialog

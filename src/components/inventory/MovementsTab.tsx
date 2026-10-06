@@ -11,7 +11,16 @@ import { formatDateTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
 /** Stock → History: every stock change, newest first. */
-export function MovementsTab({ storeId, showStoreColumn }: { storeId: string | undefined; showStoreColumn: boolean }) {
+export function MovementsTab({
+  storeId,
+  showStoreColumn,
+  onOpenProduct,
+}: {
+  storeId: string | undefined;
+  showStoreColumn: boolean;
+  /** A row click: that product's details at that row's store. */
+  onOpenProduct?: (productId: string, storeId?: string) => void;
+}) {
   const [movementPage, setMovementPage] = useState(1);
   const movements = useQuery({
     queryKey: ['movements', movementPage, storeId ?? ''],
@@ -33,7 +42,7 @@ export function MovementsTab({ storeId, showStoreColumn }: { storeId: string | u
             // the value as the server wrote it.
             const change = Number(m.quantity);
             return (
-              <TR key={m.id}>
+              <TR key={m.id} onOpen={onOpenProduct && (() => onOpenProduct(m.product.id, m.store?.id ?? storeId))}>
                 <TD className="whitespace-nowrap text-muted-foreground">{formatDateTime(m.createdAt)}</TD>
                 <TD className="font-medium">{m.product.name}</TD>
                 {showStoreColumn && (

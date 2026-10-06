@@ -13,6 +13,7 @@ import { UNITS, qtyStep as stepForUnit } from '@/lib/units';
 import { Field } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogFooter } from '@/components/ui/dialog';
+import { PurchaseDetailsDialog, PurchasePaymentBadge } from '@/components/purchases/PurchaseDetailsDialog';
 import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
 import { Pagination } from '@/components/ui/pagination';
 import { useToast } from '@/components/ui/toast';
@@ -64,6 +65,8 @@ export default function PurchasesPage() {
   const { data: stores } = useActiveStores();
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  // The purchase whose details are open (a row click, as on Sales).
+  const [detailsId, setDetailsId] = useState<string | null>(null);
   // Set while editing: the store the purchase is already on, so the picker can
   // still show it if it has since been deactivated.
   const [attachedStore, setAttachedStore] = useState<StoreOption | null>(null);
@@ -389,24 +392,13 @@ export default function PurchasesPage() {
             <THead><TR><TH>Date</TH><TH>Reference</TH><TH>Supplier</TH><TH>Status</TH><TH>Payment</TH><TH className="text-right">Items</TH><TH className="text-right">Total</TH><TH></TH></TR></THead>
             <TBody>
               {data.data.map((p) => {
-                const outstanding = p.outstanding ?? Number(p.total) - Number(p.amountPaid);
                 return (
-                  <TR key={p.id}>
+                  <TR key={p.id} onOpen={() => setDetailsId(p.id)}>
                     <TD className="whitespace-nowrap text-muted-foreground">{formatDate(p.receivedAt || p.createdAt)}</TD>
                     <TD className="font-medium">{p.reference || p.id.slice(-6)}</TD>
                     <TD>{p.supplier?.name ?? '—'}</TD>
                     <TD><Badge tone={p.status === 'RECEIVED' ? 'success' : 'muted'}>{p.status}</Badge></TD>
-                    <TD>
-                      {Number(p.refundDue ?? 0) > 0 ? (
-                        <Badge tone="warning">Owes you {formatMoney(p.refundDue!)}</Badge>
-                      ) : outstanding <= 0.001 ? (
-                        <Badge tone="success">Paid</Badge>
-                      ) : Number(p.amountPaid) > 0 ? (
-                        <Badge tone="warning">Owing {formatMoney(outstanding)}</Badge>
-                      ) : (
-                        <Badge tone="destructive">On credit</Badge>
-                      )}
-                    </TD>
+                    <TD><PurchasePaymentBadge purchase={p} /></TD>
                     <TD className="text-right">{p._count?.items ?? 0}</TD>
                     <TD className="text-right font-medium">{formatMoney(p.total)}</TD>
                     <TD className="text-right">
@@ -446,6 +438,39 @@ export default function PurchasesPage() {
           <Pagination page={data.meta.page} pages={data.meta.pages} onPage={setPage} />
           </>
         )}
+
+      {detailsId && (
+        <PurchaseDetailsDialog
+          purchaseId={detailsId}
+          onClose={() => setDetailsId(null)}
+          actions={(p) => {
+            // The same three actions as the row, closing the details first.
+            const then = (fn: (id: string) => void) => () => {
+              setDetailsId(null);
+              fn(p.id);
+            };
+            return (
+              <>
+                {p.status === 'RECEIVED' && (
+                  <Button type="button" variant="outline" onClick={then(openReturn)}>
+                    <RotateCcw className="h-4 w-4" /> Return to supplier
+                  </Button>
+                )}
+                {(p.status === 'DRAFT' || p.status === 'ORDERED') && (
+                  <Button type="button" variant="outline" disabled={receiveLoading} onClick={then(openReceive)}>
+                    <PackageCheck className="h-4 w-4" /> Receive stock
+                  </Button>
+                )}
+                {p.status !== 'CANCELLED' && (
+                  <Button type="button" onClick={then(openEdit)}>
+                    <Pencil className="h-4 w-4" /> Edit
+                  </Button>
+                )}
+              </>
+            );
+          }}
+        />
+      )}
 
       <Dialog open={open} onClose={() => setOpen(false)} title={editingId ? 'Edit purchase' : 'Receive stock'} className="max-w-3xl">
         <div className="space-y-4">
