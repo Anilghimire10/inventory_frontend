@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Bell, AlertTriangle, CalendarClock, CheckCheck, Info, Trash2, X } from 'lucide-react';
@@ -12,6 +12,7 @@ import { Tooltip } from '@/components/ui/tooltip';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { useToast } from '@/components/ui/toast';
 import { apiError } from '@/lib/api';
+import { useDismiss } from '@/hooks/useDismiss';
 
 const ICONS: Record<NotificationType, React.ComponentType<{ className?: string }>> = {
   LOW_STOCK: AlertTriangle,
@@ -38,6 +39,7 @@ const keepOpen = (e: React.MouseEvent) => e.preventDefault();
 export default function Notifications() {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
+  const close = useCallback(() => setOpen(false), []);
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['notifications'],
@@ -104,28 +106,7 @@ export default function Notifications() {
     });
   };
 
-  // Closes on a tap outside, Escape, or tabbing out. It used to close when the
-  // bell lost focus -- but Safari (every iPhone) never focuses a tapped button,
-  // so there the panel couldn't be closed by tapping away, and elsewhere a tap
-  // on a row's text closed it.
-  const root = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const outside = (e: Event) => {
-      if (!root.current?.contains(e.target as Node)) setOpen(false);
-    };
-    const escape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false);
-    };
-    document.addEventListener('pointerdown', outside);
-    document.addEventListener('focusin', outside);
-    document.addEventListener('keydown', escape);
-    return () => {
-      document.removeEventListener('pointerdown', outside);
-      document.removeEventListener('focusin', outside);
-      document.removeEventListener('keydown', escape);
-    };
-  }, [open]);
+  const root = useDismiss<HTMLDivElement>(open, close);
 
   return (
     <div ref={root} className="relative">

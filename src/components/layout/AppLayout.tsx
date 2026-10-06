@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { GlobalStorePicker } from '@/components/StorePicker';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
@@ -27,12 +27,14 @@ import { Tooltip } from '@/components/ui/tooltip';
 import { SubscriptionBanner } from './SubscriptionBanner';
 import { ImpersonationBanner } from './ImpersonationBanner';
 import { MaintenanceBanner } from './MaintenanceBanner';
+import { useDismiss } from '@/hooks/useDismiss';
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { user, logout } = useAuth();
   const { theme, toggle } = useTheme();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useDismiss<HTMLDivElement>(menuOpen, useCallback(() => setMenuOpen(false), []));
   const [pwOpen, setPwOpen] = useState(false);
   // The section opened by hand, and on which page. On another page the
   // current page's section is open again.
@@ -165,10 +167,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 {theme === 'dark' ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
               </button>
             </Tooltip>
-            <div className="relative">
+            <div ref={menuRef} className="relative">
               <button
                 onClick={() => setMenuOpen((o) => !o)}
-                onBlur={() => setTimeout(() => setMenuOpen(false), 150)}
                 aria-haspopup="menu"
                 aria-expanded={menuOpen}
                 aria-label={`Account menu for ${user.name}`}
