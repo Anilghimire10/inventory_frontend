@@ -16,7 +16,7 @@ import { useToast } from '@/components/ui/toast';
 import { apiError, apiErrorCode } from '@/lib/api';
 import { formatDate, formatDateTime, formatMoney } from '@/lib/format';
 import { cn } from '@/lib/utils';
-import { CartPanel, lineNet } from '@/components/pos/CartPanel';
+import { CartPanel, lineDiscount, lineNet } from '@/components/pos/CartPanel';
 import { useAcceptedTenders } from '@/hooks/useAcceptedTenders';
 import { cartTotals } from '@/lib/cart-totals';
 import { liveRefetchInterval } from '@/lib/live';
@@ -428,6 +428,8 @@ export default function PosPage() {
         // Serials aren't sent here: a held sale doesn't touch stock or the
         // Serial table (same as it doesn't consume a receipt number), so the
         // backend never persists them. Resuming always needs a fresh scan.
+        // Only the cashier's own discount: clearance is worked out again on
+        // resume, from what is marked down then.
         items: cart.map((l) => ({
           productId: l.product.id,
           quantity: l.quantity,
@@ -485,7 +487,9 @@ export default function PosPage() {
           productId: l.product.id,
           quantity: l.quantity,
           unitPrice: l.unitPrice,
-          discount: l.discount,
+          // The cashier's discount and any clearance, as one line discount:
+          // the server prices what it is sent.
+          discount: lineDiscount(l) || undefined,
           serials: l.serials,
         })),
       }),
@@ -644,7 +648,22 @@ export default function PosPage() {
   }, []);
 
   const resumeMutation = useMutation({
-    mutationFn: (id: string) => SalesApi.resume(id),
+    mutationFn: async (id: string) => {
+      const held = await SalesApi.resume(id);
+      // The parked cart's products come without this store's markdowns. Read
+      // them as the grid does, so a resumed line is priced like one scanned
+      // now; if that read fails the line is simply full price.
+      const ids = held.items.map((i) => i.product.id);
+      const fresh =
+        ids.length && storeId
+          ? await ProductsApi.list({ ids, limit: 100, storeId }).catch(() => null)
+          : null;
+      const byId = new Map((fresh?.data ?? []).map((p) => [p.id, p]));
+      return {
+        ...held,
+        items: held.items.map((i) => ({ ...i, product: byId.get(i.product.id) ?? i.product })),
+      };
+    },
     onSuccess: (held) => {
       qc.invalidateQueries({ queryKey: ['held-sales'] });
       setLastChange(null);

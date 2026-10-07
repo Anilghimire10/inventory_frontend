@@ -18,6 +18,9 @@ import { SalesApi } from '@/api';
 import { useStoreLabel } from '@/components/StorePicker';
 import { ALL_STORES, useStoreScope } from '@/store/StoreContext';
 import type { PaymentMethod, ReturnQuote, Sale, SaleListItem, SettleMethod } from '@/types';
+
+/** Why a returned line is written off instead of going back on the shelf. */
+type WriteOffReason = 'DAMAGE' | 'EXPIRED';
 import { PageHeader, LoadingBlock, EmptyState, ErrorState } from '@/components/ui/misc';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -156,8 +159,9 @@ export default function SalesPage() {
   const [returnQty, setReturnQty] = useState<Record<string, number>>({});
   // null = the tender the sale was paid on, which the quote reports.
   const [refundMethod, setRefundMethod] = useState<SettleMethod | null>(null);
-  // Lines coming back unfit to sell: written off rather than restocked.
-  const [damaged, setDamaged] = useState<Record<string, boolean>>({});
+  // Lines coming back unfit to sell, and why: written off rather than
+  // restocked. A line with no entry goes back on the shelf.
+  const [writeOff, setWriteOff] = useState<Record<string, WriteOffReason>>({});
   const [returnReason, setReturnReason] = useState('');
   // Serialised lines: which units are coming back, by serial number.
   const [pickedSerials, setPickedSerials] = useState<Record<string, string[]>>({});
@@ -166,7 +170,7 @@ export default function SalesPage() {
   const resetReturn = () => {
     setReturnQty({});
     setRefundMethod(null);
-    setDamaged({});
+    setWriteOff({});
     setReturnReason('');
     setPickedSerials({});
   };
@@ -211,7 +215,7 @@ export default function SalesPage() {
       SalesApi.return(openId!, {
         items: returnLines.map((l) => ({
           ...l,
-          ...(damaged[l.saleItemId] ? { restock: false } : {}),
+          ...(writeOff[l.saleItemId] ? { writeOffReason: writeOff[l.saleItemId] } : {}),
           ...(pickedSerials[l.saleItemId]?.length ? { serials: pickedSerials[l.saleItemId] } : {}),
         })),
         ...(refundMethod ? { refundMethod } : {}),
@@ -234,7 +238,7 @@ export default function SalesPage() {
         lines: returnLines.map((l) => ({
           name: names.get(l.saleItemId) ?? 'Item',
           quantity: l.quantity,
-          damaged: !!damaged[l.saleItemId],
+          writtenOff: writeOff[l.saleItemId],
           serials: pickedSerials[l.saleItemId],
         })),
       });
@@ -546,8 +550,8 @@ export default function SalesPage() {
                 quoteError={returnLines.length > 0 && quote.isError ? apiError(quote.error) : null}
                 refundMethod={refundMethod}
                 setRefundMethod={setRefundMethod}
-                damaged={damaged}
-                setDamaged={setDamaged}
+                writeOff={writeOff}
+                setWriteOff={setWriteOff}
                 pickedSerials={pickedSerials}
                 setPickedSerials={setPickedSerials}
                 reason={returnReason}
@@ -667,8 +671,8 @@ function ReturnSection({
   quoteError,
   refundMethod,
   setRefundMethod,
-  damaged,
-  setDamaged,
+  writeOff,
+  setWriteOff,
   pickedSerials,
   setPickedSerials,
   reason,
@@ -681,8 +685,8 @@ function ReturnSection({
   quoteError: string | null;
   refundMethod: SettleMethod | null;
   setRefundMethod: (m: SettleMethod | null) => void;
-  damaged: Record<string, boolean>;
-  setDamaged: (v: Record<string, boolean>) => void;
+  writeOff: Record<string, WriteOffReason>;
+  setWriteOff: (v: Record<string, WriteOffReason>) => void;
   pickedSerials: Record<string, string[]>;
   setPickedSerials: (v: Record<string, string[]>) => void;
   reason: string;
@@ -724,15 +728,22 @@ function ReturnSection({
                       setReturnQty({ ...returnQty, [it.id]: Math.min(max, Math.max(0, Number(e.target.value))) })
                     } />
                 )}
-                <Tooltip content="Came back unfit to sell: refunded, but written off instead of going back on the shelf">
-                  <label className="flex items-center gap-1 text-xs text-muted-foreground">
-                    <input
-                      type="checkbox"
-                      checked={!!damaged[it.id]}
-                      onChange={(e) => setDamaged({ ...damaged, [it.id]: e.target.checked })}
-                    />
-                    Damaged
-                  </label>
+                <Tooltip content="Unfit to sell: refunded, but written off instead of going back on the shelf. Expired goods are reported as expired, not damaged.">
+                  <Select
+                    className="h-8 w-32 text-xs"
+                    aria-label={`What happens to the returned ${it.name}`}
+                    value={writeOff[it.id] ?? ''}
+                    onChange={(e) => {
+                      const next = { ...writeOff };
+                      if (e.target.value) next[it.id] = e.target.value as WriteOffReason;
+                      else delete next[it.id];
+                      setWriteOff(next);
+                    }}
+                  >
+                    <option value="">Back on shelf</option>
+                    <option value="DAMAGE">Damaged</option>
+                    <option value="EXPIRED">Expired</option>
+                  </Select>
                 </Tooltip>
               </div>
               {units.length > 0 && (

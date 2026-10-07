@@ -57,6 +57,7 @@ import type { BusinessSetup, CreatePaymentClaimBody, PaymentClaim,
   OnlineGateway,
   OnlinePaymentStart,
   OnlinePaymentStatus,
+  ReturnablePurchaseLine,
 } from '@/types';
 
 /** How a credit or supplier payment was made. Omitted, the API assumes cash. */
@@ -264,6 +265,9 @@ export const InventoryApi = {
   /** Remove expired stock: an EXPIRED adjustment, and the batch emptied. */
   writeOffExpired: (body: { storeId: string; productId: string; batchId?: string }) =>
     post<{ writtenOff: number }>('/inventory/expiring/write-off', body),
+  /** Mark stock nearing its date down to `price`, or end the markdown (null). */
+  setClearance: (body: { storeId: string; productId: string; batchId?: string; price: number | null }) =>
+    post<{ clearancePrice: number | null }>('/inventory/expiring/clearance', body),
   movements: (params?: object) =>
     get<Paginated<StockMovement>>('/inventory/movements', params),
   serials: (params?: object) =>
@@ -317,6 +321,9 @@ export const PurchasesApi = {
     id: string,
     body: { note?: string; items: { purchaseItemId: string; quantity: number }[] },
   ) => post<ReturnPurchaseResult>(`/purchases/${id}/return`, body),
+  /** Received purchase lines a batch (or a product's own stock) could go back on. */
+  returnable: (params: { storeId: string; productId: string; batchId?: string }) =>
+    get<ReturnablePurchaseLine[]>('/purchases/returnable', params),
   pay: (id: string, amount: number, opts: PaymentOpts = {}) =>
     post<Purchase>(`/purchases/${id}/pay`, { amount, ...opts }),
   /** The supplier paid back (part of) what they owed on this purchase. */

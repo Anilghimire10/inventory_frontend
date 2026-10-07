@@ -5,6 +5,7 @@ import { RxBadge } from '@/components/ui/RxBadge';
 import { ErrorState, LoadingBlock } from '@/components/ui/misc';
 import { Tooltip } from '@/components/ui/tooltip';
 import { ExpiryBadge } from '@/components/ExpiryBadge';
+import { clearanceFrom } from '@/lib/clearance';
 import { formatMoney } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
@@ -149,7 +150,19 @@ export function ProductGrid({
                     {p.isRxRequired && <RxBadge />}
                   </div>
                   <div className="mt-auto flex items-center justify-between pt-1">
-                    <span className="text-sm font-bold text-primary">{formatMoney(p.sellingPrice)}</span>
+                    {clearanceFrom(p.clearance) !== null ? (
+                      // Marked down to sell before it expires; the till
+                      // charges it on the units drawn from that stock.
+                      <span className="flex flex-col leading-tight">
+                        <span className="text-[11px] text-muted-foreground line-through">{formatMoney(p.sellingPrice)}</span>
+                        <span className="text-sm font-bold text-success">
+                          {formatMoney(clearanceFrom(p.clearance)!)}
+                          <span className="ml-1 text-[10px] font-medium uppercase">Clearance</span>
+                        </span>
+                      </span>
+                    ) : (
+                      <span className="text-sm font-bold text-primary">{formatMoney(p.sellingPrice)}</span>
+                    )}
                     <Tooltip content={out ? 'Out of stock' : 'Add to cart'}>
                     <button
                       disabled={out}

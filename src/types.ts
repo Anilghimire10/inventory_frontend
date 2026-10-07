@@ -189,6 +189,13 @@ export interface Product {
    * when given, else across stores. Absent on single-product reads.
    */
   expiry?: { expiredQty: number; nextBatchExpiry: string | null };
+  /**
+   * Stock marked down to sell before it expires, on store-scoped list rows:
+   * in the order the till sells it, how many units at what price (null = full
+   * price). `quantity: null` is every unit. Units past the list are full
+   * price. Absent when nothing is marked down.
+   */
+  clearance?: ClearanceTier[];
   /** Only returned by GET /products/:id — one row per store that carries it. */
   stockItems?: { storeId: string; quantity: string }[];
   /** Active variants, on GET /products/:id of a parent product. */
@@ -318,6 +325,22 @@ export interface StockTakeResult {
   lines: StockTakeVarianceLine[];
 }
 
+export interface ClearanceTier {
+  quantity: number | null;
+  price: number | null;
+}
+
+/** A received purchase line some stock could go back to the supplier on. */
+export interface ReturnablePurchaseLine {
+  purchaseId: string;
+  purchaseItemId: string;
+  reference: string | null;
+  receivedAt: string | null;
+  supplier: { id: string; name: string } | null;
+  costPrice: number;
+  returnable: number;
+}
+
 export interface Batch {
   id: string;
   /** On the Expiring list: a real batch, or a product's own expiry date. */
@@ -330,8 +353,10 @@ export interface Batch {
   expiryDate?: string | null;
   /** Decimal(12,3) — arrives as a string, so `Number()` it before any arithmetic. */
   quantity: string;
-  product: { id: string; name: string; sku?: string | null };
+  product: { id: string; name: string; sku?: string | null; sellingPrice?: string };
   store?: { id: string; name: string };
+  /** On the Expiring list: marked down to this per unit, or null. */
+  clearancePrice?: number | null;
 }
 
 export interface Supplier {

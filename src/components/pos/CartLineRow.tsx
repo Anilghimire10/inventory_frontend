@@ -20,7 +20,7 @@ import { Tooltip } from '@/components/ui/tooltip';
 import { formatMoney, currencySymbol } from '@/lib/format';
 import { SerialPicker } from '@/components/SerialPicker';
 import { allowsFraction } from '@/lib/units';
-import { lineNet, type CartLine, type DiscountType } from '@/components/pos/CartPanel';
+import { lineClearance, lineNet, type CartLine, type DiscountType } from '@/components/pos/CartPanel';
 
 /** Which inline editor a line has open, if any. */
 export type LineEditor = 'price' | 'serials';
@@ -86,6 +86,9 @@ function CartLineRowInner({
   const [editDiscount, setEditDiscount] = useState('');
   const [editDiscountType, setEditDiscountType] = useState<DiscountType>('amount');
   const [editSerials, setEditSerials] = useState<string[]>([]);
+  // Marked-down stock in this line: shown apart from the cashier's discount,
+  // which the price editor edits on its own.
+  const clearance = lineClearance(l);
 
   const openPriceEditor = () => {
     setEditUnitPrice(l.unitPrice != null ? String(l.unitPrice) : '');
@@ -166,7 +169,7 @@ function CartLineRowInner({
           </div>
         </div>
         <div className="flex flex-col items-end gap-1.5">
-          {l.unitPrice != null || l.discount ? (
+          {l.unitPrice != null || l.discount || clearance > 0 ? (
             <>
               <span className="whitespace-nowrap text-[11px] text-muted-foreground line-through">
                 {formatMoney(Number(l.product.sellingPrice) * l.quantity)}
@@ -174,6 +177,11 @@ function CartLineRowInner({
               <span className="whitespace-nowrap text-sm font-semibold text-primary">
                 {formatMoney(lineNet(l))}
               </span>
+              {clearance > 0 && (
+                <span className="whitespace-nowrap text-[11px] font-medium text-success">
+                  Clearance −{formatMoney(clearance)}
+                </span>
+              )}
             </>
           ) : (
             <span className="whitespace-nowrap text-sm font-semibold text-foreground">

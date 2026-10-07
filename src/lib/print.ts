@@ -167,7 +167,8 @@ function thermal(
 /** What a return slip lists: the lines that came back, and why. */
 export interface ReturnSlip {
   result: ReturnResult;
-  lines: { name: string; quantity: number; damaged: boolean; serials?: string[] }[];
+  /** `writtenOff`: came back unfit to sell, and why. */
+  lines: { name: string; quantity: number; writtenOff?: 'DAMAGE' | 'EXPIRED'; serials?: string[] }[];
   reason?: string;
 }
 
@@ -192,7 +193,7 @@ export function printReturnSlip(sale: Sale, slip: ReturnSlip) {
   const rows = slip.lines
     .map(
       (l) => `
-      <tr><td>${esc(l.name)}${l.damaged ? ' <span class="muted">(damaged)</span>' : ''}</td><td class="r">× ${esc(l.quantity)}</td></tr>
+      <tr><td>${esc(l.name)}${l.writtenOff ? ` <span class="muted">(${l.writtenOff === 'EXPIRED' ? 'expired' : 'damaged'})</span>` : ''}</td><td class="r">× ${esc(l.quantity)}</td></tr>
       ${l.serials?.length ? `<tr class="muted"><td colspan="2">${l.serials.map(esc).join(', ')}</td></tr>` : ''}`,
     )
     .join('');

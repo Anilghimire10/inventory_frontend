@@ -28,7 +28,7 @@ import { generateBarcodeValue } from '@/lib/barcode';
 import { Select } from '@/components/ui/select';
 import { Tooltip } from '@/components/ui/tooltip';
 import { UNITS } from '@/lib/units';
-import { formatMoney } from '@/lib/format';
+import { formatDate, formatMoney } from '@/lib/format';
 import { useAuth } from '@/auth/AuthContext';
 import { can } from '@/lib/permissions';
 import { cn } from '@/lib/utils';
@@ -676,6 +676,15 @@ export default function ProductsPage() {
               Track serial / IMEI numbers
             </label>
           </div>
+          {/* Switching batches on keeps the date of what is already on the
+              shelf: it becomes a batch with the product's current expiry. */}
+          {editing && !editing.trackBatches && form.trackBatches && (
+            <p className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
+              Stock already on hand becomes a batch
+              {editing.expiryDate ? ` expiring ${formatDate(editing.expiryDate)}` : ' with no expiry date'}, at each
+              store. New deliveries then keep their own dates.
+            </p>
+          )}
 
           <StoreAvailability productId={editing?.id ?? null} />
 
