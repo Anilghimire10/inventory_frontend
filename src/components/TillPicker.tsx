@@ -12,7 +12,8 @@ import { formatTime } from '@/lib/format';
 const MANAGEMENT = ['OWNER', 'MANAGER'];
 
 /**
- * Which till cash taken against a khata goes into.
+ * Which till cash taken against a khata goes into -- or, on a return, which
+ * one a cash refund comes out of.
  *
  * The API works it out on its own in every case but one: an owner or manager
  * with no till of their own, at a store with more than one open. Then any
@@ -47,12 +48,14 @@ export function useTillChoice(storeId: string, method: PaymentMethod, active: bo
 
 export function TillPicker({
   choice,
+  label = 'Cash goes into',
 }: {
   choice: ReturnType<typeof useTillChoice>;
+  label?: string;
 }) {
   if (!choice.needsChoice) return null;
   return (
-    <Field label="Cash goes into">
+    <Field label={label}>
       <Select
         required
         value={choice.shiftId ?? ''}

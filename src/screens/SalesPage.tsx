@@ -25,12 +25,13 @@ import { PageHeader, LoadingBlock, EmptyState, ErrorState } from '@/components/u
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
+import { TillPicker, useTillChoice } from '@/components/TillPicker';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogFooter } from '@/components/ui/dialog';
 import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
 import { Pagination } from '@/components/ui/pagination';
 import { useToast } from '@/components/ui/toast';
-import { apiError } from '@/lib/api';
+import { apiError, apiErrorCode } from '@/lib/api';
 import { liveRefetchInterval } from '@/lib/live';
 import { printReturnSlip, printSale, type ReturnSlip } from '@/lib/print';
 import { formatMoney, formatDateTime } from '@/lib/format';
@@ -211,8 +212,11 @@ export default function SalesPage() {
   });
 
   const doReturn = useMutation({
-    mutationFn: () =>
+    mutationFn: (shiftId: string | null) =>
       SalesApi.return(openId!, {
+        // The till the cash comes out of, when several are open and this
+        // owner or manager has none of their own (see useTillChoice).
+        ...(shiftId ? { shiftId } : {}),
         items: returnLines.map((l) => ({
           ...l,
           ...(writeOff[l.saleItemId] ? { writeOffReason: writeOff[l.saleItemId] } : {}),
@@ -244,7 +248,12 @@ export default function SalesPage() {
       });
       resetReturn();
     },
-    onError: (e) => show(apiError(e), 'error'),
+    onError: (e) => {
+      show(apiError(e), 'error');
+      // A till opened since the picker loaded made the choice ambiguous:
+      // reload the list so the picker can ask.
+      if (apiErrorCode(e) === 'TILL_CHOICE') qc.invalidateQueries({ queryKey: ['shift-open'] });
+    },
   });
 
   const emailReceipt = useMutation({
@@ -269,6 +278,14 @@ export default function SalesPage() {
   };
 
   const sale = detail.data;
+  // A cash refund by an owner or manager with no till of their own, while
+  // several are open at the sale's store: which drawer the cash comes out of
+  // is theirs to say. Booked to none, that drawer would count short at close.
+  const till = useTillChoice(
+    sale?.store?.id ?? '',
+    refundMethod ?? quote.data?.defaultMethod ?? 'CASH',
+    returnLines.length > 0 && (quote.data?.cashBack ?? 0) > 0,
+  );
   const hasFilters =
     search !== '' ||
     dateFilter !== 'all' ||
@@ -556,6 +573,7 @@ export default function SalesPage() {
                 setPickedSerials={setPickedSerials}
                 reason={returnReason}
                 setReason={setReturnReason}
+                till={till}
               />
             )}
           </div>
@@ -578,9 +596,9 @@ export default function SalesPage() {
           {sale && canReturn(sale) && (
             <Button
               variant="destructive"
-              disabled={returnLines.length === 0 || quote.isError}
+              disabled={returnLines.length === 0 || quote.isError || (till.needsChoice && !till.shiftId)}
               loading={doReturn.isPending}
-              onClick={() => doReturn.mutate()}
+              onClick={() => doReturn.mutate(till.shiftId)}
             >
               <Undo2 className="h-4 w-4" /> Process return
             </Button>
@@ -677,6 +695,7 @@ function ReturnSection({
   setPickedSerials,
   reason,
   setReason,
+  till,
 }: {
   sale: Sale;
   returnQty: Record<string, number>;
@@ -691,6 +710,7 @@ function ReturnSection({
   setPickedSerials: (v: Record<string, string[]>) => void;
   reason: string;
   setReason: (v: string) => void;
+  till: ReturnType<typeof useTillChoice>;
 }) {
   const returnable = sale.items.filter((it) => remainingQty(it) > 0);
   // The shop's tenders, plus the one the sale was paid on (the default).
@@ -806,6 +826,11 @@ function ReturnSection({
                 ))}
               </Select>
             </label>
+          )}
+          {quote.cashBack > 0 && till.needsChoice && (
+            <div className="pt-1">
+              <TillPicker choice={till} label="Cash comes out of" />
+            </div>
           )}
         </div>
       )}
