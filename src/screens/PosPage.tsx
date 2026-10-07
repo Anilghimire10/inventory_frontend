@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useEffectEvent, useMemo, useState, useRef } from 'react';
 import { useMutation, useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
-import { Barcode, Clock } from 'lucide-react';
+import { Barcode, Clock, Wallet } from 'lucide-react';
 import { CategoriesApi, CustomersApi, InventoryApi, ProductsApi, SalesApi, ShiftsApi, type CloseShiftBody } from '@/api';
 import type { Product, Paginated } from '@/types';
 import { useAuth } from '@/auth/AuthContext';
@@ -13,7 +13,7 @@ import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/components/ui/toast';
-import { apiError } from '@/lib/api';
+import { apiError, apiErrorCode } from '@/lib/api';
 import { formatDate, formatDateTime, formatMoney } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { CartPanel, lineNet } from '@/components/pos/CartPanel';
@@ -91,6 +91,14 @@ export default function PosPage() {
     activeStoreIds: (activeStores ?? []).map((st) => st.id),
   });
   const storeId = posStore.storeId;
+  // The open-shift dialog, put aside to look around the till without selling.
+  // Another store is another drawer to count, so it asks again there.
+  const [shiftPromptHidden, setShiftPromptHidden] = useState(false);
+  const [prevPromptStore, setPrevPromptStore] = useState(storeId);
+  if (prevPromptStore !== storeId) {
+    setPrevPromptStore(storeId);
+    setShiftPromptHidden(false);
+  }
   // The shift is looked up at the till's store, not the header's "all
   // stores": an owner with no till of their own is put on the one already
   // open here only once the server knows where "here" is.
@@ -503,7 +511,16 @@ export default function PosPage() {
       resetSaleState();
       setCartOpen(false);
     },
-    onError: (e) => show(apiError(e), 'error'),
+    onError: (e) => {
+      show(apiError(e), 'error');
+      // The till was counted and closed from another screen. Pick up where
+      // things stand now -- the next open till, or the open-shift dialog --
+      // instead of showing a drawer that refuses every sale.
+      if (apiErrorCode(e) === 'SHIFT_CLOSED') {
+        qc.invalidateQueries({ queryKey: ['shift-current'] });
+        qc.invalidateQueries({ queryKey: ['shift-open'] });
+      }
+    },
   });
 
   /**
@@ -754,7 +771,7 @@ export default function PosPage() {
         /* Blocks the till until the cashier counts a starting float. Held off
            while the current shift is still loading, so an already-open shift
            doesn't flash this modal before the fetch resolves. */
-        !shiftLoading && !shift && !shiftError && storesLoaded && (
+        !shiftLoading && !shift && !shiftError && storesLoaded && !shiftPromptHidden && (
           <OpenShiftModal
             // Remounted per store so a float typed for one branch never
             // carries into another's.
@@ -772,6 +789,7 @@ export default function PosPage() {
             // the open-shift dialog it has always been.
             joinable={joinable}
             onJoin={joinShift}
+            onDismiss={() => setShiftPromptHidden(true)}
           />
         )
       )}
@@ -830,6 +848,17 @@ export default function PosPage() {
               shortage can't be pinned to a day or to a person. Say so, with the
               way out right there. It sits in the product column so the cart
               keeps its full height. */}
+          {/* The open-shift dialog was put aside. Checkout stays locked, so
+              the way back to it sits where the cashier is looking. */}
+          {shiftPromptHidden && !shift && !shiftLoading && !shiftError && !!storeId && (
+            <div className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-muted/50 px-4 py-2.5 text-sm">
+              <Wallet className="h-4 w-4 shrink-0 text-muted-foreground" />
+              <span className="min-w-0 flex-1">No shift open. Open one to start selling.</span>
+              <Button size="sm" onClick={() => setShiftPromptHidden(false)}>
+                Open shift
+              </Button>
+            </div>
+          )}
           {staleShift && (
             <div className="flex flex-wrap items-center gap-3 rounded-lg border border-warning/40 bg-warning/10 px-4 py-2.5 text-sm">
               <Clock className="h-4 w-4 shrink-0 text-warning" />

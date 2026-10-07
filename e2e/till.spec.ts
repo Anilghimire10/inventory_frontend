@@ -31,6 +31,25 @@ async function openTill(page: Page) {
   await signIn(page, shop, '/pos');
 }
 
+test('the open-shift dialog can be put aside, and selling waits for a shift', async ({ page }) => {
+  await openTill(page);
+
+  const dialog = page.getByRole('dialog', { name: 'Open your shift' });
+  await dialog.getByRole('button', { name: 'Close' }).click();
+  await expect(dialog).toBeHidden();
+
+  // Looking around still works; checkout doesn't.
+  await expect(page.getByText('No shift open. Open one to start selling.')).toBeVisible();
+  await page.getByRole('button', { name: `Add ${shop.product.name}`, exact: true }).click();
+  await expect(page.getByRole('button', { name: /Complete Sale/ })).toBeDisabled();
+
+  // The way back is on screen, and Esc puts it aside again.
+  await page.getByRole('button', { name: 'Open shift', exact: true }).click();
+  await expect(dialog).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
+});
+
 test('open a shift and ring up a cash sale, with the change due shown', async ({ page }) => {
   await openTill(page);
 

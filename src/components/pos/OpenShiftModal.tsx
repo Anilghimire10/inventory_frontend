@@ -1,6 +1,6 @@
 'use client';
 import { useRef, useState } from 'react';
-import { User, Wallet } from 'lucide-react';
+import { User, Wallet, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
@@ -8,10 +8,16 @@ import { Field } from '@/components/ui/label';
 import { formatDateTime, formatMoney, formatTime } from '@/lib/format';
 import type { OpenShiftSummary, Store, SuggestedFloat } from '@/types';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
+import { Tooltip } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 
 /**
- * Blocks POS checkout until the cashier counts a starting float.
+ * Asks for a starting float before the first sale.
+ *
+ * It can be put aside: someone looking up a price or a stock level shouldn't
+ * have to count a drawer to do it. Checkout stays locked without a shift
+ * either way, so dismissing it only defers the count, and the POS keeps a way
+ * back to it on screen.
  *
  * It also carries the store picker for anyone allowed to choose one. This
  * modal covers the whole till, so a picker anywhere else on the page cannot be
@@ -28,6 +34,7 @@ export function OpenShiftModal({
   joinable,
   onJoin,
   suggested,
+  onDismiss,
 }: {
   /** `separateDrawer`: opened alongside tills already running here. */
   onOpen: (openingFloat: number, note?: string, separateDrawer?: boolean) => void;
@@ -46,6 +53,8 @@ export function OpenShiftModal({
   onJoin?: (shiftId: string) => void;
   /** What the last shift at this store left in the drawer, when it said. */
   suggested?: SuggestedFloat | null;
+  /** Put the dialog aside without opening a shift (X button and Escape). */
+  onDismiss: () => void;
 }) {
   const canJoin = !!onJoin && (joinable?.length ?? 0) > 0;
   // One drawer, one shift: with a till running here, joining it is the
@@ -70,9 +79,7 @@ export function OpenShiftModal({
   // missing -- a single-store till always knows where it is.
   const picksStore = !!onStoreChange && (stores?.length ?? 0) > 1;
   const panelRef = useRef<HTMLDivElement>(null);
-  // No onEscape: this modal blocks checkout until a shift is opened, so
-  // Escape must not offer a way out.
-  useFocusTrap(panelRef, true);
+  useFocusTrap(panelRef, true, onDismiss);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
@@ -81,9 +88,20 @@ export function OpenShiftModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby="open-shift-title"
-        className="w-full max-w-sm rounded-2xl border border-border bg-card p-6 shadow-lg"
+        className="relative w-full max-w-sm rounded-2xl border border-border bg-card p-6 shadow-lg"
       >
-        <div className="mb-4 flex items-center gap-3">
+        <Tooltip content="Close" className="absolute right-4 top-4">
+          <button
+            type="button"
+            onClick={onDismiss}
+            disabled={isPending}
+            className="rounded-md p-1 text-muted-foreground hover:bg-accent disabled:opacity-50"
+            aria-label="Close"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </Tooltip>
+        <div className="mb-4 flex items-center gap-3 pr-8">
           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
             <Wallet className="h-5 w-5" />
           </span>
