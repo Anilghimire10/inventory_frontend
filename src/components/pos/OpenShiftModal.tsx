@@ -1,6 +1,6 @@
 'use client';
 import { useRef, useState } from 'react';
-import { User, Wallet, X } from 'lucide-react';
+import { Plus, User, Wallet, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
@@ -10,6 +10,7 @@ import type { OpenShiftSummary, Store, SuggestedFloat } from '@/types';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { Tooltip } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
+import { tillName } from '@/lib/tills';
 
 /**
  * Asks for a starting float before the first sale.
@@ -24,6 +25,11 @@ import { cn } from '@/lib/utils';
  * reached before a shift exists -- and once one does, the shift pins the store
  * anyway. Opening the drawer and naming the store it belongs to is one
  * decision, so it is one dialog.
+ *
+ * For an owner or manager with tills already open here, it is a choice: work
+ * on one of them -- a cashier's, or another owner's or manager's -- or open
+ * their own. `ownOnly` is the second half on its own, for an owner already on
+ * someone's till who asks for their own from the POS header.
  */
 export function OpenShiftModal({
   onOpen,
@@ -33,10 +39,11 @@ export function OpenShiftModal({
   onStoreChange,
   joinable,
   onJoin,
+  ownOnly = false,
   suggested,
   onDismiss,
 }: {
-  /** `separateDrawer`: opened alongside tills already running here. */
+  /** `separateDrawer`: their own till, opened alongside others running here. */
   onOpen: (openingFloat: number, note?: string, separateDrawer?: boolean) => void;
   isPending?: boolean;
   /** Stores that may be sold from. Omitted when the user has no say. */
@@ -45,25 +52,28 @@ export function OpenShiftModal({
   onStoreChange?: (storeId: string) => void;
   /**
    * Tills already open here that this user could work on instead of opening
-   * their own. Only ever non-empty for an owner or manager: with one till
-   * running the server puts them on it, so this is the case of several, or a
-   * screen that hasn't caught up yet.
+   * their own -- anyone's: a cashier's, another owner's or a manager's. Only
+   * ever non-empty for an owner or manager who has not chosen a till yet.
    */
   joinable?: OpenShiftSummary[];
   onJoin?: (shiftId: string) => void;
+  /** Open the caller's own till alongside the ones running here; no list. */
+  ownOnly?: boolean;
   /** What the last shift at this store left in the drawer, when it said. */
   suggested?: SuggestedFloat | null;
   /** Put the dialog aside without opening a shift (X button and Escape). */
   onDismiss: () => void;
 }) {
-  const canJoin = !!onJoin && (joinable?.length ?? 0) > 0;
-  // One drawer, one shift: with a till running here, joining it is the
-  // answer, and a second drawer is the exception someone has to ask for.
-  const [separate, setSeparate] = useState(false);
-  const showOpen = !canJoin || separate;
-  // What the last shift left is the float for *that* drawer. A second drawer
-  // starts from whatever is counted into it.
-  const carry = canJoin ? null : suggested;
+  const canJoin = !ownOnly && !!onJoin && (joinable?.length ?? 0) > 0;
+  // Their own till sits alongside others running here: say so to the server,
+  // which otherwise refuses a second drawer opened by habit.
+  const alongside = canJoin || ownOnly;
+  // With tills running, nothing is opened until they choose their own.
+  const [ownChosen, setOwnChosen] = useState(false);
+  const showOpen = !canJoin || ownChosen;
+  // What the last shift left is the float for *that* drawer, still in use. A
+  // till of their own starts from whatever is counted into it.
+  const carry = alongside ? null : suggested;
   // Null until the cashier types: until then the field shows what the last
   // shift left, which usually arrives a moment after this dialog does.
   const [typed, setTyped] = useState<string | null>(null);
@@ -74,7 +84,7 @@ export function OpenShiftModal({
     carry && float.trim() !== ''
       ? Math.round((value - carry.amount) * 100) / 100
       : 0;
-  const submit = () => onOpen(value, note.trim() || undefined, canJoin || undefined);
+  const submit = () => onOpen(value, note.trim() || undefined, alongside || undefined);
   // Only the multi-store case shows the picker, and only then can the store be
   // missing -- a single-store till always knows where it is.
   const picksStore = !!onStoreChange && (stores?.length ?? 0) > 1;
@@ -107,12 +117,14 @@ export function OpenShiftModal({
           </span>
           <div>
             <h2 id="open-shift-title" className="text-base font-semibold text-foreground">
-              {canJoin ? 'Which till are you on?' : 'Open your shift'}
+              {ownOnly ? 'Open your own till' : canJoin ? 'Which till will you work on?' : 'Open your shift'}
             </h2>
             <p className="text-xs text-muted-foreground">
-              {canJoin
-                ? 'Sell into the drawer that is already open at this counter.'
-                : 'Count the drawer before your first sale.'}
+              {ownOnly
+                ? 'Count the cash you start with. The other tills stay open.'
+                : canJoin
+                  ? 'Work on a till that is already open here, or open your own.'
+                  : 'Count the drawer before your first sale.'}
             </p>
           </div>
         </div>
@@ -134,9 +146,9 @@ export function OpenShiftModal({
           </Field>
         )}
 
-        {/* Joining puts your sales in someone else's drawer, so it names whose
-            and how the till is doing -- enough to recognise the one you are
-            standing at without walking over to read the screen. */}
+        {/* Working on a till puts your sales in that drawer, so each names
+            whose it is and how it is doing -- enough to recognise the one you
+            are standing at without walking over to read the screen. */}
         {canJoin && (
           <div className="mb-4 space-y-2">
             {joinable!.map((sh) => (
@@ -152,7 +164,7 @@ export function OpenShiftModal({
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm font-semibold text-foreground">
-                    {sh.openedBy.name}&apos;s till
+                    {tillName(sh)}
                   </span>
                   <span className="block text-xs text-muted-foreground">
                     Opened {formatTime(sh.openedAt)} · {sh.salesCount} sale
@@ -161,21 +173,31 @@ export function OpenShiftModal({
                 </span>
               </button>
             ))}
-            {separate ? (
-              <p className="rounded-md bg-warning/10 px-3 py-2 text-xs text-warning">
-                A separate drawer gets its own count and its own Z report. Only open one
-                if this counter has its own cash — sharing one drawer across two shifts
-                means neither will count out.
-              </p>
-            ) : (
-              <button
-                type="button"
-                className="w-full pt-1 text-center text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
-                onClick={() => setSeparate(true)}
-              >
-                This counter has its own cash drawer — open a separate shift
-              </button>
-            )}
+            <div className="flex items-center gap-2 py-1 text-xs text-muted-foreground" aria-hidden="true">
+              <span className="h-px flex-1 bg-border" />
+              or
+              <span className="h-px flex-1 bg-border" />
+            </div>
+            <button
+              type="button"
+              disabled={isPending}
+              aria-pressed={ownChosen}
+              onClick={() => setOwnChosen(true)}
+              className={cn(
+                'flex w-full items-center gap-3 rounded-lg border p-3 text-left transition-colors hover:border-primary hover:bg-muted/50 disabled:opacity-50',
+                ownChosen ? 'border-primary bg-muted/50' : 'border-border',
+              )}
+            >
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                <Plus className="h-4 w-4" />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-semibold text-foreground">Open my own till</span>
+                <span className="block text-xs text-muted-foreground">
+                  Its own cash count and its own Z report
+                </span>
+              </span>
+            </button>
           </div>
         )}
 
@@ -226,7 +248,7 @@ export function OpenShiftModal({
               disabled={picksStore && !storeId}
               onClick={submit}
             >
-              {canJoin ? 'Open separate drawer with' : 'Open shift with'} {formatMoney(value)}
+              {alongside ? 'Open my till with' : 'Open shift with'} {formatMoney(value)}
             </Button>
           </>
         )}

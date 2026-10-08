@@ -12,6 +12,7 @@ import { useAuth } from '@/auth/AuthContext';
 import { useStoreScope } from '@/store/StoreContext';
 import { ShiftsApi, type CloseShiftBody } from '@/api';
 import { apiErrorCode } from '@/lib/api';
+import { joinedWithoutChoosing } from '@/lib/tills';
 import type { CashMovementReason, CashMovementType, OpenShiftSummary, ShiftReport } from '@/types';
 
 interface ShiftState {
@@ -27,8 +28,8 @@ interface ShiftState {
   isClosing: boolean;
   isReporting: boolean;
   /**
-   * `separateDrawer`: an owner or manager opening a second shift where a
-   * till is already running -- only for a counter with its own cash.
+   * `separateDrawer`: an owner or manager choosing to open their own till
+   * where others are already running, rather than work on one of those.
    */
   openShift: (
     openingFloat: number,
@@ -48,9 +49,9 @@ interface ShiftState {
   /** Freshly computed totals for the open shift — the X report. */
   loadReport: () => Promise<ShiftReport | null>;
   /**
-   * Tills open at this store that the viewer could join, when the server
-   * could not pick for them. Only ever populated for an owner or manager
-   * with no till of their own and more than one running.
+   * Tills open at this store that the viewer could work on instead of
+   * opening their own -- a cashier's, or another owner's or manager's. Only
+   * ever populated for an owner or manager who has not chosen a till here yet.
    */
   joinable: OpenShiftSummary[];
   /** Work on one of them. Remembered per store for this browser. */
@@ -74,6 +75,11 @@ interface ShiftState {
    * tell which till to put them on.
    */
   setTillStore: (storeId: string | null) => void;
+  /**
+   * An owner or manager: may work on any till open at the store, or open
+   * their own. A cashier only ever works their own.
+   */
+  canChooseTill: boolean;
 }
 
 const Ctx = createContext<ShiftState>(null as never);
@@ -200,19 +206,26 @@ export function ShiftProvider({ children }: { children: React.ReactNode }) {
     enabled,
     staleTime: 15_000,
   });
-  const shift = data ?? null;
-
-  // Every till open here, for management: offered to join when the server
-  // came back empty-handed (none of their own, several running), and to
-  // switch between once they are on one.
+  // Every till open here, for management: offered as a choice -- work on one
+  // of them, or open your own -- before they are on any, and to switch
+  // between once they are.
   const canJoin = enabled && !!user && MANAGEMENT.includes(user.role);
-  const { data: openShifts } = useQuery({
+  // With exactly one till running and nothing named, the server puts an owner
+  // straight onto it. That is a guess about where they are standing, not a
+  // choice they made: until they make one, this device is on no till and the
+  // POS asks -- that till, or one of their own.
+  const shift = joinedWithoutChoosing(canJoin, joinedId, data) ? null : (data ?? null);
+  const { data: openShifts, isError: tillsError } = useQuery({
     queryKey: ['shift-open', storeId],
     queryFn: () => ShiftsApi.openAtStore(storeId),
     enabled: canJoin && !!storeId && !isLoading,
     staleTime: 15_000,
   });
   const tills = useMemo(() => (canJoin ? (openShifts ?? []) : []), [canJoin, openShifts]);
+  // No till yet and the list to choose from still on its way: hold the
+  // dialog, or it would flash "open your shift" before the choice arrives.
+  const choicePending =
+    canJoin && !!storeId && !shift && openShifts === undefined && !tillsError;
   // The open-shift dialog's choice only exists while there is no till yet.
   const joinable = useMemo(
     () => (shift ? [] : tills.filter((s) => !s.isOwnShift)),
@@ -246,8 +259,8 @@ export function ShiftProvider({ children }: { children: React.ReactNode }) {
       qc.invalidateQueries({ queryKey: ['shift-current'] });
       qc.invalidateQueries({ queryKey: ['shift-open'] });
     },
-    // A till opened here since this screen loaded. Ask again: with one
-    // running, the server puts an owner straight onto it.
+    // A till opened here since this screen loaded. Ask again, and the POS
+    // offers it as a choice: work on it, or open your own.
     onError: (e) => {
       if (apiErrorCode(e) !== 'TILL_OPEN') return;
       qc.invalidateQueries({ queryKey: ['shift-current'] });
@@ -331,7 +344,7 @@ export function ShiftProvider({ children }: { children: React.ReactNode }) {
   const value = useMemo<ShiftState>(
     () => ({
       shift,
-      isLoading: enabled && isLoading,
+      isLoading: enabled && (isLoading || choicePending),
       isError: enabled && isError && !data,
       retry,
       isOpening: openMutation.isPending,
@@ -345,6 +358,7 @@ export function ShiftProvider({ children }: { children: React.ReactNode }) {
       tills,
       switchTill,
       setTillStore: setTillStoreId,
+      canChooseTill: canJoin,
       moveCash,
       isMovingCash: moveMutation.isPending,
     }),
@@ -352,6 +366,8 @@ export function ShiftProvider({ children }: { children: React.ReactNode }) {
       shift,
       enabled,
       isLoading,
+      choicePending,
+      canJoin,
       isError,
       data,
       retry,
@@ -367,6 +383,7 @@ export function ShiftProvider({ children }: { children: React.ReactNode }) {
       joinShift,
       tills,
       switchTill,
+      setTillStoreId,
     ],
   );
 

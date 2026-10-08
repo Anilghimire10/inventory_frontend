@@ -22,6 +22,7 @@ import { cartTotals } from '@/lib/cart-totals';
 import { liveRefetchInterval } from '@/lib/live';
 import type { CartLine, DiscountType, PayMode } from '@/components/pos/CartPanel';
 import { OpenShiftModal } from '@/components/pos/OpenShiftModal';
+import { tillName } from '@/lib/tills';
 import { ChooseStoreModal } from '@/components/pos/ChooseStoreModal';
 import { CloseShiftModal } from '@/components/pos/CloseShiftModal';
 import { FAVORITES, ProductGrid } from '@/components/pos/ProductGrid';
@@ -60,6 +61,7 @@ export default function PosPage() {
     tills,
     switchTill,
     setTillStore,
+    canChooseTill,
   } = useShift();
   const [showCloseShift, setShowCloseShift] = useState(false);
   const [showCashMove, setShowCashMove] = useState(false);
@@ -94,6 +96,8 @@ export default function PosPage() {
   // The open-shift dialog, put aside to look around the till without selling.
   // Another store is another drawer to count, so it asks again there.
   const [shiftPromptHidden, setShiftPromptHidden] = useState(false);
+  // An owner or manager on someone else's till asked for one of their own.
+  const [openingOwnTill, setOpeningOwnTill] = useState(false);
   const [prevPromptStore, setPrevPromptStore] = useState(storeId);
   if (prevPromptStore !== storeId) {
     setPrevPromptStore(storeId);
@@ -347,6 +351,10 @@ export default function PosPage() {
       // The shift opens against the same store the till sells from, so its
       // Z report reconciles the drawer that actually took the money.
       await openShift(openingFloat, note, storeId, separateDrawer);
+      if (openingOwnTill) {
+        setOpeningOwnTill(false);
+        show('Your own till is open — the next sale goes into it');
+      }
     } catch (e) {
       show(apiError(e), 'error');
     }
@@ -755,8 +763,10 @@ export default function PosPage() {
         onSwitchTill={(id) => {
           switchTill(id);
           const t = tills.find((x) => x.id === id);
-          if (t) show(t.isOwnShift ? 'Back on your till' : `Now selling into ${t.openedBy.name}’s till`);
+          if (t) show(t.isOwnShift ? 'Back on your till' : `Now selling into ${tillName(t)}`);
         }}
+        canChooseTill={canChooseTill}
+        onOpenOwnTill={() => setOpeningOwnTill(true)}
         isReporting={isReporting}
         onCashMove={() => setShowCashMove(true)}
         onXReport={printXReport}
@@ -803,14 +813,26 @@ export default function PosPage() {
             stores={posStore.canSwitch ? activeStores : undefined}
             storeId={storeId}
             onStoreChange={posStore.canSwitch ? setChosenStoreId : undefined}
-            // Empty for a cashier, and for management whenever the server
-            // already picked a till for them -- in both cases this is just
-            // the open-shift dialog it has always been.
+            // Every till open here, for an owner or manager to work on
+            // instead of opening their own. Empty for a cashier, and where
+            // none is open -- then this is the plain open-shift dialog.
             joinable={joinable}
             onJoin={joinShift}
             onDismiss={() => setShiftPromptHidden(true)}
           />
         )
+      )}
+
+      {/* Their own till, opened from the header while on someone else's. */}
+      {openingOwnTill && shift && (
+        <OpenShiftModal
+          key={`own-${storeId ?? 'none'}`}
+          ownOnly
+          onOpen={handleOpenShift}
+          isPending={isOpening}
+          storeId={storeId}
+          onDismiss={() => setOpeningOwnTill(false)}
+        />
       )}
 
       {showCloseShift && shift && (
@@ -872,9 +894,13 @@ export default function PosPage() {
           {shiftPromptHidden && !shift && !shiftLoading && !shiftError && !!storeId && (
             <div className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-muted/50 px-4 py-2.5 text-sm">
               <Wallet className="h-4 w-4 shrink-0 text-muted-foreground" />
-              <span className="min-w-0 flex-1">No shift open. Open one to start selling.</span>
+              <span className="min-w-0 flex-1">
+                {joinable.length > 0
+                  ? 'No till chosen. Work on an open till, or open your own, to start selling.'
+                  : 'No shift open. Open one to start selling.'}
+              </span>
               <Button size="sm" onClick={() => setShiftPromptHidden(false)}>
-                Open shift
+                {joinable.length > 0 ? 'Choose till' : 'Open shift'}
               </Button>
             </div>
           )}

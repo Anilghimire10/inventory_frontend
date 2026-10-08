@@ -6,13 +6,19 @@ import { Button } from '@/components/ui/button';
 import { Select } from '@/components/ui/select';
 import { Tooltip } from '@/components/ui/tooltip';
 import { formatMoney } from '@/lib/format';
+import { tillName } from '@/lib/tills';
+import { cn } from '@/lib/utils';
 
 /**
  * The till's top row: which store it sells from, and the drawer's actions
  * while a shift is open -- cash in/out, the X report, close -- plus the last
- * receipt and the shortcuts list. With more than one till open here, an
- * owner or manager picks which drawer the next sale goes into.
+ * receipt and the shortcuts list. An owner or manager picks which drawer the
+ * next sale goes into -- any till open here, whoever opened it -- or opens
+ * their own.
  */
+
+/** Option value for "open my own till" in the till picker. */
+const OWN_TILL = '__open-own__';
 export function PosHeader({
   multiStore,
   storesLoaded,
@@ -21,6 +27,8 @@ export function PosHeader({
   shift,
   tills,
   onSwitchTill,
+  canChooseTill,
+  onOpenOwnTill,
   isReporting,
   onCashMove,
   onXReport,
@@ -38,6 +46,9 @@ export function PosHeader({
   /** Every till open at this store; only management gets any. */
   tills: OpenShiftSummary[];
   onSwitchTill: (id: string) => void;
+  /** Owner or manager: may move between tills and open their own. */
+  canChooseTill: boolean;
+  onOpenOwnTill: () => void;
   isReporting: boolean;
   onCashMove: () => void;
   onXReport: () => void;
@@ -46,6 +57,12 @@ export function PosHeader({
   onPrintLast: () => void;
   onHelp: () => void;
 }) {
+  const hasOwnTill = tills.some((t) => t.isOwnShift);
+  // A choice exists once there is a second till to move to, or their own to
+  // open. Until the list arrives, the badge below still says whose it is.
+  const showTillPicker =
+    !!shift && canChooseTill && tills.length > 0 && (tills.length > 1 || !hasOwnTill);
+  const onOthers = shift?.isOwnShift === false;
   return (
     <div className="mb-4 flex flex-wrap items-center gap-3">
       <h1 className="text-xl font-semibold tracking-tight">Point of Sale</h1>
@@ -72,25 +89,31 @@ export function PosHeader({
       )}
 
       <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
-        {shift && tills.length > 1 && (
+        {showTillPicker && shift && (
           <Select
             aria-label="Till"
             title="Which drawer the next sale goes into. The others stay open."
-            className="h-8 w-auto min-w-40"
+            // On someone else's till the drawer, and its variance at close,
+            // are theirs: keep that visible, as the badge did.
+            className={cn('h-8 w-auto min-w-40', onOthers && 'border-warning/60 text-warning')}
             value={shift.id}
-            onChange={(e) => onSwitchTill(e.target.value)}
+            onChange={(e) => {
+              if (e.target.value === OWN_TILL) onOpenOwnTill();
+              else onSwitchTill(e.target.value);
+            }}
           >
             {/* The till on screen may have just closed and fallen out of the
                 list; keep it selectable until the refresh lands. */}
             {!tills.some((t) => t.id === shift.id) && <option value={shift.id}>This till</option>}
             {tills.map((t) => (
               <option key={t.id} value={t.id}>
-                {t.isOwnShift ? 'My till' : `${t.openedBy.name}’s till`} · {t.salesCount} sale{t.salesCount === 1 ? '' : 's'}
+                {tillName(t)} · {t.salesCount} sale{t.salesCount === 1 ? '' : 's'}
               </option>
             ))}
+            {!hasOwnTill && <option value={OWN_TILL}>+ Open my own till</option>}
           </Select>
         )}
-        {shift && shift.isOwnShift === false && tills.length <= 1 && (
+        {shift && onOthers && !showTillPicker && (
           <span
             className="flex items-center gap-1.5 rounded-md border border-warning/40 bg-warning/10 px-2.5 py-1 text-xs font-medium text-warning"
             title="You are selling into a drawer someone else opened. Its cash, and its variance at close, are theirs."

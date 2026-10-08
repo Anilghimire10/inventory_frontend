@@ -880,7 +880,8 @@ export interface OpenShiftSummary {
   id: string;
   openedAt: string;
   openingFloat: number;
-  openedBy: { id: string; name: string };
+  /** `role` says whose drawer it is: a cashier's, or another owner's or manager's. */
+  openedBy: { id: string; name: string; role?: UserRole };
   salesCount: number;
   isOwnShift: boolean;
 }
