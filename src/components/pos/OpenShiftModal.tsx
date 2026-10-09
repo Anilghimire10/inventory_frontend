@@ -89,7 +89,9 @@ export function OpenShiftModal({
   // missing -- a single-store till always knows where it is.
   const picksStore = !!onStoreChange && (stores?.length ?? 0) > 1;
   const panelRef = useRef<HTMLDivElement>(null);
-  useFocusTrap(panelRef, true, onDismiss);
+  // Not while the till is being opened: the X is disabled then too, and a
+  // dialog gone before the shift lands left nothing to say it had.
+  useFocusTrap(panelRef, true, isPending ? undefined : onDismiss);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">

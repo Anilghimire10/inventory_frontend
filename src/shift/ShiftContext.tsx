@@ -75,11 +75,6 @@ interface ShiftState {
    * tell which till to put them on.
    */
   setTillStore: (storeId: string | null) => void;
-  /**
-   * An owner or manager: may work on any till open at the store, or open
-   * their own. A cashier only ever works their own.
-   */
-  canChooseTill: boolean;
 }
 
 const Ctx = createContext<ShiftState>(null as never);
@@ -358,7 +353,6 @@ export function ShiftProvider({ children }: { children: React.ReactNode }) {
       tills,
       switchTill,
       setTillStore: setTillStoreId,
-      canChooseTill: canJoin,
       moveCash,
       isMovingCash: moveMutation.isPending,
     }),
@@ -367,7 +361,6 @@ export function ShiftProvider({ children }: { children: React.ReactNode }) {
       enabled,
       isLoading,
       choicePending,
-      canJoin,
       isError,
       data,
       retry,

@@ -596,7 +596,15 @@ export default function SalesPage() {
           {sale && canReturn(sale) && (
             <Button
               variant="destructive"
-              disabled={returnLines.length === 0 || quote.isError || (till.needsChoice && !till.shiftId)}
+              // Not before the quote is in: until then whether cash goes back,
+              // and so whether a till has to be named, isn't known.
+              disabled={
+                returnLines.length === 0 ||
+                quote.isError ||
+                !quote.data ||
+                till.pending ||
+                (till.needsChoice && !till.shiftId)
+              }
               loading={doReturn.isPending}
               onClick={() => doReturn.mutate(till.shiftId)}
             >

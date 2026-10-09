@@ -39,13 +39,18 @@ const openTills = async () =>
 const report = async (id: string) =>
   (await api<{ salesCount: number; cashRefunds: number }>(shop.token, 'GET', `/shifts/${id}/report`)).body;
 
-async function sellOne(page: Page) {
+/**
+ * Ring up one unit in cash. `previous` is the last sale's receipt: its
+ * "completed" toast can still be on screen, and waiting for any such toast
+ * returned before this sale had gone through.
+ */
+async function sellOne(page: Page, previous?: string) {
   await page.getByRole('button', { name: `Add ${shop.product.name}`, exact: true }).click();
   await page.getByLabel('Amount tendered').fill('100');
   await page.getByRole('button', { name: /Complete Sale/ }).click();
-  const done = page.getByText(/Sale .+ completed/);
+  const done = page.getByText(previous ? new RegExp(`Sale (?!${previous} )\\S+ completed`) : /Sale .+ completed/);
   await expect(done).toBeVisible();
-  return (await done.innerText()).match(/Sale (.+) completed/)![1];
+  return (await done.innerText()).match(/Sale (\S+) completed/)![1];
 }
 
 test.beforeAll(async () => {
@@ -70,7 +75,7 @@ test('with one till open, the owner is asked: work on it, or open their own', as
   await dialog.getByRole('button', { name: /Cashier a.*’s till · Cashier/ }).click();
   await expect(dialog).toBeHidden();
 
-  await sellOne(page);
+  const first = await sellOne(page);
   expect((await report(cashierTill)).salesCount).toBe(1);
 
   // Then open their own from the header; the cashier's stays open.
@@ -80,7 +85,7 @@ test('with one till open, the owner is asked: work on it, or open their own', as
   await own.getByRole('button', { name: /Open my till with/ }).click();
   await expect(page.getByText('Your own till is open — the next sale goes into it')).toBeVisible();
 
-  await sellOne(page);
+  await sellOne(page, first);
   const tills = await openTills();
   expect(tills).toHaveLength(2);
   ownTill = tills.find((t) => t.isOwnShift)!.id;

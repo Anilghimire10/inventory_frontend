@@ -30,7 +30,7 @@ export function useTillChoice(storeId: string, method: PaymentMethod, active: bo
   const eligible =
     active && method === 'CASH' && !!storeId && !!user && MANAGEMENT.includes(user.role);
 
-  const { data: open } = useQuery({
+  const { data: open, isError } = useQuery({
     queryKey: ['shift-open', storeId],
     queryFn: () => ShiftsApi.openAtStore(storeId),
     enabled: eligible,
@@ -38,12 +38,26 @@ export function useTillChoice(storeId: string, method: PaymentMethod, active: bo
   });
 
   const needsChoice = eligible && !!open && needsTillChoice(open);
-  const [picked, setPicked] = useState<string | null>(null);
-  // Picked in this dialog, else the till this device is on in the POS.
+  // Remembered with the store it was made at, and only used while that till
+  // is still open there: the screen outlives one refund, and a till picked
+  // for a sale at one branch -- or one closed since -- must not carry over.
+  const [picked, setPicked] = useState<{ storeId: string; id: string } | null>(null);
+  const pickedHere =
+    picked && picked.storeId === storeId && open?.some((t) => t.id === picked.id) ? picked.id : null;
+  // Picked here, else the till this device is on in the POS.
   const remembered = storeId ? readJoinedShift(storeId) : null;
-  const shiftId = needsChoice ? (picked ?? defaultTill(open!, remembered)) : null;
+  const shiftId = needsChoice ? (pickedHere ?? defaultTill(open!, remembered)) : null;
+  // The list of tills is still on its way: whether to ask isn't known yet,
+  // so the money shouldn't move until it is.
+  const pending = eligible && open === undefined && !isError;
 
-  return { tills: needsChoice ? open! : [], needsChoice, shiftId, setShiftId: setPicked };
+  return {
+    tills: needsChoice ? open! : [],
+    needsChoice,
+    shiftId,
+    pending,
+    setShiftId: (id: string | null) => setPicked(id ? { storeId, id } : null),
+  };
 }
 
 export function TillPicker({

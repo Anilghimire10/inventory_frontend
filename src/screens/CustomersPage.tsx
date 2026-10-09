@@ -281,6 +281,7 @@ export default function CustomersPage() {
               loading={creditPayment.isPending}
               disabled={
                 creditPayment.amount <= 0 ||
+                creditPayment.till.pending ||
                 (creditPayment.till.needsChoice && !creditPayment.till.shiftId)
               }
             >

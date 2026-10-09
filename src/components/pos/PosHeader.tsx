@@ -27,7 +27,6 @@ export function PosHeader({
   shift,
   tills,
   onSwitchTill,
-  canChooseTill,
   onOpenOwnTill,
   isReporting,
   onCashMove,
@@ -46,8 +45,7 @@ export function PosHeader({
   /** Every till open at this store; only management gets any. */
   tills: OpenShiftSummary[];
   onSwitchTill: (id: string) => void;
-  /** Owner or manager: may move between tills and open their own. */
-  canChooseTill: boolean;
+  /** Open the viewer's own till; offered only to those who get `tills`. */
   onOpenOwnTill: () => void;
   isReporting: boolean;
   onCashMove: () => void;
@@ -59,9 +57,9 @@ export function PosHeader({
 }) {
   const hasOwnTill = tills.some((t) => t.isOwnShift);
   // A choice exists once there is a second till to move to, or their own to
-  // open. Until the list arrives, the badge below still says whose it is.
-  const showTillPicker =
-    !!shift && canChooseTill && tills.length > 0 && (tills.length > 1 || !hasOwnTill);
+  // open. `tills` is empty for anyone who can't choose (a cashier), and until
+  // the list arrives the badge below still says whose till it is.
+  const showTillPicker = !!shift && tills.length > 0 && (tills.length > 1 || !hasOwnTill);
   const onOthers = shift?.isOwnShift === false;
   return (
     <div className="mb-4 flex flex-wrap items-center gap-3">
@@ -89,7 +87,7 @@ export function PosHeader({
       )}
 
       <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
-        {showTillPicker && shift && (
+        {shift && showTillPicker && (
           <Select
             aria-label="Till"
             title="Which drawer the next sale goes into. The others stay open."

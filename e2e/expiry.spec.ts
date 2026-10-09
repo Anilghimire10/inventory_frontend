@@ -181,3 +181,36 @@ test('a delivery with a second date moves a dated product onto batches', async (
   const all = (await expiring(400)).filter((r) => r.product.id === shop.product.id);
   expect(all.map((r) => Number(r.quantity)).sort((a, b) => a - b)).toEqual([4, 10]);
 });
+
+test('one delivery bringing a product in two dates keeps each line on its own date', async () => {
+  // A product with no stock and no batches yet. Each line's date used to be
+  // judged against the whole delivery, so the second date overwrote the
+  // first and the first line's units read as the later date.
+  const juice = await api<{ id: string }>(shop.token, 'POST', '/products', {
+    name: `E2E Juice ${Date.now().toString(36)}`,
+    costPrice: 60,
+    sellingPrice: 100,
+    isTaxable: false,
+    storeIds: [shop.storeId],
+  });
+  const res = await api(shop.token, 'POST', '/purchases', {
+    storeId: shop.storeId,
+    supplierId,
+    reference: 'E2E two dates',
+    amountPaid: 0,
+    items: [
+      { productId: juice.body.id, quantity: 10, costPrice: 60, expiryDate: inDays(20) },
+      { productId: juice.body.id, quantity: 5, costPrice: 60, expiryDate: inDays(300) },
+      // No date: once the product is on batches, this goes into one too.
+      { productId: juice.body.id, quantity: 4, costPrice: 60 },
+    ],
+  });
+  expect(res.status, JSON.stringify(res.body)).toBe(201);
+
+  const product = await api<{ trackBatches: boolean }>(shop.token, 'GET', `/products/${juice.body.id}`);
+  expect(product.body.trackBatches).toBe(true);
+  const soon = (await expiring(30)).filter((r) => r.product.id === juice.body.id);
+  expect(soon.map((r) => Number(r.quantity))).toEqual([10]);
+  const dated = (await expiring(400)).filter((r) => r.product.id === juice.body.id);
+  expect(dated.map((r) => Number(r.quantity)).sort((a, b) => a - b)).toEqual([5, 10]);
+});

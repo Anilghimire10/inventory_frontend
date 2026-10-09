@@ -20,6 +20,7 @@ import { Tooltip } from '@/components/ui/tooltip';
 import { formatMoney, currencySymbol } from '@/lib/format';
 import { SerialPicker } from '@/components/SerialPicker';
 import { allowsFraction } from '@/lib/units';
+import { clearanceOff } from '@/lib/clearance';
 import { lineClearance, lineNet, type CartLine, type DiscountType } from '@/components/pos/CartPanel';
 
 /** Which inline editor a line has open, if any. */
@@ -322,12 +323,17 @@ function CartLineRowInner({
                   : undefined;
                 const basePrice = unitPrice ?? Number(l.product.sellingPrice);
                 const rawDiscount = Math.max(0, Number(editDiscount) || 0);
+                // On a marked-down line the cashier discounts what it charges
+                // after clearance: "50% off" a clearance item is half its
+                // clearance price, not half the shelf price plus the markdown.
+                const charged = Math.max(
+                  0,
+                  basePrice * l.quantity - clearanceOff(l.product.clearance, l.quantity, basePrice),
+                );
                 const discount =
                   editDiscountType === 'percent'
-                    ? Math.round(
-                        ((basePrice * l.quantity * Math.min(rawDiscount, 100)) / 100) * 100,
-                      ) / 100
-                    : Math.min(rawDiscount, basePrice * l.quantity);
+                    ? Math.round(((charged * Math.min(rawDiscount, 100)) / 100) * 100) / 100
+                    : Math.min(rawDiscount, charged);
                 onUpdateLine(l.product.id, { unitPrice, discount: discount || undefined });
                 onEditorChange(null);
               }}

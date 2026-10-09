@@ -696,7 +696,7 @@ function PayDialog({
           <Button
             type="submit"
             loading={loading}
-            disabled={amount <= 0 || amount > target.max || (till.needsChoice && !till.shiftId)}
+            disabled={amount <= 0 || amount > target.max || till.pending || (till.needsChoice && !till.shiftId)}
           >
             Record {formatMoney(amount || 0)}
           </Button>

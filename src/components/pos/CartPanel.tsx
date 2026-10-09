@@ -50,9 +50,15 @@ export const lineUnitPrice = (l: CartLine) => l.unitPrice ?? Number(l.product.se
 export const lineClearance = (l: CartLine) =>
   clearanceOff(l.product.clearance, l.quantity, lineUnitPrice(l));
 
-/** Everything off a line: the cashier's discount plus any clearance. */
+/**
+ * Everything off a line: the cashier's discount plus any clearance, never
+ * more than the line is worth. The two used to add past it -- 100% off a
+ * marked-down item -- and the server refused the whole sale for it.
+ */
 export const lineDiscount = (l: CartLine) =>
-  Math.round(((l.discount ?? 0) + lineClearance(l)) * 100) / 100;
+  Math.round(
+    Math.min(lineUnitPrice(l) * l.quantity, (l.discount ?? 0) + lineClearance(l)) * 100,
+  ) / 100;
 
 /** Net total for a line: unit price × quantity, less its discounts, floored at 0. */
 export const lineNet = (l: CartLine) =>

@@ -61,7 +61,6 @@ export default function PosPage() {
     tills,
     switchTill,
     setTillStore,
-    canChooseTill,
   } = useShift();
   const [showCloseShift, setShowCloseShift] = useState(false);
   const [showCashMove, setShowCashMove] = useState(false);
@@ -98,6 +97,10 @@ export default function PosPage() {
   const [shiftPromptHidden, setShiftPromptHidden] = useState(false);
   // An owner or manager on someone else's till asked for one of their own.
   const [openingOwnTill, setOpeningOwnTill] = useState(false);
+  // The till they were on dropped out under them (closed from another
+  // screen) before they opened their own: let the request go, or it popped
+  // back up unasked once they chose a till again. Adjusted during render.
+  if (openingOwnTill && !shift && !shiftLoading) setOpeningOwnTill(false);
   const [prevPromptStore, setPrevPromptStore] = useState(storeId);
   if (prevPromptStore !== storeId) {
     setPrevPromptStore(storeId);
@@ -576,7 +579,9 @@ export default function PosPage() {
       existing
         ? c.map((l) =>
             l.product.id === product.id
-              ? { ...l, quantity: next, ...(serial ? { serials: [...(l.serials ?? []), serial] } : {}) }
+              ? // The product as it is now: a markdown set or ended since the
+                // line was started prices the line from here on.
+                { ...l, product, quantity: next, ...(serial ? { serials: [...(l.serials ?? []), serial] } : {}) }
               : l,
           )
         : [...c, { product, quantity: 1, ...(serial ? { serials: [serial] } : {}) }],
@@ -724,8 +729,12 @@ export default function PosPage() {
     const local = products?.data.find((p) => p.barcode === code);
     if (local) { add(local); setSearch(''); return; }
     try {
-      const product = await ProductsApi.byBarcode(code);
-      add(product);
+      const found = await ProductsApi.byBarcode(code);
+      // The lookup is business-wide and carries no clearance or on-hand
+      // figure for this store: price it from the store's row, as the grid
+      // does, or marked-down stock rang up at full price.
+      const rows = await ProductsApi.list({ ids: [found.id], limit: 1, storeId: storeId ?? undefined }).catch(() => null);
+      add(rows?.data[0] ?? found);
       setSearch('');
       return;
     } catch {
@@ -765,7 +774,6 @@ export default function PosPage() {
           const t = tills.find((x) => x.id === id);
           if (t) show(t.isOwnShift ? 'Back on your till' : `Now selling into ${tillName(t)}`);
         }}
-        canChooseTill={canChooseTill}
         onOpenOwnTill={() => setOpeningOwnTill(true)}
         isReporting={isReporting}
         onCashMove={() => setShowCashMove(true)}
