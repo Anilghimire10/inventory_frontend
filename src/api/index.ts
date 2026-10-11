@@ -12,6 +12,7 @@ import type { BusinessSetup, CreatePaymentClaimBody, PaymentClaim,
   Category,
   CreditSummary,
   Customer,
+  CustomerDetails,
   CustomerStatement,
   Dashboard,
   HeldSaleCart,
@@ -439,7 +440,7 @@ export const SalesApi = {
 
 export const CustomersApi = {
   list: (params?: object) => get<Paginated<Customer>>('/customers', params),
-  get: (id: string) => get<Customer>(`/customers/${id}`),
+  get: (id: string) => get<CustomerDetails>(`/customers/${id}`),
   create: (body: object) => post<Customer>('/customers', body),
   update: (id: string, body: object) => patch<Customer>(`/customers/${id}`, body),
   /**

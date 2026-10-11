@@ -405,6 +405,19 @@ export interface Customer {
   sales?: SaleListItem[];
 }
 
+/** GET /customers/:id: the customer with what they have bought. */
+export interface CustomerDetails extends Customer {
+  /** The latest ten, held carts included. */
+  sales: (SaleListItem & { store?: { id: string; name: string } })[];
+  summary: {
+    /** Sales rung up for them, held carts not counted. */
+    purchases: number;
+    /** Net of refunds. */
+    totalSpent: number;
+    lastPurchaseAt: string | null;
+  };
+}
+
 export interface SaleItem {
   id: string;
   productId: string;
