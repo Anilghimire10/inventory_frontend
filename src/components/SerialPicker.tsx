@@ -118,6 +118,8 @@ export function SerialPicker({
           }}
           onBlur={addTyped}
           className="font-mono"
+          // Scans here are serials for this box, not products for the till.
+          data-scan-input
           placeholder={
             mode === 'enter'
               ? 'Scan or type a serial, then Enter'

@@ -23,6 +23,7 @@ import { liveRefetchInterval } from '@/lib/live';
 import type { CartLine, DiscountType, PayMode } from '@/components/pos/CartPanel';
 import { OpenShiftModal } from '@/components/pos/OpenShiftModal';
 import { tillName } from '@/lib/tills';
+import { createScanBurst, restoreFieldValue } from '@/lib/scan-burst';
 import { ChooseStoreModal } from '@/components/pos/ChooseStoreModal';
 import { CloseShiftModal } from '@/components/pos/CloseShiftModal';
 import { FAVORITES, ProductGrid } from '@/components/pos/ProductGrid';
@@ -720,14 +721,17 @@ export default function PosPage() {
     resetSaleState();
   };
 
-  // Barcode scan (or Enter): look up an exact barcode and add it to the cart.
-  const scan = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const code = search.trim();
-    if (!code) return;
+  // A scanned (or typed + Enter) code: an exact barcode, else a unit's
+  // serial / IMEI, added to the cart. `fromSearch`: it was typed into the
+  // search box, which is cleared once it is added -- and left as a search
+  // filter when nothing matches.
+  const lookupAndAdd = async (code: string, fromSearch: boolean) => {
+    const clear = () => {
+      if (fromSearch) setSearch('');
+    };
     // Prefer an exact barcode match already in the loaded list.
     const local = products?.data.find((p) => p.barcode === code);
-    if (local) { add(local); setSearch(''); return; }
+    if (local) { add(local); clear(); return; }
     try {
       const found = await ProductsApi.byBarcode(code);
       // The lookup is business-wide and carries no clearance or on-hand
@@ -735,7 +739,7 @@ export default function PosPage() {
       // does, or marked-down stock rang up at full price.
       const rows = await ProductsApi.list({ ids: [found.id], limit: 1, storeId: storeId ?? undefined }).catch(() => null);
       add(rows?.data[0] ?? found);
-      setSearch('');
+      clear();
       return;
     } catch {
       // Not a product barcode -- maybe a unit's serial / IMEI.
@@ -744,7 +748,7 @@ export default function PosPage() {
       const unit = await InventoryApi.lookupSerial(code);
       if (unit.status !== 'IN_STOCK' || unit.storeId !== storeId) {
         show(`${code}: ${unit.product.name}, ${unit.where}`, 'error');
-        setSearch('');
+        clear();
         return;
       }
       // The grid row carries this store's on-hand figure, which the till's
@@ -753,12 +757,68 @@ export default function PosPage() {
       const product = rows.data[0];
       if (product) {
         add(product, false, unit.serialNumber);
-        setSearch('');
+        clear();
       }
     } catch {
-      // Neither -- leave the text as a normal search filter.
+      // Neither. Typed in the search box it stays there as a search filter;
+      // scanned anywhere else, say so rather than doing nothing.
+      if (!fromSearch) show(`No product or serial number matches ${code}`, 'error');
     }
   };
+  // Barcode scan (or Enter) in the search box.
+  const scan = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const code = search.trim();
+    if (code) await lookupAndAdd(code, true);
+  };
+
+  // A scan wherever the cursor is. A scanner types into whatever has focus:
+  // with the cashier last in the discount or quantity box, a barcode landed
+  // there as a number, and with nothing focused its Enter hit the "one more
+  // of the last item" shortcut. A burst too fast to be a person (see
+  // lib/scan-burst) is taken as a scan instead, and the field it typed into
+  // is put back. The search box and serial boxes take scans themselves, and
+  // a dialog's fields (counting a drawer, say) are left to the dialog.
+  const scanBurst = useRef(createScanBurst());
+  const burstField = useRef<{ el: HTMLInputElement | HTMLTextAreaElement; value: string } | null>(null);
+  const onScannerKey = useEffectEvent((e: KeyboardEvent) => {
+    const el = document.activeElement as HTMLElement | null;
+    if (el?.closest('[data-scan-input], [role="dialog"]') || e.ctrlKey || e.metaKey || e.altKey) {
+      scanBurst.current.reset();
+      return;
+    }
+    const field = el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement ? el : null;
+    if (e.key.length === 1) {
+      const length = scanBurst.current.char(e.key, e.timeStamp);
+      if (length === 1) burstField.current = field ? { el: field, value: field.value } : null;
+      // Well into a burst: keep the rest of the code out of the field (it is
+      // put back on Enter anyway) and away from the till's one-key shortcuts.
+      else if (length >= 3) {
+        if (field) e.preventDefault();
+        else e.stopPropagation();
+      }
+      return;
+    }
+    if (e.key === 'Enter' || e.key === 'Tab') {
+      const code = scanBurst.current.end(e.timeStamp);
+      if (!code) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const before = burstField.current;
+      burstField.current = null;
+      if (before) restoreFieldValue(before.el, before.value);
+      void lookupAndAdd(code, false);
+      return;
+    }
+    if (e.key !== 'Shift' && e.key !== 'CapsLock') scanBurst.current.reset();
+  });
+  useEffect(() => {
+    // Capture phase: ahead of the field's own Enter handling and the till's
+    // shortcuts, which are both listened for further down.
+    const onKey = (e: KeyboardEvent) => onScannerKey(e);
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, []);
 
   return (
     <div className="flex h-[calc(100dvh-6rem)] flex-col lg:h-[calc(100dvh-7rem)]">
@@ -932,6 +992,7 @@ export default function PosPage() {
             <Input
               className="h-11 pr-10"
               placeholder="Search products, SKUs, or scan a barcode…"
+              data-scan-input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               autoFocus
