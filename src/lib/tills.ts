@@ -17,11 +17,15 @@ const ROLE_WORD: Partial<Record<UserRole, string>> = {
   CASHIER: 'Cashier',
 };
 
-/** "My till", or "Sita’s till · Owner": whose drawer it is, in words. */
-export function tillName(t: Pick<OpenShiftSummary, 'isOwnShift' | 'openedBy'>): string {
-  if (t.isOwnShift) return 'My till';
+/**
+ * Which counter, and whose drawer it is, in words: "Counter 2 · My till", or
+ * "Counter 1 · Sita’s till · Owner". A shift from before counters has none,
+ * and reads as just whose it is.
+ */
+export function tillName(t: Pick<OpenShiftSummary, 'isOwnShift' | 'openedBy' | 'counter'>): string {
   const role = t.openedBy.role ? ROLE_WORD[t.openedBy.role] : undefined;
-  return `${t.openedBy.name}’s till${role ? ` · ${role}` : ''}`;
+  const whose = t.isOwnShift ? 'My till' : `${t.openedBy.name}’s till${role ? ` · ${role}` : ''}`;
+  return t.counter ? `${t.counter.name} · ${whose}` : whose;
 }
 
 /**

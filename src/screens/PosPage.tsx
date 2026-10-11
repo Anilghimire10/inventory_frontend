@@ -2,7 +2,7 @@
 import { useEffect, useEffectEvent, useMemo, useState, useRef } from 'react';
 import { useMutation, useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { Barcode, Clock, Wallet } from 'lucide-react';
-import { CategoriesApi, CustomersApi, InventoryApi, ProductsApi, SalesApi, ShiftsApi, type CloseShiftBody } from '@/api';
+import { CategoriesApi, CustomersApi, InventoryApi, ProductsApi, SalesApi, type CloseShiftBody } from '@/api';
 import type { Product, Paginated } from '@/types';
 import { useAuth } from '@/auth/AuthContext';
 import { useShift } from '@/shift/ShiftContext';
@@ -42,7 +42,7 @@ import { useStoreScope } from '@/store/StoreContext';
 export default function PosPage() {
   const qc = useQueryClient();
   const { show } = useToast();
-  const { user } = useAuth();
+  const { user, refresh: refreshUser } = useAuth();
   const {
     shift,
     isLoading: shiftLoading,
@@ -58,6 +58,7 @@ export default function PosPage() {
     loadReport,
     joinable,
     joinShift,
+    freeCounters,
     tills,
     switchTill,
     setTillStore,
@@ -101,6 +102,13 @@ export default function PosPage() {
   // screen) before they opened their own: let the request go, or it popped
   // back up unasked once they chose a till again. Adjusted during render.
   if (openingOwnTill && !shift && !shiftLoading) setOpeningOwnTill(false);
+  // A cashier's counter is read at sign-in. If the owner has moved them since,
+  // the open-shift dialog named the old one while the server opened the new
+  // one: read it again whenever the dialog is about to show.
+  const cashierNeedsShift = user?.role === 'CASHIER' && !shiftLoading && !shift && !shiftError;
+  useEffect(() => {
+    if (cashierNeedsShift) void refreshUser().catch(() => undefined);
+  }, [cashierNeedsShift, refreshUser]);
   const [prevPromptStore, setPrevPromptStore] = useState(storeId);
   if (prevPromptStore !== storeId) {
     setPrevPromptStore(storeId);
@@ -345,7 +353,7 @@ export default function PosPage() {
     }
   };
 
-  const handleOpenShift = async (openingFloat: number, note?: string, separateDrawer?: boolean) => {
+  const handleOpenShift = async (openingFloat: number, note?: string, counterId?: string) => {
     if (!storeId) {
       show('Pick a store before opening a shift', 'error');
       return;
@@ -353,10 +361,10 @@ export default function PosPage() {
     try {
       // The shift opens against the same store the till sells from, so its
       // Z report reconciles the drawer that actually took the money.
-      await openShift(openingFloat, note, storeId, separateDrawer);
+      await openShift(openingFloat, note, storeId, counterId);
       if (openingOwnTill) {
         setOpeningOwnTill(false);
-        show('Your own till is open — the next sale goes into it');
+        show('Your counter is open — the next sale goes into it');
       }
     } catch (e) {
       show(apiError(e), 'error');
@@ -398,14 +406,6 @@ export default function PosPage() {
     }
   };
 
-  // What the last shift at this store left in the drawer, offered as the
-  // opening float. Only asked while there is a shift to open.
-  const { data: suggestedFloat } = useQuery({
-    queryKey: ['shift-float', storeId],
-    queryFn: () => ShiftsApi.suggestedFloat(storeId!),
-    enabled: !!storeId && !shiftLoading && !shift && !shiftError,
-    staleTime: 15_000,
-  });
   const staleShift = !!shift && isStaleShift(shift.openedAt);
 
   // X report: a mid-shift read of the drawer that settles nothing, so it can
@@ -774,6 +774,7 @@ export default function PosPage() {
           const t = tills.find((x) => x.id === id);
           if (t) show(t.isOwnShift ? 'Back on your till' : `Now selling into ${tillName(t)}`);
         }}
+        canOpenCounter={freeCounters.length > 0}
         onOpenOwnTill={() => setOpeningOwnTill(true)}
         isReporting={isReporting}
         onCashMove={() => setShowCashMove(true)}
@@ -813,7 +814,6 @@ export default function PosPage() {
             // Remounted per store so a float typed for one branch never
             // carries into another's.
             key={storeId ?? 'none'}
-            suggested={suggestedFloat}
             onOpen={handleOpenShift}
             isPending={isOpening}
             // Only where there is a choice to make: a cashier sells from the
@@ -826,6 +826,9 @@ export default function PosPage() {
             // none is open -- then this is the plain open-shift dialog.
             joinable={joinable}
             onJoin={joinShift}
+            freeCounters={freeCounters}
+            myCounter={user?.role === 'CASHIER' ? user.counter : null}
+            noCounter={user?.role === 'CASHIER' && !user.counter}
             onDismiss={() => setShiftPromptHidden(true)}
           />
         )
@@ -836,6 +839,7 @@ export default function PosPage() {
         <OpenShiftModal
           key={`own-${storeId ?? 'none'}`}
           ownOnly
+          freeCounters={freeCounters}
           onOpen={handleOpenShift}
           isPending={isOpening}
           storeId={storeId}

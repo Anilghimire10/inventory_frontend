@@ -23,6 +23,10 @@ describe('tillName', () => {
     expect(tillName(cashier)).toBe('Hari’s till · Cashier');
     expect(tillName(otherOwner)).toBe('Sita’s till · Owner');
   });
+  it('leads with the counter when the till is on one', () => {
+    expect(tillName({ ...cashier, counter: { id: 'c1', name: 'Counter 1' } })).toBe('Counter 1 · Hari’s till · Cashier');
+    expect(tillName({ ...mine, counter: { id: 'c2', name: 'Counter 2' } })).toBe('Counter 2 · My till');
+  });
   it('still reads without a role', () => {
     expect(tillName({ isOwnShift: false, openedBy: { id: 'x', name: 'Gita' } })).toBe('Gita’s till');
   });

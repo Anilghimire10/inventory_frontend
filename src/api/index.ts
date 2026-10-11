@@ -27,6 +27,7 @@ import type { BusinessSetup, CreatePaymentClaimBody, PaymentClaim,
   Shift,
   ShiftReport,
   OpenShiftSummary,
+  Counter,
   CashMovement,
   CashMovementReason,
   CashMovementType,
@@ -353,8 +354,21 @@ export interface CloseShiftBody {
   note?: string;
 }
 
+/** Counters (tills) per store -- owners and managers only. */
+export const CountersApi = {
+  /** `all`: include counters no longer in use (Settings lists them). */
+  list: (params: { storeId?: string; all?: boolean } = {}) =>
+    get<Counter[]>('/counters', {
+      ...(params.storeId ? { storeId: params.storeId } : {}),
+      ...(params.all ? { all: 'true' } : {}),
+    }),
+  create: (body: { storeId: string; name: string }) => post<Counter>('/counters', body),
+  update: (id: string, body: { name?: string; isActive?: boolean }) => patch<Counter>(`/counters/${id}`, body),
+};
+
 export const ShiftsApi = {
-  open: (body: { storeId?: string; openingFloat: number; note?: string; separateDrawer?: boolean }) =>
+  /** `counterId`: which counter to open. A cashier's is always their own. */
+  open: (body: { storeId?: string; openingFloat: number; note?: string; counterId?: string }) =>
     post<Shift>('/shifts/open', body),
   /**
    * The till the caller is on. For an owner or manager with none of their own
@@ -377,9 +391,9 @@ export const ShiftsApi = {
     id: string,
     body: { type: CashMovementType; reason: CashMovementReason; amount: number; note?: string },
   ) => post<CashMovement>(`/shifts/${id}/movements`, body),
-  /** What the last shift at this store left in the drawer, or null. */
-  suggestedFloat: (storeId: string) =>
-    get<SuggestedFloat | null>('/shifts/float', { storeId }),
+  /** What the last shift on this counter left in its drawer, or null. */
+  suggestedFloat: (storeId: string, counterId?: string) =>
+    get<SuggestedFloat | null>('/shifts/float', { storeId, ...(counterId ? { counterId } : {}) }),
   list: (params?: object) => get<Paginated<Shift>>('/shifts', params),
 };
 

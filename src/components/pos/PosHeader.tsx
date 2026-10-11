@@ -27,6 +27,7 @@ export function PosHeader({
   shift,
   tills,
   onSwitchTill,
+  canOpenCounter,
   onOpenOwnTill,
   isReporting,
   onCashMove,
@@ -45,7 +46,9 @@ export function PosHeader({
   /** Every till open at this store; only management gets any. */
   tills: OpenShiftSummary[];
   onSwitchTill: (id: string) => void;
-  /** Open the viewer's own till; offered only to those who get `tills`. */
+  /** A counter here is free for the viewer to open. */
+  canOpenCounter: boolean;
+  /** Open a counter of their own; offered only to those who get `tills`. */
   onOpenOwnTill: () => void;
   isReporting: boolean;
   onCashMove: () => void;
@@ -59,7 +62,8 @@ export function PosHeader({
   // A choice exists once there is a second till to move to, or their own to
   // open. `tills` is empty for anyone who can't choose (a cashier), and until
   // the list arrives the badge below still says whose till it is.
-  const showTillPicker = !!shift && tills.length > 0 && (tills.length > 1 || !hasOwnTill);
+  const offerCounter = !hasOwnTill && canOpenCounter;
+  const showTillPicker = !!shift && tills.length > 0 && (tills.length > 1 || offerCounter);
   const onOthers = shift?.isOwnShift === false;
   return (
     <div className="mb-4 flex flex-wrap items-center gap-3">
@@ -108,7 +112,7 @@ export function PosHeader({
                 {tillName(t)} · {t.salesCount} sale{t.salesCount === 1 ? '' : 's'}
               </option>
             ))}
-            {!hasOwnTill && <option value={OWN_TILL}>+ Open my own till</option>}
+            {offerCounter && <option value={OWN_TILL}>+ Open a counter</option>}
           </Select>
         )}
         {shift && onOthers && !showTillPicker && (

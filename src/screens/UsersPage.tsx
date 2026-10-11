@@ -3,7 +3,8 @@ import { useState } from 'react';
 import axios from 'axios';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, Pencil, RotateCcw, Trash2, UserX, UserCog } from 'lucide-react';
-import { UsersApi, StoresApi } from '@/api';
+import { UsersApi, StoresApi, CountersApi } from '@/api';
+import Link from 'next/link';
 import type { AppUser, UserRole } from '@/types';
 import { useAuth } from '@/auth/AuthContext';
 import { useCrudResource } from '@/hooks/useCrudResource';
@@ -26,10 +27,20 @@ const ROLES: UserRole[] = ['OWNER', 'MANAGER', 'CASHIER', 'STOCK_KEEPER'];
 
 export default function UsersPage() {
   const { user: me } = useAuth();
-  const [form, setForm] = useState({ name: '', email: '', password: '', role: 'CASHIER' as UserRole, storeId: '' });
+  const [form, setForm] = useState({ name: '', email: '', password: '', role: 'CASHIER' as UserRole, storeId: '', counterId: '' });
 
   const { data, isLoading, isError, refetch } = useQuery({ queryKey: ['users'], queryFn: () => UsersApi.list() });
   const { data: stores } = useQuery({ queryKey: ['stores'], queryFn: () => StoresApi.list() });
+  // Every counter in use, across stores: set up in Settings → Stores before a
+  // cashier is assigned to one here.
+  const { data: counters } = useQuery({ queryKey: ['counters', 'all-stores'], queryFn: () => CountersApi.list() });
+  const countersAt = (storeId: string) => (counters ?? []).filter((c) => c.storeId === storeId);
+  // A store with one counter has nothing to choose: pick it.
+  const onlyCounter = (storeId: string) => {
+    const here = countersAt(storeId);
+    return here.length === 1 ? here[0].id : '';
+  };
+  const isCashier = form.role === 'CASHIER';
 
   const crud = useCrudResource<AppUser>({
     queryKey: ['users'],
@@ -85,16 +96,26 @@ export default function UsersPage() {
 
   const isOwner = me?.role === 'OWNER';
 
-  const openCreate = () => { setForm({ name: '', email: '', password: '', role: 'CASHIER', storeId: me?.storeId ?? stores?.[0]?.id ?? '' }); crud.openCreate(); };
-  const openEdit = (u: AppUser) => { setForm({ name: u.name, email: u.email, password: '', role: u.role, storeId: u.storeId ?? '' }); crud.openEdit(u); };
+  const openCreate = () => {
+    const storeId = me?.storeId ?? stores?.[0]?.id ?? '';
+    setForm({ name: '', email: '', password: '', role: 'CASHIER', storeId, counterId: onlyCounter(storeId) });
+    crud.openCreate();
+  };
+  const openEdit = (u: AppUser) => {
+    setForm({ name: u.name, email: u.email, password: '', role: u.role, storeId: u.storeId ?? '', counterId: u.counterId ?? '' });
+    crud.openEdit(u);
+  };
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
+    // Only a cashier has a counter: owners and managers choose one at the
+    // till, and a stock keeper never opens one.
+    const counterId = isCashier ? form.counterId || null : null;
     if (crud.editing) {
-      const body: Record<string, unknown> = { name: form.name, role: form.role, storeId: form.storeId || null };
+      const body: Record<string, unknown> = { name: form.name, role: form.role, storeId: form.storeId || null, counterId };
       if (form.password) body.password = form.password;
       crud.save.mutate(body);
     } else {
-      crud.save.mutate({ ...form, storeId: form.storeId || undefined });
+      crud.save.mutate({ ...form, storeId: form.storeId || undefined, counterId: counterId ?? undefined });
     }
   };
 
@@ -115,7 +136,19 @@ export default function UsersPage() {
                 <TR key={u.id} onOpen={() => setDetailsId(u.id)}>
                   <TD className="font-medium">{u.name}{u.id === me?.id && <span className="ml-2 text-xs text-muted-foreground">(you)</span>}</TD>
                   <TD className="text-muted-foreground">{u.email}</TD>
-                  <TD><Badge tone="primary">{u.role}</Badge></TD>
+                  <TD>
+                    <Badge tone="primary">{u.role}</Badge>
+                    {u.counter && u.counter.isActive !== false && (
+                      <span className="ml-2 text-xs text-muted-foreground">{u.counter.name}</span>
+                    )}
+                    {/* A cashier only ever opens their own counter: without one in
+                        use they can't sell, and would only find out at the till. */}
+                    {u.role === 'CASHIER' && u.isActive && (!u.counter || u.counter.isActive === false) && (
+                      <Tooltip content="This cashier can’t open a till until they have a counter. Edit them to choose one.">
+                        <span className="ml-2"><Badge tone="warning">No counter</Badge></span>
+                      </Tooltip>
+                    )}
+                  </TD>
                   <TD>{u.isActive ? <Badge tone="success">Active</Badge> : <Badge tone="muted">Inactive</Badge>}</TD>
                   <TD>
                     <div className="flex justify-end gap-1">
@@ -211,16 +244,58 @@ export default function UsersPage() {
             </Field>
           )}
           <Field label="Role">
-            <Select value={form.role} onChange={(e) => setForm((f) => ({ ...f, role: e.target.value as UserRole }))}>
+            <Select
+              value={form.role}
+              onChange={(e) => {
+                const role = e.target.value as UserRole;
+                setForm((f) => ({ ...f, role, counterId: role === 'CASHIER' ? f.counterId || onlyCounter(f.storeId) : '' }));
+              }}
+            >
               {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
             </Select>
           </Field>
           <Field label="Store">
-            <Select value={form.storeId} onChange={(e) => setForm((f) => ({ ...f, storeId: e.target.value }))}>
-              <option value="">No store assigned</option>
+            <Select
+              value={form.storeId}
+              required={isCashier}
+              onChange={(e) => {
+                const storeId = e.target.value;
+                // A counter belongs to one store: choose again at the new one.
+                setForm((f) => ({ ...f, storeId, counterId: onlyCounter(storeId) }));
+              }}
+            >
+              <option value="">{isCashier ? 'Choose a store…' : 'No store assigned'}</option>
               {stores?.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
             </Select>
           </Field>
+          {/* A cashier works one counter and only ever opens that one. */}
+          {isCashier && (
+            <Field label="Counter">
+              <Select
+                value={form.counterId}
+                required
+                disabled={!form.storeId}
+                onChange={(e) => setForm((f) => ({ ...f, counterId: e.target.value }))}
+              >
+                <option value="">{form.storeId ? 'Choose a counter…' : 'Choose the store first'}</option>
+                {countersAt(form.storeId).map((c) => {
+                  const others = c.staff.filter((u) => u.id !== crud.editing?.id).map((u) => u.name);
+                  return (
+                    <option key={c.id} value={c.id}>
+                      {c.name}{others.length ? ` — also ${others.join(', ')}` : ''}
+                    </option>
+                  );
+                })}
+              </Select>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {form.storeId && countersAt(form.storeId).length === 0 ? (
+                  <>This store has no counter yet. <Link href="/settings?tab=stores" className="text-primary hover:underline">Add one in Settings → Stores</Link>.</>
+                ) : (
+                  'The till this cashier opens. Add or rename counters in Settings → Stores.'
+                )}
+              </p>
+            </Field>
+          )}
           <DialogFooter>
             <Button type="button" variant="outline" onClick={crud.close}>Cancel</Button>
             <Button type="submit" loading={crud.save.isPending}>{crud.editing ? 'Save' : 'Add'}</Button>

@@ -262,6 +262,7 @@ export function printShiftReport(
       ${opts.storeName ?? shift.store?.name ? `<div class="c muted">${esc(opts.storeName ?? shift.store!.name)}</div>` : ''}
       <div class="c" style="font-weight:700;margin-top:4px">${isX ? 'X REPORT — SHIFT IN PROGRESS' : 'Z REPORT — SHIFT CLOSE'}</div>
       <hr/>
+      ${shift.counter ? `<div>Counter: <b>${esc(shift.counter.name)}</b></div>` : ''}
       <div>Cashier: <b>${esc(shift.user?.name ?? '—')}</b></div>
       <div class="muted">Opened: ${new Date(shift.openedAt).toLocaleString()}</div>
       ${

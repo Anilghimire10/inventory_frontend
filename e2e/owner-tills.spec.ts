@@ -1,11 +1,10 @@
 import { expect, test, type Page } from '@playwright/test';
-import { API, api, dropShop, ignorePrinting, makeShop, signIn, type TestShop } from './helpers';
+import { API, api, dropShop, ignorePrinting, makeCounter, makeShop, signIn, type TestShop } from './helpers';
 
-// An owner chooses which till to work on: a cashier's, another owner's, or
-// their own -- and every sale and every cash refund then lands in the drawer
-// they chose. Before, with one till open, the owner was put on it without
-// being asked and had no way to open their own; and a refund on the Sales
-// page went to their own till even while the POS was selling into another.
+// An owner chooses which till to work on: a cashier's counter, another
+// owner's, or a free counter of their own -- and every sale and every cash
+// refund then lands in the drawer they chose. The store opens with Counter 1;
+// the cashier is assigned "Till a", set up before they were added.
 test.describe.configure({ mode: 'serial' });
 
 let shop: TestShop;
@@ -22,7 +21,7 @@ async function signInAs(label: string, role: 'CASHIER' | 'OWNER') {
     name: role === 'OWNER' ? `Owner ${label}` : `Cashier ${label}`,
     password,
     role,
-    ...(role === 'CASHIER' ? { storeId: shop.storeId } : {}),
+    ...(role === 'CASHIER' ? { storeId: shop.storeId, counterId: await makeCounter(shop, `Till ${label}`) } : {}),
   });
   expect(made.status, JSON.stringify(made.body)).toBe(201);
   const res = await fetch(`${API}/auth/login`, {
@@ -70,20 +69,20 @@ test('with one till open, the owner is asked: work on it, or open their own', as
 
   const dialog = page.getByRole('dialog', { name: 'Which till will you work on?' });
   await expect(dialog).toBeVisible();
-  await expect(dialog.getByRole('button', { name: /Open my own till/ })).toBeVisible();
-  // Work on the cashier's till.
-  await dialog.getByRole('button', { name: /Cashier a.*’s till · Cashier/ }).click();
+  await expect(dialog.getByRole('button', { name: /Open Counter 1/ })).toBeVisible();
+  // Work on the cashier's till, at their counter.
+  await dialog.getByRole('button', { name: /Work on Till a · Cashier a.*’s till · Cashier/ }).click();
   await expect(dialog).toBeHidden();
 
   const first = await sellOne(page);
   expect((await report(cashierTill)).salesCount).toBe(1);
 
-  // Then open their own from the header; the cashier's stays open.
-  await page.getByLabel('Till').selectOption({ label: '+ Open my own till' });
-  const own = page.getByRole('dialog', { name: 'Open your own till' });
+  // Then open the free counter from the header; the cashier's stays open.
+  await page.getByLabel('Till').selectOption({ label: '+ Open a counter' });
+  const own = page.getByRole('dialog', { name: 'Open a counter' });
   await own.getByLabel('Opening float').fill('300');
-  await own.getByRole('button', { name: /Open my till with/ }).click();
-  await expect(page.getByText('Your own till is open — the next sale goes into it')).toBeVisible();
+  await own.getByRole('button', { name: /Open Counter 1 with/ }).click();
+  await expect(page.getByText('Your counter is open — the next sale goes into it')).toBeVisible();
 
   await sellOne(page, first);
   const tills = await openTills();
@@ -98,7 +97,7 @@ test("an owner works on another owner's till, and a cash refund comes out of tha
   const opened = await api<{ id: string }>(otherOwner, 'POST', '/shifts/open', {
     storeId: shop.storeId,
     openingFloat: 500,
-    separateDrawer: true,
+    counterId: await makeCounter(shop, 'Counter 3'),
   });
   expect(opened.status, JSON.stringify(opened.body)).toBe(201);
   otherOwnerTill = opened.body.id;
@@ -110,7 +109,7 @@ test("an owner works on another owner's till, and a cash refund comes out of tha
   await expect(picker).toHaveValue(ownTill);
   const otherOption = picker.locator('option', { hasText: /Owner sita.*’s till · Owner/ });
   await picker.selectOption((await otherOption.getAttribute('value'))!);
-  await expect(page.getByText(/Now selling into Owner sita.*’s till · Owner/)).toBeVisible();
+  await expect(page.getByText(/Now selling into Counter 3 · Owner sita.*’s till · Owner/)).toBeVisible();
 
   const receiptNo = await sellOne(page);
   expect((await report(otherOwnerTill)).salesCount).toBe(1);

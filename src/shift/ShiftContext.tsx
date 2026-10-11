@@ -10,10 +10,10 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/auth/AuthContext';
 import { useStoreScope } from '@/store/StoreContext';
-import { ShiftsApi, type CloseShiftBody } from '@/api';
+import { CountersApi, ShiftsApi, type CloseShiftBody } from '@/api';
 import { apiErrorCode } from '@/lib/api';
 import { joinedWithoutChoosing } from '@/lib/tills';
-import type { CashMovementReason, CashMovementType, OpenShiftSummary, ShiftReport } from '@/types';
+import type { CashMovementReason, CashMovementType, Counter, OpenShiftSummary, ShiftReport } from '@/types';
 
 interface ShiftState {
   shift: ShiftReport | null;
@@ -28,14 +28,14 @@ interface ShiftState {
   isClosing: boolean;
   isReporting: boolean;
   /**
-   * `separateDrawer`: an owner or manager choosing to open their own till
-   * where others are already running, rather than work on one of those.
+   * `counterId`: the counter an owner or manager chose to open. A cashier's
+   * is always their own, so they never pass one.
    */
   openShift: (
     openingFloat: number,
     note?: string,
     storeId?: string,
-    separateDrawer?: boolean,
+    counterId?: string,
   ) => Promise<void>;
   closeShift: (body: CloseShiftBody) => Promise<ShiftReport | null>;
   /** Pay in / pay out on the till being worked on. */
@@ -56,6 +56,11 @@ interface ShiftState {
   joinable: OpenShiftSummary[];
   /** Work on one of them. Remembered per store for this browser. */
   joinShift: (id: string) => void;
+  /**
+   * Counters at this store with no shift open on them -- what an owner or
+   * manager can open. Empty for a cashier, who opens their own.
+   */
+  freeCounters: Counter[];
   /**
    * Every till open at this store, the viewer's own included -- for an owner
    * or manager to move between them. Empty for a cashier, who only ever
@@ -217,10 +222,24 @@ export function ShiftProvider({ children }: { children: React.ReactNode }) {
     staleTime: 15_000,
   });
   const tills = useMemo(() => (canJoin ? (openShifts ?? []) : []), [canJoin, openShifts]);
-  // No till yet and the list to choose from still on its way: hold the
+  // The store's counters, for an owner or manager to choose one to open.
+  const { data: storeCounters, isError: countersError } = useQuery({
+    queryKey: ['counters', storeId],
+    queryFn: () => CountersApi.list({ storeId }),
+    enabled: canJoin && !!storeId && !isLoading,
+    staleTime: 15_000,
+  });
+  const freeCounters = useMemo(
+    () => (canJoin ? (storeCounters ?? []).filter((c) => !c.openShift) : []),
+    [canJoin, storeCounters],
+  );
+  // No till yet and the lists to choose from still on their way: hold the
   // dialog, or it would flash "open your shift" before the choice arrives.
   const choicePending =
-    canJoin && !!storeId && !shift && openShifts === undefined && !tillsError;
+    canJoin &&
+    !!storeId &&
+    !shift &&
+    ((openShifts === undefined && !tillsError) || (storeCounters === undefined && !countersError));
   // The open-shift dialog's choice only exists while there is no till yet.
   const joinable = useMemo(
     () => (shift ? [] : tills.filter((s) => !s.isOwnShift)),
@@ -247,27 +266,31 @@ export function ShiftProvider({ children }: { children: React.ReactNode }) {
       openingFloat: number;
       note?: string;
       storeId?: string;
-      separateDrawer?: boolean;
+      counterId?: string;
     }) => ShiftsApi.open(vars),
     onSuccess: () => {
       clearJoinedShift(storeId);
       qc.invalidateQueries({ queryKey: ['shift-current'] });
       qc.invalidateQueries({ queryKey: ['shift-open'] });
+      qc.invalidateQueries({ queryKey: ['counters'] });
     },
-    // A till opened here since this screen loaded. Ask again, and the POS
-    // offers it as a choice: work on it, or open your own.
+    // The counter was opened by someone else since this screen loaded, or
+    // the store has more counters than it knew of: refresh the choice, so it
+    // offers that till to work on instead.
     onError: (e) => {
-      if (apiErrorCode(e) !== 'TILL_OPEN') return;
+      const code = apiErrorCode(e);
+      if (code !== 'COUNTER_BUSY' && code !== 'COUNTER_CHOICE') return;
       qc.invalidateQueries({ queryKey: ['shift-current'] });
       qc.invalidateQueries({ queryKey: ['shift-open'] });
+      qc.invalidateQueries({ queryKey: ['counters'] });
     },
   });
   // `storeId` is passed explicitly rather than left to the server's fallback:
   // the shift must open against the same store the till is selling from, or
   // its Z report reconciles one store's drawer against another's stock.
   const openShift = useCallback(
-    async (openingFloat: number, note?: string, storeId?: string, separateDrawer?: boolean) => {
-      await openMutation.mutateAsync({ openingFloat, note, storeId, separateDrawer });
+    async (openingFloat: number, note?: string, storeId?: string, counterId?: string) => {
+      await openMutation.mutateAsync({ openingFloat, note, storeId, counterId });
     },
     [openMutation],
   );
@@ -308,6 +331,8 @@ export function ShiftProvider({ children }: { children: React.ReactNode }) {
       qc.invalidateQueries({ queryKey: ['shift-current'] });
       qc.invalidateQueries({ queryKey: ['shift-history'] });
       qc.invalidateQueries({ queryKey: ['shift-open'] });
+      // The counter is free again.
+      qc.invalidateQueries({ queryKey: ['counters'] });
       // What this close left in the drawer is the next shift's float.
       qc.invalidateQueries({ queryKey: ['shift-float'] });
     },
@@ -350,6 +375,7 @@ export function ShiftProvider({ children }: { children: React.ReactNode }) {
       loadReport,
       joinable,
       joinShift,
+      freeCounters,
       tills,
       switchTill,
       setTillStore: setTillStoreId,
@@ -374,6 +400,7 @@ export function ShiftProvider({ children }: { children: React.ReactNode }) {
       loadReport,
       joinable,
       joinShift,
+      freeCounters,
       tills,
       switchTill,
       setTillStoreId,

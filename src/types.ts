@@ -83,6 +83,8 @@ export interface SessionUser {
   name: string;
   role: UserRole;
   storeId?: string | null;
+  /** A cashier's counter: the only till they open. */
+  counter?: { id: string; name: string } | null;
   business?: Business;
   subscription?: SubscriptionInfo;
   /**
@@ -636,6 +638,9 @@ export interface AppUser {
   name: string;
   role: UserRole;
   storeId?: string | null;
+  /** The counter a cashier works at; null for every other role. */
+  counterId?: string | null;
+  counter?: { id: string; name: string; isActive?: boolean } | null;
   isActive: boolean;
   createdAt: string;
 }
@@ -840,6 +845,9 @@ export interface Shift {
   note?: string | null;
   user?: { id: string; name: string };
   store?: { id: string; name: string };
+  /** The counter whose drawer this counts; null for shifts from before counters. */
+  counterId?: string | null;
+  counter?: { id: string; name: string } | null;
   _count?: { sales: number };
 }
 
@@ -882,8 +890,25 @@ export interface OpenShiftSummary {
   openingFloat: number;
   /** `role` says whose drawer it is: a cashier's, or another owner's or manager's. */
   openedBy: { id: string; name: string; role?: UserRole };
+  /** Null only for a shift opened before counters existed. */
+  counter?: { id: string; name: string } | null;
   salesCount: number;
   isOwnShift: boolean;
+}
+
+/**
+ * A counter: one cash drawer at a store. A cashier is assigned to one; an
+ * owner or manager chooses one at the till.
+ */
+export interface Counter {
+  id: string;
+  name: string;
+  storeId: string;
+  isActive: boolean;
+  /** Active cashiers assigned to it. */
+  staff: { id: string; name: string }[];
+  /** The shift open on it now, if any. */
+  openShift: { id: string; openedAt: string; user: { id: string; name: string; role: UserRole } } | null;
 }
 
 /** Sales on a shift by the person who rang them. */

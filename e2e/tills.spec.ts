@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { API, api, dropShop, ignorePrinting, makeShop, signIn, type TestShop } from './helpers';
+import { API, api, dropShop, ignorePrinting, makeCounter, makeShop, signIn, type TestShop } from './helpers';
 
 // Two cashiers' tills open at one store, and an owner with none of their own.
 // Cash the owner hands back on a return, or takes against a customer's
@@ -24,6 +24,8 @@ async function staffToken(label: string) {
     password,
     role: 'CASHIER',
     storeId: shop.storeId,
+    // Each cashier works their own counter.
+    counterId: await makeCounter(shop, `Till ${label}`),
   });
   expect(made.status, JSON.stringify(made.body)).toBe(201);
   const res = await fetch(`${API}/auth/login`, {
