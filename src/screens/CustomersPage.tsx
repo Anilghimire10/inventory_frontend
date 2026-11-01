@@ -22,6 +22,7 @@ import { apiError } from '@/lib/api';
 import { formatMoney } from '@/lib/format';
 import { useAcceptedTenders } from '@/hooks/useAcceptedTenders';
 import { CustomerStatementDialog } from '@/components/CustomerStatementDialog';
+import { CustomerDetailsDialog } from '@/components/customers/CustomerDetailsDialog';
 import { TillPicker, useTillChoice } from '@/components/TillPicker';
 import { useAuth } from '@/auth/AuthContext';
 import { can } from '@/lib/permissions';
@@ -87,6 +88,7 @@ export default function CustomersPage() {
   const creditPayment = useCreditPayment(storeId);
   const tenders = useAcceptedTenders();
   const [statementFor, setStatementFor] = useState<Customer | null>(null);
+  const [detailsId, setDetailsId] = useState<string | null>(null);
 
   const customers = data?.data ?? [];
 
@@ -128,7 +130,7 @@ export default function CustomersPage() {
             {customers.map((customer) => {
               const due = Number(customer.creditBalance);
               return (
-                <TR key={customer.id}>
+                <TR key={customer.id} onOpen={() => setDetailsId(customer.id)}>
                   <TD className="font-medium">{customer.name}</TD>
                   <TD>{customer.phone || '—'}</TD>
                   <TD className="text-muted-foreground">{customer.email || '—'}</TD>
@@ -227,6 +229,35 @@ export default function CustomersPage() {
         </form>
       </Dialog>
 
+      {detailsId && (
+        <CustomerDetailsDialog
+          customerId={detailsId}
+          onClose={() => setDetailsId(null)}
+          actions={(c) => {
+            // Each action takes over from the details, like Edit on Suppliers.
+            const then = (next: () => void) => () => {
+              setDetailsId(null);
+              next();
+            };
+            return (
+              <>
+                <Button type="button" variant="outline" onClick={then(() => setStatementFor(c))}>
+                  <FileText className="h-4 w-4" /> Statement
+                </Button>
+                {Number(c.creditBalance) > 0 && (
+                  <Button type="button" variant="outline" onClick={then(() => creditPayment.open(c))}>
+                    <HandCoins className="h-4 w-4" /> Record payment
+                  </Button>
+                )}
+                <Button type="button" onClick={then(() => openEditDialog(c))}>
+                  <Pencil className="h-4 w-4" /> Edit
+                </Button>
+              </>
+            );
+          }}
+        />
+      )}
+
       {statementFor && (
         <CustomerStatementDialog customer={statementFor} onClose={() => setStatementFor(null)} />
       )}
@@ -281,6 +312,7 @@ export default function CustomersPage() {
               loading={creditPayment.isPending}
               disabled={
                 creditPayment.amount <= 0 ||
+                creditPayment.till.pending ||
                 (creditPayment.till.needsChoice && !creditPayment.till.shiftId)
               }
             >

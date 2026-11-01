@@ -16,11 +16,12 @@ const STALE: Record<LiveTopic, QueryKey[]> = {
   customers: [['customers'], ['credit'], ['dashboard']],
   // A purchase moves cost prices and input VAT too.
   purchases: [['purchases'], ['suppliers'], ['reorder-suggestions'], ['credit'], ['tax-report'], ['analytics'], ['dashboard']],
-  shifts: [['shift-current'], ['shift-open'], ['shift-history'], ['shift-float']],
+  // A till opened or closed frees or takes a counter.
+  shifts: [['shift-current'], ['shift-open'], ['shift-history'], ['shift-float'], ['counters']],
   notifications: [['notifications']],
   subscription: [['subscription']],
   support: [['support']],
-  settings: [['stores'], ['users'], ['business-setup']],
+  settings: [['stores'], ['users'], ['business-setup'], ['counters']],
 };
 
 const ALL = Object.keys(STALE) as LiveTopic[];

@@ -28,7 +28,7 @@ import { generateBarcodeValue } from '@/lib/barcode';
 import { Select } from '@/components/ui/select';
 import { Tooltip } from '@/components/ui/tooltip';
 import { UNITS } from '@/lib/units';
-import { formatMoney } from '@/lib/format';
+import { formatDate, formatMoney } from '@/lib/format';
 import { useAuth } from '@/auth/AuthContext';
 import { can } from '@/lib/permissions';
 import { cn } from '@/lib/utils';
@@ -654,28 +654,46 @@ export default function ProductsPage() {
             <Input type="number" min="0" value={form.reorderLevel}
               onChange={(e) => set('reorderLevel', Number(e.target.value))} />
           </Field>
-          <div className="flex flex-wrap gap-x-6 gap-y-2">
-            <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={form.isTaxable}
-                onChange={(e) => set('isTaxable', e.target.checked)} />
-              Taxable
-            </label>
-            <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={form.isRxRequired}
-                onChange={(e) => set('isRxRequired', e.target.checked)} />
-              Prescription required (Rx)
-            </label>
-            <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={form.trackBatches}
-                onChange={(e) => set('trackBatches', e.target.checked)} />
-              Track batches / expiry
-            </label>
-            <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={form.trackSerials}
-                onChange={(e) => set('trackSerials', e.target.checked)} />
-              Track serial / IMEI numbers
-            </label>
-          </div>
+          {/* One card per option, in a grid: in a wrapping row they fell into
+              ragged lines, and nothing said what each one changes. */}
+          <fieldset>
+            <legend className="mb-2 text-sm font-medium">Product options</legend>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <OptionToggle
+                label="Taxable"
+                hint="Charges the selected tax at the till"
+                checked={form.isTaxable}
+                onChange={(v) => set('isTaxable', v)}
+              />
+              <OptionToggle
+                label="Prescription required (Rx)"
+                hint="The till asks for a prescription reference"
+                checked={form.isRxRequired}
+                onChange={(v) => set('isRxRequired', v)}
+              />
+              <OptionToggle
+                label="Track batches / expiry"
+                hint="Each delivery keeps its own batch and expiry date"
+                checked={form.trackBatches}
+                onChange={(v) => set('trackBatches', v)}
+              />
+              <OptionToggle
+                label="Track serial / IMEI numbers"
+                hint="One serial per unit, entered when received and sold"
+                checked={form.trackSerials}
+                onChange={(v) => set('trackSerials', v)}
+              />
+            </div>
+          </fieldset>
+          {/* Switching batches on keeps the date of what is already on the
+              shelf: it becomes a batch with the product's current expiry. */}
+          {editing && !editing.trackBatches && form.trackBatches && (
+            <p className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
+              Stock already on hand becomes a batch
+              {editing.expiryDate ? ` expiring ${formatDate(editing.expiryDate)}` : ' with no expiry date'}, at each
+              store. New deliveries then keep their own dates.
+            </p>
+          )}
 
           <StoreAvailability productId={editing?.id ?? null} />
 
@@ -825,5 +843,41 @@ function CategoryMultiSelect({
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * One product option as a card: the checkbox, what it is, and in a line what
+ * it does. The whole card is the label, so it is one large tap target.
+ */
+function OptionToggle({
+  label,
+  hint,
+  checked,
+  onChange,
+}: {
+  label: string;
+  hint: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <label
+      className={cn(
+        'flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors hover:bg-muted/50',
+        checked ? 'border-primary/60 bg-primary/5' : 'border-border',
+      )}
+    >
+      <input
+        type="checkbox"
+        className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+      />
+      <span className="min-w-0">
+        <span className="block text-sm font-medium leading-tight">{label}</span>
+        <span className="mt-0.5 block text-xs text-muted-foreground">{hint}</span>
+      </span>
+    </label>
   );
 }

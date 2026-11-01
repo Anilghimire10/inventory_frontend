@@ -83,6 +83,8 @@ export interface SessionUser {
   name: string;
   role: UserRole;
   storeId?: string | null;
+  /** A cashier's counter: the only till they open. */
+  counter?: { id: string; name: string } | null;
   business?: Business;
   subscription?: SubscriptionInfo;
   /**
@@ -189,6 +191,13 @@ export interface Product {
    * when given, else across stores. Absent on single-product reads.
    */
   expiry?: { expiredQty: number; nextBatchExpiry: string | null };
+  /**
+   * Stock marked down to sell before it expires, on store-scoped list rows:
+   * in the order the till sells it, how many units at what price (null = full
+   * price). `quantity: null` is every unit. Units past the list are full
+   * price. Absent when nothing is marked down.
+   */
+  clearance?: ClearanceTier[];
   /** Only returned by GET /products/:id — one row per store that carries it. */
   stockItems?: { storeId: string; quantity: string }[];
   /** Active variants, on GET /products/:id of a parent product. */
@@ -318,6 +327,22 @@ export interface StockTakeResult {
   lines: StockTakeVarianceLine[];
 }
 
+export interface ClearanceTier {
+  quantity: number | null;
+  price: number | null;
+}
+
+/** A received purchase line some stock could go back to the supplier on. */
+export interface ReturnablePurchaseLine {
+  purchaseId: string;
+  purchaseItemId: string;
+  reference: string | null;
+  receivedAt: string | null;
+  supplier: { id: string; name: string } | null;
+  costPrice: number;
+  returnable: number;
+}
+
 export interface Batch {
   id: string;
   /** On the Expiring list: a real batch, or a product's own expiry date. */
@@ -330,8 +355,10 @@ export interface Batch {
   expiryDate?: string | null;
   /** Decimal(12,3) — arrives as a string, so `Number()` it before any arithmetic. */
   quantity: string;
-  product: { id: string; name: string; sku?: string | null };
+  product: { id: string; name: string; sku?: string | null; sellingPrice?: string };
   store?: { id: string; name: string };
+  /** On the Expiring list: marked down to this per unit, or null. */
+  clearancePrice?: number | null;
 }
 
 export interface Supplier {
@@ -376,6 +403,19 @@ export interface Customer {
   address?: string | null;
   creditBalance: string;
   sales?: SaleListItem[];
+}
+
+/** GET /customers/:id: the customer with what they have bought. */
+export interface CustomerDetails extends Customer {
+  /** The latest ten, held carts included. */
+  sales: (SaleListItem & { store?: { id: string; name: string } })[];
+  summary: {
+    /** Sales rung up for them, held carts not counted. */
+    purchases: number;
+    /** Net of refunds. */
+    totalSpent: number;
+    lastPurchaseAt: string | null;
+  };
 }
 
 export interface SaleItem {
@@ -611,6 +651,9 @@ export interface AppUser {
   name: string;
   role: UserRole;
   storeId?: string | null;
+  /** The counter a cashier works at; null for every other role. */
+  counterId?: string | null;
+  counter?: { id: string; name: string; isActive?: boolean } | null;
   isActive: boolean;
   createdAt: string;
 }
@@ -815,6 +858,9 @@ export interface Shift {
   note?: string | null;
   user?: { id: string; name: string };
   store?: { id: string; name: string };
+  /** The counter whose drawer this counts; null for shifts from before counters. */
+  counterId?: string | null;
+  counter?: { id: string; name: string } | null;
   _count?: { sales: number };
 }
 
@@ -855,9 +901,27 @@ export interface OpenShiftSummary {
   id: string;
   openedAt: string;
   openingFloat: number;
-  openedBy: { id: string; name: string };
+  /** `role` says whose drawer it is: a cashier's, or another owner's or manager's. */
+  openedBy: { id: string; name: string; role?: UserRole };
+  /** Null only for a shift opened before counters existed. */
+  counter?: { id: string; name: string } | null;
   salesCount: number;
   isOwnShift: boolean;
+}
+
+/**
+ * A counter: one cash drawer at a store. A cashier is assigned to one; an
+ * owner or manager chooses one at the till.
+ */
+export interface Counter {
+  id: string;
+  name: string;
+  storeId: string;
+  isActive: boolean;
+  /** Active cashiers assigned to it. */
+  staff: { id: string; name: string }[];
+  /** The shift open on it now, if any. */
+  openShift: { id: string; openedAt: string; user: { id: string; name: string; role: UserRole } } | null;
 }
 
 /** Sales on a shift by the person who rang them. */

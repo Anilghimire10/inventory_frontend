@@ -115,7 +115,10 @@ export function ShiftHistory({
                 return (
                   <tr key={s.id} className="border-b border-border/60 last:border-0">
                     <td className="px-5 py-3 font-medium">{s.user?.name ?? '—'}</td>
-                    <td className="px-5 py-3 text-muted-foreground">{s.store?.name ?? '—'}</td>
+                    <td className="px-5 py-3 text-muted-foreground">
+                      {s.store?.name ?? '—'}
+                      {s.counter && <span className="block text-xs">{s.counter.name}</span>}
+                    </td>
                     <td className="px-5 py-3 text-muted-foreground">{formatDateTime(s.openedAt)}</td>
                     <td className="px-5 py-3 text-muted-foreground">
                       {s.closedAt ? (

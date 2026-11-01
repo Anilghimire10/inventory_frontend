@@ -18,16 +18,20 @@ import { SalesApi } from '@/api';
 import { useStoreLabel } from '@/components/StorePicker';
 import { ALL_STORES, useStoreScope } from '@/store/StoreContext';
 import type { PaymentMethod, ReturnQuote, Sale, SaleListItem, SettleMethod } from '@/types';
+
+/** Why a returned line is written off instead of going back on the shelf. */
+type WriteOffReason = 'DAMAGE' | 'EXPIRED';
 import { PageHeader, LoadingBlock, EmptyState, ErrorState } from '@/components/ui/misc';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
+import { TillPicker, useTillChoice } from '@/components/TillPicker';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogFooter } from '@/components/ui/dialog';
 import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
 import { Pagination } from '@/components/ui/pagination';
 import { useToast } from '@/components/ui/toast';
-import { apiError } from '@/lib/api';
+import { apiError, apiErrorCode } from '@/lib/api';
 import { liveRefetchInterval } from '@/lib/live';
 import { printReturnSlip, printSale, type ReturnSlip } from '@/lib/print';
 import { formatMoney, formatDateTime } from '@/lib/format';
@@ -156,8 +160,9 @@ export default function SalesPage() {
   const [returnQty, setReturnQty] = useState<Record<string, number>>({});
   // null = the tender the sale was paid on, which the quote reports.
   const [refundMethod, setRefundMethod] = useState<SettleMethod | null>(null);
-  // Lines coming back unfit to sell: written off rather than restocked.
-  const [damaged, setDamaged] = useState<Record<string, boolean>>({});
+  // Lines coming back unfit to sell, and why: written off rather than
+  // restocked. A line with no entry goes back on the shelf.
+  const [writeOff, setWriteOff] = useState<Record<string, WriteOffReason>>({});
   const [returnReason, setReturnReason] = useState('');
   // Serialised lines: which units are coming back, by serial number.
   const [pickedSerials, setPickedSerials] = useState<Record<string, string[]>>({});
@@ -166,7 +171,7 @@ export default function SalesPage() {
   const resetReturn = () => {
     setReturnQty({});
     setRefundMethod(null);
-    setDamaged({});
+    setWriteOff({});
     setReturnReason('');
     setPickedSerials({});
   };
@@ -207,11 +212,14 @@ export default function SalesPage() {
   });
 
   const doReturn = useMutation({
-    mutationFn: () =>
+    mutationFn: (shiftId: string | null) =>
       SalesApi.return(openId!, {
+        // The till the cash comes out of, when several are open and this
+        // owner or manager has none of their own (see useTillChoice).
+        ...(shiftId ? { shiftId } : {}),
         items: returnLines.map((l) => ({
           ...l,
-          ...(damaged[l.saleItemId] ? { restock: false } : {}),
+          ...(writeOff[l.saleItemId] ? { writeOffReason: writeOff[l.saleItemId] } : {}),
           ...(pickedSerials[l.saleItemId]?.length ? { serials: pickedSerials[l.saleItemId] } : {}),
         })),
         ...(refundMethod ? { refundMethod } : {}),
@@ -234,13 +242,18 @@ export default function SalesPage() {
         lines: returnLines.map((l) => ({
           name: names.get(l.saleItemId) ?? 'Item',
           quantity: l.quantity,
-          damaged: !!damaged[l.saleItemId],
+          writtenOff: writeOff[l.saleItemId],
           serials: pickedSerials[l.saleItemId],
         })),
       });
       resetReturn();
     },
-    onError: (e) => show(apiError(e), 'error'),
+    onError: (e) => {
+      show(apiError(e), 'error');
+      // A till opened since the picker loaded made the choice ambiguous:
+      // reload the list so the picker can ask.
+      if (apiErrorCode(e) === 'TILL_CHOICE') qc.invalidateQueries({ queryKey: ['shift-open'] });
+    },
   });
 
   const emailReceipt = useMutation({
@@ -265,6 +278,14 @@ export default function SalesPage() {
   };
 
   const sale = detail.data;
+  // A cash refund by an owner or manager with no till of their own, while
+  // several are open at the sale's store: which drawer the cash comes out of
+  // is theirs to say. Booked to none, that drawer would count short at close.
+  const till = useTillChoice(
+    sale?.store?.id ?? '',
+    refundMethod ?? quote.data?.defaultMethod ?? 'CASH',
+    returnLines.length > 0 && (quote.data?.cashBack ?? 0) > 0,
+  );
   const hasFilters =
     search !== '' ||
     dateFilter !== 'all' ||
@@ -546,12 +567,13 @@ export default function SalesPage() {
                 quoteError={returnLines.length > 0 && quote.isError ? apiError(quote.error) : null}
                 refundMethod={refundMethod}
                 setRefundMethod={setRefundMethod}
-                damaged={damaged}
-                setDamaged={setDamaged}
+                writeOff={writeOff}
+                setWriteOff={setWriteOff}
                 pickedSerials={pickedSerials}
                 setPickedSerials={setPickedSerials}
                 reason={returnReason}
                 setReason={setReturnReason}
+                till={till}
               />
             )}
           </div>
@@ -574,9 +596,17 @@ export default function SalesPage() {
           {sale && canReturn(sale) && (
             <Button
               variant="destructive"
-              disabled={returnLines.length === 0 || quote.isError}
+              // Not before the quote is in: until then whether cash goes back,
+              // and so whether a till has to be named, isn't known.
+              disabled={
+                returnLines.length === 0 ||
+                quote.isError ||
+                !quote.data ||
+                till.pending ||
+                (till.needsChoice && !till.shiftId)
+              }
               loading={doReturn.isPending}
-              onClick={() => doReturn.mutate()}
+              onClick={() => doReturn.mutate(till.shiftId)}
             >
               <Undo2 className="h-4 w-4" /> Process return
             </Button>
@@ -667,12 +697,13 @@ function ReturnSection({
   quoteError,
   refundMethod,
   setRefundMethod,
-  damaged,
-  setDamaged,
+  writeOff,
+  setWriteOff,
   pickedSerials,
   setPickedSerials,
   reason,
   setReason,
+  till,
 }: {
   sale: Sale;
   returnQty: Record<string, number>;
@@ -681,12 +712,13 @@ function ReturnSection({
   quoteError: string | null;
   refundMethod: SettleMethod | null;
   setRefundMethod: (m: SettleMethod | null) => void;
-  damaged: Record<string, boolean>;
-  setDamaged: (v: Record<string, boolean>) => void;
+  writeOff: Record<string, WriteOffReason>;
+  setWriteOff: (v: Record<string, WriteOffReason>) => void;
   pickedSerials: Record<string, string[]>;
   setPickedSerials: (v: Record<string, string[]>) => void;
   reason: string;
   setReason: (v: string) => void;
+  till: ReturnType<typeof useTillChoice>;
 }) {
   const returnable = sale.items.filter((it) => remainingQty(it) > 0);
   // The shop's tenders, plus the one the sale was paid on (the default).
@@ -724,15 +756,22 @@ function ReturnSection({
                       setReturnQty({ ...returnQty, [it.id]: Math.min(max, Math.max(0, Number(e.target.value))) })
                     } />
                 )}
-                <Tooltip content="Came back unfit to sell: refunded, but written off instead of going back on the shelf">
-                  <label className="flex items-center gap-1 text-xs text-muted-foreground">
-                    <input
-                      type="checkbox"
-                      checked={!!damaged[it.id]}
-                      onChange={(e) => setDamaged({ ...damaged, [it.id]: e.target.checked })}
-                    />
-                    Damaged
-                  </label>
+                <Tooltip content="Unfit to sell: refunded, but written off instead of going back on the shelf. Expired goods are reported as expired, not damaged.">
+                  <Select
+                    className="h-8 w-32 text-xs"
+                    aria-label={`What happens to the returned ${it.name}`}
+                    value={writeOff[it.id] ?? ''}
+                    onChange={(e) => {
+                      const next = { ...writeOff };
+                      if (e.target.value) next[it.id] = e.target.value as WriteOffReason;
+                      else delete next[it.id];
+                      setWriteOff(next);
+                    }}
+                  >
+                    <option value="">Back on shelf</option>
+                    <option value="DAMAGE">Damaged</option>
+                    <option value="EXPIRED">Expired</option>
+                  </Select>
                 </Tooltip>
               </div>
               {units.length > 0 && (
@@ -795,6 +834,11 @@ function ReturnSection({
                 ))}
               </Select>
             </label>
+          )}
+          {quote.cashBack > 0 && till.needsChoice && (
+            <div className="pt-1">
+              <TillPicker choice={till} label="Cash comes out of" />
+            </div>
           )}
         </div>
       )}

@@ -1,8 +1,8 @@
 'use client';
 import { useEffect, useEffectEvent, useMemo, useState, useRef } from 'react';
 import { useMutation, useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
-import { Barcode, Clock } from 'lucide-react';
-import { CategoriesApi, CustomersApi, InventoryApi, ProductsApi, SalesApi, ShiftsApi, type CloseShiftBody } from '@/api';
+import { Barcode, Clock, Wallet } from 'lucide-react';
+import { CategoriesApi, CustomersApi, InventoryApi, ProductsApi, SalesApi, type CloseShiftBody } from '@/api';
 import type { Product, Paginated } from '@/types';
 import { useAuth } from '@/auth/AuthContext';
 import { useShift } from '@/shift/ShiftContext';
@@ -13,15 +13,17 @@ import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/components/ui/toast';
-import { apiError } from '@/lib/api';
+import { apiError, apiErrorCode } from '@/lib/api';
 import { formatDate, formatDateTime, formatMoney } from '@/lib/format';
 import { cn } from '@/lib/utils';
-import { CartPanel, lineNet } from '@/components/pos/CartPanel';
+import { CartPanel, lineDiscount, lineNet } from '@/components/pos/CartPanel';
 import { useAcceptedTenders } from '@/hooks/useAcceptedTenders';
 import { cartTotals } from '@/lib/cart-totals';
 import { liveRefetchInterval } from '@/lib/live';
 import type { CartLine, DiscountType, PayMode } from '@/components/pos/CartPanel';
 import { OpenShiftModal } from '@/components/pos/OpenShiftModal';
+import { tillName } from '@/lib/tills';
+import { createScanBurst, restoreFieldValue } from '@/lib/scan-burst';
 import { ChooseStoreModal } from '@/components/pos/ChooseStoreModal';
 import { CloseShiftModal } from '@/components/pos/CloseShiftModal';
 import { FAVORITES, ProductGrid } from '@/components/pos/ProductGrid';
@@ -41,7 +43,7 @@ import { useStoreScope } from '@/store/StoreContext';
 export default function PosPage() {
   const qc = useQueryClient();
   const { show } = useToast();
-  const { user } = useAuth();
+  const { user, refresh: refreshUser } = useAuth();
   const {
     shift,
     isLoading: shiftLoading,
@@ -57,6 +59,7 @@ export default function PosPage() {
     loadReport,
     joinable,
     joinShift,
+    freeCounters,
     tills,
     switchTill,
     setTillStore,
@@ -91,6 +94,27 @@ export default function PosPage() {
     activeStoreIds: (activeStores ?? []).map((st) => st.id),
   });
   const storeId = posStore.storeId;
+  // The open-shift dialog, put aside to look around the till without selling.
+  // Another store is another drawer to count, so it asks again there.
+  const [shiftPromptHidden, setShiftPromptHidden] = useState(false);
+  // An owner or manager on someone else's till asked for one of their own.
+  const [openingOwnTill, setOpeningOwnTill] = useState(false);
+  // The till they were on dropped out under them (closed from another
+  // screen) before they opened their own: let the request go, or it popped
+  // back up unasked once they chose a till again. Adjusted during render.
+  if (openingOwnTill && !shift && !shiftLoading) setOpeningOwnTill(false);
+  // A cashier's counter is read at sign-in. If the owner has moved them since,
+  // the open-shift dialog named the old one while the server opened the new
+  // one: read it again whenever the dialog is about to show.
+  const cashierNeedsShift = user?.role === 'CASHIER' && !shiftLoading && !shift && !shiftError;
+  useEffect(() => {
+    if (cashierNeedsShift) void refreshUser().catch(() => undefined);
+  }, [cashierNeedsShift, refreshUser]);
+  const [prevPromptStore, setPrevPromptStore] = useState(storeId);
+  if (prevPromptStore !== storeId) {
+    setPrevPromptStore(storeId);
+    setShiftPromptHidden(false);
+  }
   // The shift is looked up at the till's store, not the header's "all
   // stores": an owner with no till of their own is put on the one already
   // open here only once the server knows where "here" is.
@@ -330,7 +354,7 @@ export default function PosPage() {
     }
   };
 
-  const handleOpenShift = async (openingFloat: number, note?: string, separateDrawer?: boolean) => {
+  const handleOpenShift = async (openingFloat: number, note?: string, counterId?: string) => {
     if (!storeId) {
       show('Pick a store before opening a shift', 'error');
       return;
@@ -338,7 +362,11 @@ export default function PosPage() {
     try {
       // The shift opens against the same store the till sells from, so its
       // Z report reconciles the drawer that actually took the money.
-      await openShift(openingFloat, note, storeId, separateDrawer);
+      await openShift(openingFloat, note, storeId, counterId);
+      if (openingOwnTill) {
+        setOpeningOwnTill(false);
+        show('Your counter is open — the next sale goes into it');
+      }
     } catch (e) {
       show(apiError(e), 'error');
     }
@@ -379,14 +407,6 @@ export default function PosPage() {
     }
   };
 
-  // What the last shift at this store left in the drawer, offered as the
-  // opening float. Only asked while there is a shift to open.
-  const { data: suggestedFloat } = useQuery({
-    queryKey: ['shift-float', storeId],
-    queryFn: () => ShiftsApi.suggestedFloat(storeId!),
-    enabled: !!storeId && !shiftLoading && !shift && !shiftError,
-    staleTime: 15_000,
-  });
   const staleShift = !!shift && isStaleShift(shift.openedAt);
 
   // X report: a mid-shift read of the drawer that settles nothing, so it can
@@ -420,6 +440,8 @@ export default function PosPage() {
         // Serials aren't sent here: a held sale doesn't touch stock or the
         // Serial table (same as it doesn't consume a receipt number), so the
         // backend never persists them. Resuming always needs a fresh scan.
+        // Only the cashier's own discount: clearance is worked out again on
+        // resume, from what is marked down then.
         items: cart.map((l) => ({
           productId: l.product.id,
           quantity: l.quantity,
@@ -477,7 +499,9 @@ export default function PosPage() {
           productId: l.product.id,
           quantity: l.quantity,
           unitPrice: l.unitPrice,
-          discount: l.discount,
+          // The cashier's discount and any clearance, as one line discount:
+          // the server prices what it is sent.
+          discount: lineDiscount(l) || undefined,
           serials: l.serials,
         })),
       }),
@@ -503,7 +527,16 @@ export default function PosPage() {
       resetSaleState();
       setCartOpen(false);
     },
-    onError: (e) => show(apiError(e), 'error'),
+    onError: (e) => {
+      show(apiError(e), 'error');
+      // The till was counted and closed from another screen. Pick up where
+      // things stand now -- the next open till, or the open-shift dialog --
+      // instead of showing a drawer that refuses every sale.
+      if (apiErrorCode(e) === 'SHIFT_CLOSED') {
+        qc.invalidateQueries({ queryKey: ['shift-current'] });
+        qc.invalidateQueries({ queryKey: ['shift-open'] });
+      }
+    },
   });
 
   /**
@@ -547,7 +580,9 @@ export default function PosPage() {
       existing
         ? c.map((l) =>
             l.product.id === product.id
-              ? { ...l, quantity: next, ...(serial ? { serials: [...(l.serials ?? []), serial] } : {}) }
+              ? // The product as it is now: a markdown set or ended since the
+                // line was started prices the line from here on.
+                { ...l, product, quantity: next, ...(serial ? { serials: [...(l.serials ?? []), serial] } : {}) }
               : l,
           )
         : [...c, { product, quantity: 1, ...(serial ? { serials: [serial] } : {}) }],
@@ -627,7 +662,22 @@ export default function PosPage() {
   }, []);
 
   const resumeMutation = useMutation({
-    mutationFn: (id: string) => SalesApi.resume(id),
+    mutationFn: async (id: string) => {
+      const held = await SalesApi.resume(id);
+      // The parked cart's products come without this store's markdowns. Read
+      // them as the grid does, so a resumed line is priced like one scanned
+      // now; if that read fails the line is simply full price.
+      const ids = held.items.map((i) => i.product.id);
+      const fresh =
+        ids.length && storeId
+          ? await ProductsApi.list({ ids, limit: 100, storeId }).catch(() => null)
+          : null;
+      const byId = new Map((fresh?.data ?? []).map((p) => [p.id, p]));
+      return {
+        ...held,
+        items: held.items.map((i) => ({ ...i, product: byId.get(i.product.id) ?? i.product })),
+      };
+    },
     onSuccess: (held) => {
       qc.invalidateQueries({ queryKey: ['held-sales'] });
       setLastChange(null);
@@ -671,18 +721,25 @@ export default function PosPage() {
     resetSaleState();
   };
 
-  // Barcode scan (or Enter): look up an exact barcode and add it to the cart.
-  const scan = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const code = search.trim();
-    if (!code) return;
+  // A scanned (or typed + Enter) code: an exact barcode, else a unit's
+  // serial / IMEI, added to the cart. `fromSearch`: it was typed into the
+  // search box, which is cleared once it is added -- and left as a search
+  // filter when nothing matches.
+  const lookupAndAdd = async (code: string, fromSearch: boolean) => {
+    const clear = () => {
+      if (fromSearch) setSearch('');
+    };
     // Prefer an exact barcode match already in the loaded list.
     const local = products?.data.find((p) => p.barcode === code);
-    if (local) { add(local); setSearch(''); return; }
+    if (local) { add(local); clear(); return; }
     try {
-      const product = await ProductsApi.byBarcode(code);
-      add(product);
-      setSearch('');
+      const found = await ProductsApi.byBarcode(code);
+      // The lookup is business-wide and carries no clearance or on-hand
+      // figure for this store: price it from the store's row, as the grid
+      // does, or marked-down stock rang up at full price.
+      const rows = await ProductsApi.list({ ids: [found.id], limit: 1, storeId: storeId ?? undefined }).catch(() => null);
+      add(rows?.data[0] ?? found);
+      clear();
       return;
     } catch {
       // Not a product barcode -- maybe a unit's serial / IMEI.
@@ -691,7 +748,7 @@ export default function PosPage() {
       const unit = await InventoryApi.lookupSerial(code);
       if (unit.status !== 'IN_STOCK' || unit.storeId !== storeId) {
         show(`${code}: ${unit.product.name}, ${unit.where}`, 'error');
-        setSearch('');
+        clear();
         return;
       }
       // The grid row carries this store's on-hand figure, which the till's
@@ -700,12 +757,68 @@ export default function PosPage() {
       const product = rows.data[0];
       if (product) {
         add(product, false, unit.serialNumber);
-        setSearch('');
+        clear();
       }
     } catch {
-      // Neither -- leave the text as a normal search filter.
+      // Neither. Typed in the search box it stays there as a search filter;
+      // scanned anywhere else, say so rather than doing nothing.
+      if (!fromSearch) show(`No product or serial number matches ${code}`, 'error');
     }
   };
+  // Barcode scan (or Enter) in the search box.
+  const scan = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const code = search.trim();
+    if (code) await lookupAndAdd(code, true);
+  };
+
+  // A scan wherever the cursor is. A scanner types into whatever has focus:
+  // with the cashier last in the discount or quantity box, a barcode landed
+  // there as a number, and with nothing focused its Enter hit the "one more
+  // of the last item" shortcut. A burst too fast to be a person (see
+  // lib/scan-burst) is taken as a scan instead, and the field it typed into
+  // is put back. The search box and serial boxes take scans themselves, and
+  // a dialog's fields (counting a drawer, say) are left to the dialog.
+  const scanBurst = useRef(createScanBurst());
+  const burstField = useRef<{ el: HTMLInputElement | HTMLTextAreaElement; value: string } | null>(null);
+  const onScannerKey = useEffectEvent((e: KeyboardEvent) => {
+    const el = document.activeElement as HTMLElement | null;
+    if (el?.closest('[data-scan-input], [role="dialog"]') || e.ctrlKey || e.metaKey || e.altKey) {
+      scanBurst.current.reset();
+      return;
+    }
+    const field = el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement ? el : null;
+    if (e.key.length === 1) {
+      const length = scanBurst.current.char(e.key, e.timeStamp);
+      if (length === 1) burstField.current = field ? { el: field, value: field.value } : null;
+      // Well into a burst: keep the rest of the code out of the field (it is
+      // put back on Enter anyway) and away from the till's one-key shortcuts.
+      else if (length >= 3) {
+        if (field) e.preventDefault();
+        else e.stopPropagation();
+      }
+      return;
+    }
+    if (e.key === 'Enter' || e.key === 'Tab') {
+      const code = scanBurst.current.end(e.timeStamp);
+      if (!code) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const before = burstField.current;
+      burstField.current = null;
+      if (before) restoreFieldValue(before.el, before.value);
+      void lookupAndAdd(code, false);
+      return;
+    }
+    if (e.key !== 'Shift' && e.key !== 'CapsLock') scanBurst.current.reset();
+  });
+  useEffect(() => {
+    // Capture phase: ahead of the field's own Enter handling and the till's
+    // shortcuts, which are both listened for further down.
+    const onKey = (e: KeyboardEvent) => onScannerKey(e);
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, []);
 
   return (
     <div className="flex h-[calc(100dvh-6rem)] flex-col lg:h-[calc(100dvh-7rem)]">
@@ -719,8 +832,10 @@ export default function PosPage() {
         onSwitchTill={(id) => {
           switchTill(id);
           const t = tills.find((x) => x.id === id);
-          if (t) show(t.isOwnShift ? 'Back on your till' : `Now selling into ${t.openedBy.name}’s till`);
+          if (t) show(t.isOwnShift ? 'Back on your till' : `Now selling into ${tillName(t)}`);
         }}
+        canOpenCounter={freeCounters.length > 0}
+        onOpenOwnTill={() => setOpeningOwnTill(true)}
         isReporting={isReporting}
         onCashMove={() => setShowCashMove(true)}
         onXReport={printXReport}
@@ -754,12 +869,11 @@ export default function PosPage() {
         /* Blocks the till until the cashier counts a starting float. Held off
            while the current shift is still loading, so an already-open shift
            doesn't flash this modal before the fetch resolves. */
-        !shiftLoading && !shift && !shiftError && storesLoaded && (
+        !shiftLoading && !shift && !shiftError && storesLoaded && !shiftPromptHidden && (
           <OpenShiftModal
             // Remounted per store so a float typed for one branch never
             // carries into another's.
             key={storeId ?? 'none'}
-            suggested={suggestedFloat}
             onOpen={handleOpenShift}
             isPending={isOpening}
             // Only where there is a choice to make: a cashier sells from the
@@ -767,13 +881,30 @@ export default function PosPage() {
             stores={posStore.canSwitch ? activeStores : undefined}
             storeId={storeId}
             onStoreChange={posStore.canSwitch ? setChosenStoreId : undefined}
-            // Empty for a cashier, and for management whenever the server
-            // already picked a till for them -- in both cases this is just
-            // the open-shift dialog it has always been.
+            // Every till open here, for an owner or manager to work on
+            // instead of opening their own. Empty for a cashier, and where
+            // none is open -- then this is the plain open-shift dialog.
             joinable={joinable}
             onJoin={joinShift}
+            freeCounters={freeCounters}
+            myCounter={user?.role === 'CASHIER' ? user.counter : null}
+            noCounter={user?.role === 'CASHIER' && !user.counter}
+            onDismiss={() => setShiftPromptHidden(true)}
           />
         )
+      )}
+
+      {/* Their own till, opened from the header while on someone else's. */}
+      {openingOwnTill && shift && (
+        <OpenShiftModal
+          key={`own-${storeId ?? 'none'}`}
+          ownOnly
+          freeCounters={freeCounters}
+          onOpen={handleOpenShift}
+          isPending={isOpening}
+          storeId={storeId}
+          onDismiss={() => setOpeningOwnTill(false)}
+        />
       )}
 
       {showCloseShift && shift && (
@@ -830,6 +961,21 @@ export default function PosPage() {
               shortage can't be pinned to a day or to a person. Say so, with the
               way out right there. It sits in the product column so the cart
               keeps its full height. */}
+          {/* The open-shift dialog was put aside. Checkout stays locked, so
+              the way back to it sits where the cashier is looking. */}
+          {shiftPromptHidden && !shift && !shiftLoading && !shiftError && !!storeId && (
+            <div className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-muted/50 px-4 py-2.5 text-sm">
+              <Wallet className="h-4 w-4 shrink-0 text-muted-foreground" />
+              <span className="min-w-0 flex-1">
+                {joinable.length > 0
+                  ? 'No till chosen. Work on an open till, or open your own, to start selling.'
+                  : 'No shift open. Open one to start selling.'}
+              </span>
+              <Button size="sm" onClick={() => setShiftPromptHidden(false)}>
+                {joinable.length > 0 ? 'Choose till' : 'Open shift'}
+              </Button>
+            </div>
+          )}
           {staleShift && (
             <div className="flex flex-wrap items-center gap-3 rounded-lg border border-warning/40 bg-warning/10 px-4 py-2.5 text-sm">
               <Clock className="h-4 w-4 shrink-0 text-warning" />
@@ -846,6 +992,7 @@ export default function PosPage() {
             <Input
               className="h-11 pr-10"
               placeholder="Search products, SKUs, or scan a barcode…"
+              data-scan-input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               autoFocus

@@ -8,17 +8,20 @@ import type { PaymentMethod } from '@/types';
 import { Field } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { formatTime } from '@/lib/format';
+import { defaultTill, needsTillChoice, tillName } from '@/lib/tills';
 
 const MANAGEMENT = ['OWNER', 'MANAGER'];
 
 /**
- * Which till cash taken against a khata goes into.
+ * Which till cash taken against a khata goes into -- or, on a return, which
+ * one a cash refund comes out of.
  *
- * The API works it out on its own in every case but one: an owner or manager
- * with no till of their own, at a store with more than one open. Then any
- * guess could be the wrong drawer, so it books the money to none and that
- * drawer counts long at close. This asks in exactly that case -- defaulting to
- * the till this device joined in the POS -- and stays silent otherwise.
+ * An owner or manager works on whichever till they chose -- their own, a
+ * cashier's, or another owner's or manager's -- and cash moved here has to
+ * land in that same drawer, or both drawers count wrong at close. So with
+ * more than one till open, this asks, starting from the till this device is
+ * working on in the POS (else their own). With one open there is nothing to
+ * choose: the API books it there.
  *
  * Only cash matters: card and QR payments never touch a drawer.
  */
@@ -27,32 +30,46 @@ export function useTillChoice(storeId: string, method: PaymentMethod, active: bo
   const eligible =
     active && method === 'CASH' && !!storeId && !!user && MANAGEMENT.includes(user.role);
 
-  const { data: open } = useQuery({
+  const { data: open, isError } = useQuery({
     queryKey: ['shift-open', storeId],
     queryFn: () => ShiftsApi.openAtStore(storeId),
     enabled: eligible,
     staleTime: 15_000,
   });
 
-  const needsChoice = eligible && !!open && open.length > 1 && !open.some((s) => s.isOwnShift);
-  const [picked, setPicked] = useState<string | null>(null);
-  // Picked in this dialog, else the POS's till on this device if still open.
+  const needsChoice = eligible && !!open && needsTillChoice(open);
+  // Remembered with the store it was made at, and only used while that till
+  // is still open there: the screen outlives one refund, and a till picked
+  // for a sale at one branch -- or one closed since -- must not carry over.
+  const [picked, setPicked] = useState<{ storeId: string; id: string } | null>(null);
+  const pickedHere =
+    picked && picked.storeId === storeId && open?.some((t) => t.id === picked.id) ? picked.id : null;
+  // Picked here, else the till this device is on in the POS.
   const remembered = storeId ? readJoinedShift(storeId) : null;
-  const shiftId = needsChoice
-    ? (picked ?? (open!.some((s) => s.id === remembered) ? remembered : null))
-    : null;
+  const shiftId = needsChoice ? (pickedHere ?? defaultTill(open!, remembered)) : null;
+  // The list of tills is still on its way: whether to ask isn't known yet,
+  // so the money shouldn't move until it is.
+  const pending = eligible && open === undefined && !isError;
 
-  return { tills: needsChoice ? open! : [], needsChoice, shiftId, setShiftId: setPicked };
+  return {
+    tills: needsChoice ? open! : [],
+    needsChoice,
+    shiftId,
+    pending,
+    setShiftId: (id: string | null) => setPicked(id ? { storeId, id } : null),
+  };
 }
 
 export function TillPicker({
   choice,
+  label = 'Cash goes into',
 }: {
   choice: ReturnType<typeof useTillChoice>;
+  label?: string;
 }) {
   if (!choice.needsChoice) return null;
   return (
-    <Field label="Cash goes into">
+    <Field label={label}>
       <Select
         required
         value={choice.shiftId ?? ''}
@@ -61,7 +78,7 @@ export function TillPicker({
         <option value="">Choose a till…</option>
         {choice.tills.map((t) => (
           <option key={t.id} value={t.id}>
-            {t.openedBy.name}&apos;s till (opened {formatTime(t.openedAt)})
+            {tillName(t)} (opened {formatTime(t.openedAt)})
           </option>
         ))}
       </Select>

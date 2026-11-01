@@ -54,6 +54,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       name: me.name ?? me.email,
       role: me.role,
       storeId: me.storeId,
+      counter: me.counter ?? null,
       business: me.business,
       subscription: me.subscription,
       impersonation: me.impersonation ?? null,

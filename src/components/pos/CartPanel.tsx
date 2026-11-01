@@ -24,6 +24,7 @@ import { Tooltip } from '@/components/ui/tooltip';
 import { formatMoney } from '@/lib/format';
 import { hasDuplicateSerials, serialsInvalid } from '@/lib/serials';
 import { cn } from '@/lib/utils';
+import { clearanceOff } from '@/lib/clearance';
 import { CustomerPicker, type CustomerPickerHandle } from '@/components/pos/CustomerPicker';
 import { CartLineRow, type LineEditor } from '@/components/pos/CartLineRow';
 
@@ -41,9 +42,27 @@ export interface CartLine {
 /** Effective per-unit price for a line, after any manual override. */
 export const lineUnitPrice = (l: CartLine) => l.unitPrice ?? Number(l.product.sellingPrice);
 
-/** Net total for a line: unit price × quantity, less its discount, floored at 0. */
+/**
+ * What clearance takes off a line: units drawn from stock marked down to sell
+ * before it expires. Worked out from the product, never stored on the line,
+ * so a held cart resumed later is priced on what is marked down then.
+ */
+export const lineClearance = (l: CartLine) =>
+  clearanceOff(l.product.clearance, l.quantity, lineUnitPrice(l));
+
+/**
+ * Everything off a line: the cashier's discount plus any clearance, never
+ * more than the line is worth. The two used to add past it -- 100% off a
+ * marked-down item -- and the server refused the whole sale for it.
+ */
+export const lineDiscount = (l: CartLine) =>
+  Math.round(
+    Math.min(lineUnitPrice(l) * l.quantity, (l.discount ?? 0) + lineClearance(l)) * 100,
+  ) / 100;
+
+/** Net total for a line: unit price × quantity, less its discounts, floored at 0. */
 export const lineNet = (l: CartLine) =>
-  Math.max(0, lineUnitPrice(l) * l.quantity - (l.discount ?? 0));
+  Math.max(0, lineUnitPrice(l) * l.quantity - lineDiscount(l));
 
 export type PayMode = 'full' | 'partial' | 'credit';
 export type DiscountType = 'amount' | 'percent';

@@ -22,6 +22,10 @@ export const can = {
   manageCredit: (r: UserRole) => isAdmin(r),
   // Paying a supplier. A stock keeper's purchases are recorded on credit.
   paySuppliers: (r: UserRole) => isAdmin(r),
+  // Sending goods back against a purchase (debit note).
+  returnToSupplier: (r: UserRole) => isAdmin(r) || r === 'STOCK_KEEPER',
+  // A clearance price on stock nearing its date is a pricing call.
+  markDown: (r: UserRole) => isAdmin(r),
   manageBusiness: (r: UserRole) => isAdmin(r),
   viewAnalytics: (r: UserRole) => isAdmin(r),
   viewActivityLog: (r: UserRole) => isAdmin(r),

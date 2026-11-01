@@ -12,6 +12,7 @@ import type { BusinessSetup, CreatePaymentClaimBody, PaymentClaim,
   Category,
   CreditSummary,
   Customer,
+  CustomerDetails,
   CustomerStatement,
   Dashboard,
   HeldSaleCart,
@@ -27,6 +28,7 @@ import type { BusinessSetup, CreatePaymentClaimBody, PaymentClaim,
   Shift,
   ShiftReport,
   OpenShiftSummary,
+  Counter,
   CashMovement,
   CashMovementReason,
   CashMovementType,
@@ -57,6 +59,7 @@ import type { BusinessSetup, CreatePaymentClaimBody, PaymentClaim,
   OnlineGateway,
   OnlinePaymentStart,
   OnlinePaymentStatus,
+  ReturnablePurchaseLine,
 } from '@/types';
 
 /** How a credit or supplier payment was made. Omitted, the API assumes cash. */
@@ -264,6 +267,9 @@ export const InventoryApi = {
   /** Remove expired stock: an EXPIRED adjustment, and the batch emptied. */
   writeOffExpired: (body: { storeId: string; productId: string; batchId?: string }) =>
     post<{ writtenOff: number }>('/inventory/expiring/write-off', body),
+  /** Mark stock nearing its date down to `price`, or end the markdown (null). */
+  setClearance: (body: { storeId: string; productId: string; batchId?: string; price: number | null }) =>
+    post<{ clearancePrice: number | null }>('/inventory/expiring/clearance', body),
   movements: (params?: object) =>
     get<Paginated<StockMovement>>('/inventory/movements', params),
   serials: (params?: object) =>
@@ -317,6 +323,9 @@ export const PurchasesApi = {
     id: string,
     body: { note?: string; items: { purchaseItemId: string; quantity: number }[] },
   ) => post<ReturnPurchaseResult>(`/purchases/${id}/return`, body),
+  /** Received purchase lines a batch (or a product's own stock) could go back on. */
+  returnable: (params: { storeId: string; productId: string; batchId?: string }) =>
+    get<ReturnablePurchaseLine[]>('/purchases/returnable', params),
   pay: (id: string, amount: number, opts: PaymentOpts = {}) =>
     post<Purchase>(`/purchases/${id}/pay`, { amount, ...opts }),
   /** The supplier paid back (part of) what they owed on this purchase. */
@@ -346,8 +355,21 @@ export interface CloseShiftBody {
   note?: string;
 }
 
+/** Counters (tills) per store -- owners and managers only. */
+export const CountersApi = {
+  /** `all`: include counters no longer in use (Settings lists them). */
+  list: (params: { storeId?: string; all?: boolean } = {}) =>
+    get<Counter[]>('/counters', {
+      ...(params.storeId ? { storeId: params.storeId } : {}),
+      ...(params.all ? { all: 'true' } : {}),
+    }),
+  create: (body: { storeId: string; name: string }) => post<Counter>('/counters', body),
+  update: (id: string, body: { name?: string; isActive?: boolean }) => patch<Counter>(`/counters/${id}`, body),
+};
+
 export const ShiftsApi = {
-  open: (body: { storeId?: string; openingFloat: number; note?: string; separateDrawer?: boolean }) =>
+  /** `counterId`: which counter to open. A cashier's is always their own. */
+  open: (body: { storeId?: string; openingFloat: number; note?: string; counterId?: string }) =>
     post<Shift>('/shifts/open', body),
   /**
    * The till the caller is on. For an owner or manager with none of their own
@@ -370,9 +392,9 @@ export const ShiftsApi = {
     id: string,
     body: { type: CashMovementType; reason: CashMovementReason; amount: number; note?: string },
   ) => post<CashMovement>(`/shifts/${id}/movements`, body),
-  /** What the last shift at this store left in the drawer, or null. */
-  suggestedFloat: (storeId: string) =>
-    get<SuggestedFloat | null>('/shifts/float', { storeId }),
+  /** What the last shift on this counter left in its drawer, or null. */
+  suggestedFloat: (storeId: string, counterId?: string) =>
+    get<SuggestedFloat | null>('/shifts/float', { storeId, ...(counterId ? { counterId } : {}) }),
   list: (params?: object) => get<Paginated<Shift>>('/shifts', params),
 };
 
@@ -418,7 +440,7 @@ export const SalesApi = {
 
 export const CustomersApi = {
   list: (params?: object) => get<Paginated<Customer>>('/customers', params),
-  get: (id: string) => get<Customer>(`/customers/${id}`),
+  get: (id: string) => get<CustomerDetails>(`/customers/${id}`),
   create: (body: object) => post<Customer>('/customers', body),
   update: (id: string, body: object) => patch<Customer>(`/customers/${id}`, body),
   /**

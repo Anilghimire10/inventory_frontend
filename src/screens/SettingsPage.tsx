@@ -4,7 +4,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, Pencil, Store as StoreIcon, Building2, Download, Percent, Power, RotateCcw, Wallet, CalendarClock, CreditCard, ReceiptText, Palette, Sun, Moon, SlidersHorizontal } from 'lucide-react';
-import { BusinessApi, StoresApi, SubscriptionApi } from '@/api';
+import { BusinessApi, CountersApi, StoresApi, SubscriptionApi } from '@/api';
 import type { BusinessType, SettleMethod, Store } from '@/types';
 import { SETTLE_METHODS, acceptedTenders } from '@/lib/payment-methods';
 import { useStores } from '@/hooks/useStores';
@@ -28,6 +28,7 @@ import { formatMoney } from '@/lib/format';
 import { Tabs } from '@/components/ui/tabs';
 import { useTheme } from '@/theme/ThemeProvider';
 import { cn } from '@/lib/utils';
+import { StoreCounters } from '@/components/settings/StoreCounters';
 
 const empty = { name: '', address: '', phone: '' };
 
@@ -68,6 +69,7 @@ export default function SettingsPage() {
   const { show } = useToast();
   const { user, refresh } = useAuth();
   const { data: stores, isLoading, isError, refetch } = useStores();
+
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Store | null>(null);
   const [deactivating, setDeactivating] = useState<Store | null>(null);
@@ -123,6 +125,14 @@ export default function SettingsPage() {
   // Master tax switch. When off, no sale charges tax (even for taxable products).
   const taxEnabled = user?.business?.taxEnabled ?? true;
   const canManageBiz = user?.role === 'OWNER' || user?.role === 'MANAGER';
+  // Every store's counters, in or out of use, in one request; each store row
+  // shows its own.
+  const { data: allCounters, isError: countersError } = useQuery({
+    queryKey: ['counters', 'all-stores', 'all'],
+    queryFn: () => CountersApi.list({ all: true }),
+    enabled: canManageBiz,
+    staleTime: 15_000,
+  });
   const isOwner = user?.role === 'OWNER';
   // The last active store can't be deactivated -- nothing could take a sale.
   const activeCount = stores?.filter((s) => s.isActive).length ?? 0;
@@ -540,14 +550,24 @@ export default function SettingsPage() {
         ) : (
           <div className="divide-y divide-border border-t border-border">
             {stores.map((s) => (
-              <div key={s.id} className="flex items-center justify-between gap-3 px-5 py-3">
-                <div>
+              <div key={s.id} className="flex items-start justify-between gap-3 px-5 py-3">
+                <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 font-medium">
                     {s.name} {!s.isActive && <Badge tone="muted">Inactive</Badge>}
                   </div>
                   <div className="text-sm text-muted-foreground">
                     {[s.address, s.phone].filter(Boolean).join(' · ') || 'No address set'}
                   </div>
+                  {/* Counters are set up here, before cashiers are assigned to
+                      them in Staff. */}
+                  {s.isActive && canManageBiz && (
+                    <StoreCounters
+                      storeId={s.id}
+                      storeName={s.name}
+                      counters={allCounters?.filter((c) => c.storeId === s.id)}
+                      isError={countersError}
+                    />
+                  )}
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
                   <Tooltip content="Edit">

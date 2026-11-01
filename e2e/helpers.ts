@@ -83,8 +83,23 @@ export async function makeShop(label: string, stock = 10): Promise<TestShop> {
   };
 }
 
+/**
+ * A counter (till) at the shop's store. The store opens with "Counter 1";
+ * every cashier needs one of their own, set up before they are assigned.
+ */
+export async function makeCounter(shop: TestShop, name: string) {
+  const res = await api<{ id: string }>(shop.token, 'POST', '/counters', { storeId: shop.storeId, name });
+  if (res.status !== 201) throw new Error(`Could not create the counter: ${JSON.stringify(res.body)}`);
+  return res.body.id;
+}
+
+/**
+ * Throws when the delete fails, so a broken delete shows up as a failing
+ * test rather than test shops quietly piling up in the database.
+ */
 export async function dropShop(shop: TestShop) {
-  await api(shop.adminToken, 'DELETE', `/admin/businesses/${shop.id}`, { confirmName: shop.name });
+  const res = await api(shop.adminToken, 'DELETE', `/admin/businesses/${shop.id}`, { confirmName: shop.name });
+  if (res.status >= 300) throw new Error(`Could not delete the test shop: ${JSON.stringify(res.body)}`);
 }
 
 /**
